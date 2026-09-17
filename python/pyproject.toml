@@ -1,0 +1,6 @@
+[project]
+name = "pcode"
+version = "0.1.0"
+description = "极简本地优先 coding agent（纯 Python 标准库实现，行为规格对齐 ../tcode）"
+requires-python = ">=3.12"
+# 零第三方依赖：只允许 Python 标准库，不声明任何 dependencies
