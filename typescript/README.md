@@ -3,7 +3,8 @@
 极简的本地优先 coding agent：在终端里用自然语言读代码、改代码、跑命令。
 核心全部零依赖手写（agent loop / SSE 流式解析 / 工具执行 / 权限闸门 / 会话持久化），
 Node 24 原生类型剥离直跑 `.ts`，没有构建步骤。
-同族实现：`../pcode/`（Python 标准库版）、`../gocode/`（Go 标准库版），行为规格一致。
+同族实现：`../pcode/`（Python 标准库版）、`../gocode/`（Go 标准库版）、`../rcode/`（Rust 版），行为规格一致。
+运行时兼容：`bun bin/tcode.js` 可直接运行（Bun 1.4 实测六场景冒烟全绿，含 node:readline 的 SIGINT 路由），主运行时仍以 Node 24 为准。
 
 定位：**教学为骨、可用为验收**——每个模块都能在面试里讲清楚，合起来是日常真的能用的工具。
 参考坐标：[pi-from-scratch](https://github.com/SaladDay/pi-from-scratch)（从零手写的路子）、
