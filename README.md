@@ -7,6 +7,7 @@ REPL + web 壳 + Tauri 桌面版）；其余实现逐条对齐，已知差异只
 （gcode 用 signal.NotifyContext，ccode 用 CancellationToken）。
 
 设计决策与对照分析：[tcode/docs/notes/2026-09-18-three-languages.md](tcode/docs/notes/2026-09-18-three-languages.md)。
+开发计划（从零到一 / 从一到一百 / 新建语言版操作手册）：[docs/从零到一到一百.md](docs/从零到一到一百.md)。
 
 ## 族谱
 
