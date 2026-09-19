@@ -1,0 +1,23 @@
+{
+  "name": "tcode",
+  "version": "0.5.0",
+  "description": "极简本地优先 coding agent：核心零依赖手写，Node 24 原生直跑 .ts",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "tcode": "bin/tcode.js"
+  },
+  "scripts": {
+    "start": "node bin/tcode.js",
+    "check": "tsc --noEmit",
+    "test": "node --test test/edit.test.ts test/context.test.ts test/registry.test.ts test/netguard.test.ts test/events.test.ts test/compact.test.ts test/approval.test.ts test/atrefs.test.ts test/signal.test.ts test/planmode.test.ts test/patch.test.ts test/diff.test.ts",
+    "smoke": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0"
+  }
+}

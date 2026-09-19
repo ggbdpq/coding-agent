@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>ccode</AssemblyName>
+    <RootNamespace>ccode</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- 零第三方依赖：不出现任何 PackageReference，HttpClient 与 System.Text.Json 均为内置 -->
+  </PropertyGroup>
+
+  <!-- tests/ 是独立控制台项目（手写断言运行器），不并入主程序 -->
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+  </ItemGroup>
+
+</Project>

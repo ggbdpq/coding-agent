@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "mimosa-finding-history/v1",
+  "runId": "20260919T001926651Z-28380-8424466c42c5",
+  "runStatus": "inconclusive",
+  "errors": [
+    "candidate-select:internal/kernel/registry_test.go: candidate_limit_exceeded: 5 changed reviewable file(s) were not scanned because the limit is 20",
+    "baseline:.: baseline_partial: baseline capture had enumeration or snapshot errors"
+  ],
+  "target": ".",
+  "revision": "a6e69e5d808875592ef8875adfde089e896024d8",
+  "diffHash": "3a473484e667ceee27ddb5dc0ae14836fab89c97f773ffaf6384223d1bbbe8d0",
+  "rulesVersion": "unavailable",
+  "recordedAt": "2026-09-19T00:19:26.651Z",
+  "timing": {
+    "startedAt": "2026-09-19T00:19:25.710Z",
+    "completedAt": "2026-09-19T00:19:26.651Z",
+    "durationMs": 941
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "modelCalls": 0,
+    "measurement": "known-zero"
+  },
+  "findings": {
+    "total": 4,
+    "bySeverity": {
+      "high": 4
+    },
+    "byStatus": {
+      "static_verified": 1,
+      "blocked": 3
+    }
+  },
+  "coverage": {
+    "status": "partial",
+    "reasonCounts": {
+      "candidate_limit_exceeded": 1,
+      "baseline_partial": 1,
+      "project_check_failed": 2
+    }
+  },
+  "evidenceBoundary": "static_only",
+  "immutableReport": ".mimosa/reports/task-review-sess_9077025a-00b7-40a0-993e-7058e481d325-20260919T001926651Z-28380-8424466c42c5.json"
+}

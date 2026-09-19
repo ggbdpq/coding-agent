@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260918T165104189Z-27696-593a313992ce",
+  "runId": "20260918T165104189Z-27696-593a313992ce",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "test/test_compact.py",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "test/test_events.py",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "pcode/plugins/commands/compact.py",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "pcode/core/compact.py",
+        "detail": "file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "test/test_compact.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "test/test_events.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "pcode/plugins/commands/compact.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "pcode/core/compact.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "52fbd03601926a73dbae60acc928bfb2f41fd4b4",
+  "diffHash": "9ef2791e2b8664460313e4fe83ca292374494c24f9e5915f3607e7866939a665",
+  "rulesVersion": "unavailable",
+  "sessionHash": "a1401aa6b9aefd3b0e85b640a78fda46b6da6a4a99f0b475f9123503b3ef5d9c",
+  "reportRef": ".mimosa/reports/task-review-sess_9077025a-00b7-40a0-993e-7058e481d325-20260918T165104189Z-27696-593a313992ce.json",
+  "events": [],
+  "observedFindingIds": [],
+  "verifiedFiles": [
+    {
+      "file": "test/test_compact.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "test/test_events.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/__init__.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/shell/repl.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/plugins/__init__.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/plugins/commands/compact.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/kernel/app.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/kernel/types.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/core/agent_loop.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/core/compact.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "pcode/core/turn.py",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-18T16:51:04.442Z"
+}

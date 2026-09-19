@@ -1,0 +1,233 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-20260919T001926651Z-28380-8424466c42c5",
+  "runId": "20260919T001926651Z-28380-8424466c42c5",
+  "runStatus": "inconclusive",
+  "coverage": {
+    "status": "partial",
+    "reasons": [
+      {
+        "code": "candidate_limit_exceeded",
+        "stage": "candidate-select",
+        "target": "internal/kernel/registry_test.go",
+        "detail": "5 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "baseline_partial",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "candidate-select",
+        "target": "internal/kernel/registry_test.go",
+        "detail": "candidate_limit_exceeded: 5 changed reviewable file(s) were not scanned because the limit is 20",
+        "affectsCompletion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline",
+        "target": ".",
+        "detail": "baseline_partial: baseline capture had enumeration or snapshot errors",
+        "affectsCompletion": true
+      }
+    ]
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "Stop"
+  },
+  "revision": "a6e69e5d808875592ef8875adfde089e896024d8",
+  "diffHash": "3a473484e667ceee27ddb5dc0ae14836fab89c97f773ffaf6384223d1bbbe8d0",
+  "rulesVersion": "unavailable",
+  "sessionHash": "a1401aa6b9aefd3b0e85b640a78fda46b6da6a4a99f0b475f9123503b3ef5d9c",
+  "reportRef": ".mimosa/reports/task-review-sess_9077025a-00b7-40a0-993e-7058e481d325-20260919T001926651Z-28380-8424466c42c5.json",
+  "events": [
+    {
+      "eventId": "hook-4b0531a284448d2abdf05ac7a848db3c",
+      "findingId": "mimosa-94994d6512f9d1ca6aaeee93",
+      "type": "finding_observed",
+      "at": "2026-09-19T00:19:26.651Z",
+      "identity": {
+        "projectRelativeFile": "internal/smoke/smoke_test.go",
+        "ruleId": "security",
+        "codeEvidenceHash": "15ea13b91dc19ea385bc51ab73759376f8ec68e4d2355b07dae0a0cd8aac3d42",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 495,
+      "endLine": 495,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "15ea13b91dc19ea385bc51ab73759376f8ec68e4d2355b07dae0a0cd8aac3d42"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-0c64d466dd3fd84e02438373ce29fe4f",
+      "findingId": "mimosa-9d0341ec1f33df5c81a414df",
+      "type": "finding_observed",
+      "at": "2026-09-19T00:19:26.651Z",
+      "identity": {
+        "projectRelativeFile": "internal/smoke/smoke_test.go",
+        "ruleId": "security",
+        "codeEvidenceHash": "8b0b3e1677fd78053e73e7a9c2f8e9c49e321f52f65a5072f9df4f5bd84d4be2",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 522,
+      "endLine": 522,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "8b0b3e1677fd78053e73e7a9c2f8e9c49e321f52f65a5072f9df4f5bd84d4be2"
+      },
+      "sequence": 1
+    },
+    {
+      "eventId": "hook-95c28270f9533fafaa9ec6edfd0a119f",
+      "findingId": "mimosa-991d677c09855ca7f4efa886",
+      "type": "finding_observed",
+      "at": "2026-09-19T00:19:26.651Z",
+      "identity": {
+        "projectRelativeFile": "internal/plugins/tools/bash.go",
+        "ruleId": "security",
+        "codeEvidenceHash": "3b6b81274d4b66852a13a547fb7802966667a992c419a781ae0a71af2603ffeb",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 113,
+      "endLine": 113,
+      "reasonCode": "observe",
+      "reportedToAgent": false,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "3b6b81274d4b66852a13a547fb7802966667a992c419a781ae0a71af2603ffeb"
+      },
+      "sequence": 2
+    }
+  ],
+  "observedFindingIds": [
+    "mimosa-cd5178d18186c210526e8d82",
+    "mimosa-06a0c9c0906bdbd6239d3de4",
+    "mimosa-94994d6512f9d1ca6aaeee93",
+    "mimosa-9d0341ec1f33df5c81a414df",
+    "mimosa-4958a58f0d393a0a37c2e243",
+    "mimosa-991d677c09855ca7f4efa886"
+  ],
+  "verifiedFiles": [
+    {
+      "file": "internal/smoke/smoke_test.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/shell/repl.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/providers/anthropic.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/providers/openai.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/providers/retry.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/providers/sse.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/plugins.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/bash.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/edit.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/glob.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/grep.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/pathguard.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/read.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/todo.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/webfetch.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/tools/write.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/plugins/commands/help.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/kernel/app.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/kernel/config.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    },
+    {
+      "file": "internal/kernel/plugin.go",
+      "direct": "complete",
+      "projectContext": "partial"
+    }
+  ],
+  "recordedAt": "2026-09-19T00:19:26.896Z"
+}

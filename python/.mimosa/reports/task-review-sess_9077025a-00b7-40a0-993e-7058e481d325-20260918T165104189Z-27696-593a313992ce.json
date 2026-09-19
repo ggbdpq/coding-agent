@@ -1,0 +1,384 @@
+{
+  "schema_version": "mimosa-task-review/v2",
+  "run_id": "20260918T165104189Z-27696-593a313992ce",
+  "run_status": "inconclusive",
+  "errors": [
+    {
+      "stage": "baseline-read",
+      "target": "test/test_compact.py",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "test/test_events.py",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "pcode/plugins/commands/compact.py",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    },
+    {
+      "stage": "baseline-read",
+      "target": "pcode/core/compact.py",
+      "reason": "baseline_snapshot_unreadable: file is missing from task baseline"
+    }
+  ],
+  "coverage": {
+    "schema_version": "mimosa-hook-coverage/v1",
+    "status": "partial",
+    "scope": "hook_observed_diff",
+    "baseline": {
+      "complete": true,
+      "captured_files": 48,
+      "candidate_limit": 5000,
+      "truncated": false,
+      "enumeration_error_count": 0,
+      "snapshot_error_count": 0,
+      "compensated_target_count": 7
+    },
+    "change_tracking": {
+      "touched_observed": 0,
+      "touched_retained": 0,
+      "truncated": false,
+      "bash_mutation": true,
+      "bash_discovered": 11,
+      "bash_discovery_limit": 80,
+      "bash_discovery_truncated": false
+    },
+    "candidates": {
+      "eligible_files": 11,
+      "selected_files": 11,
+      "limit": 20,
+      "truncated": false
+    },
+    "scanning": {
+      "required_files": 11,
+      "scanned_files": 11,
+      "skipped_files": 0,
+      "failed_files": 0,
+      "project_checks_required": 0,
+      "project_checks_completed": 0
+    },
+    "notification": {
+      "eligible_findings": 0,
+      "detailed_findings": 0,
+      "detail_limit": 3,
+      "truncated": false
+    },
+    "reason_counts": {
+      "baseline_snapshot_unreadable": 4,
+      "project_check_failed": 4
+    },
+    "reasons": [
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "test/test_compact.py",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "test/test_events.py",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "pcode/plugins/commands/compact.py",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "baseline_snapshot_unreadable",
+        "stage": "baseline-read",
+        "target": "pcode/core/compact.py",
+        "detail": "file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "test/test_compact.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "test/test_events.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "pcode/plugins/commands/compact.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      },
+      {
+        "code": "project_check_failed",
+        "stage": "baseline-read",
+        "target": "pcode/core/compact.py",
+        "detail": "baseline_snapshot_unreadable: file is missing from task baseline",
+        "affects_completion": true
+      }
+    ],
+    "reasons_truncated": false
+  },
+  "generated_at": "2026-09-18T16:51:04.189Z",
+  "session_id": "sess_9077025a-00b7-40a0-993e-7058e481d325",
+  "target": ".",
+  "revision": "52fbd03601926a73dbae60acc928bfb2f41fd4b4",
+  "rules_version": "unavailable",
+  "diff_hash": "9ef2791e2b8664460313e4fe83ca292374494c24f9e5915f3607e7866939a665",
+  "diff": {
+    "algorithm": "sha256",
+    "changed_file_count": 11,
+    "changed_files": [
+      {
+        "file": "pcode/__init__.py",
+        "ranges": [
+          {
+            "start": 5,
+            "end": 5
+          }
+        ],
+        "before_hash": "01cb1129846aea652ec47084c6c81451a0a7f203efe8e2a16a5cc2567e32e6c4",
+        "after_hash": "c4b68ca0a73b65ca10a2cb108758f51f14a10f429b0bf529d825078b5b466993"
+      },
+      {
+        "file": "pcode/core/agent_loop.py",
+        "ranges": [
+          {
+            "start": 29,
+            "end": 31
+          },
+          {
+            "start": 69,
+            "end": 69
+          },
+          {
+            "start": 85,
+            "end": 85
+          },
+          {
+            "start": 96,
+            "end": 96
+          }
+        ],
+        "before_hash": "889dfaaf0589d87d7413afdfed505e3ef52b14b6662e3301cefe9953cba06d25",
+        "after_hash": "b0968b81dccc8605438d232c6b4b631d55207f53b0d1c4c1e0bab66bc5841d2f"
+      },
+      {
+        "file": "pcode/core/compact.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 65
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "2a15e180b595ba95c00df137644decf489da2c195dba1a47946c5f3725212a2e"
+      },
+      {
+        "file": "pcode/core/turn.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 1
+          },
+          {
+            "start": 3,
+            "end": 5
+          },
+          {
+            "start": 10,
+            "end": 11
+          },
+          {
+            "start": 14,
+            "end": 15
+          },
+          {
+            "start": 17,
+            "end": 26
+          },
+          {
+            "start": 31,
+            "end": 32
+          },
+          {
+            "start": 37,
+            "end": 51
+          },
+          {
+            "start": 66,
+            "end": 78
+          },
+          {
+            "start": 84,
+            "end": 84
+          },
+          {
+            "start": 100,
+            "end": 100
+          },
+          {
+            "start": 102,
+            "end": 102
+          }
+        ],
+        "before_hash": "a4d528a618cca9b727afee87093d0c6aec3b68f6e4bb9b22b779359293417403",
+        "after_hash": "98648eba77ffdfd091f4c6204e88826c40a869240b058e000573a35aaf900d8f"
+      },
+      {
+        "file": "pcode/kernel/app.py",
+        "ranges": [
+          {
+            "start": 16,
+            "end": 16
+          }
+        ],
+        "before_hash": "c5943a1ac88d4be300960956dd752a28b35bbb2b2249d48f8088849d36bfc184",
+        "after_hash": "3f5ee849c0217f51eecd23af792c0820fe7c9fcacd2f9d5beb9ef2c6a88ac69b"
+      },
+      {
+        "file": "pcode/kernel/types.py",
+        "ranges": [
+          {
+            "start": 9,
+            "end": 9
+          },
+          {
+            "start": 79,
+            "end": 185
+          }
+        ],
+        "before_hash": "f6d06c69ff92a4fd00be1bdde98e9373efb99826b9b84a4594b8a24dad10f170",
+        "after_hash": "ca8f371838bf3bfd0413069f7346449c0720497f4004abdbc5ce8cb8496a7de8"
+      },
+      {
+        "file": "pcode/plugins/__init__.py",
+        "ranges": [
+          {
+            "start": 9,
+            "end": 9
+          },
+          {
+            "start": 41,
+            "end": 41
+          }
+        ],
+        "before_hash": "2fca084a2ab512fef5c35b5535de5fd79c33e67eb07385b9408224ea25109ac0",
+        "after_hash": "17301b0869ee7b5df8f665098976e23b65c7dc24e7a618b05db4f28cf07fb8bf"
+      },
+      {
+        "file": "pcode/plugins/commands/compact.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 26
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "31bf86aca4e21bcb17825bde99c60a11881f947cde52712aacc86e5d5629c4f7"
+      },
+      {
+        "file": "pcode/shell/repl.py",
+        "ranges": [
+          {
+            "start": 22,
+            "end": 28
+          },
+          {
+            "start": 55,
+            "end": 71
+          },
+          {
+            "start": 101,
+            "end": 101
+          }
+        ],
+        "before_hash": "aeddfeecd98715c482bee9c803833d86a61d92607b428f380193099c3fff6d16",
+        "after_hash": "ab133491e5c67ef4f00286fceef4202844ffb67f0da17f2089c11fa7233cb517"
+      },
+      {
+        "file": "test/test_compact.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 90
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "8ff74b48327c1d431cf7f8553f97108e29fda17c6b156d626d463df2dd6cd19c"
+      },
+      {
+        "file": "test/test_events.py",
+        "ranges": [
+          {
+            "start": 1,
+            "end": 176
+          }
+        ],
+        "before_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "after_hash": "8f9e51aa36e1dbf1df3707f20a6ed4b65299e2c2065a2555b6ee0824e00ba28a"
+      }
+    ]
+  },
+  "timing": {
+    "started_at": "2026-09-18T16:51:03.362Z",
+    "completed_at": "2026-09-18T16:51:04.189Z",
+    "duration_ms": 827,
+    "measurement": "hook_wall_clock"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "total": 0,
+    "model_calls": 0,
+    "measurement": "known-zero"
+  },
+  "telemetry": {
+    "schemaVersion": "mimosa-gate-telemetry/v1",
+    "profile": "gate",
+    "operation": "Stop",
+    "outcome": "partial/INCONCLUSIVE",
+    "latencyMs": 827,
+    "peakMemoryBytes": 149458944,
+    "memoryMeasurement": "max-observed-process-rss",
+    "scannedFiles": 11,
+    "cache": {
+      "hits": 0,
+      "misses": 0,
+      "measurement": "not-applicable"
+    },
+    "denyCount": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "modelCalls": 0,
+      "measurement": "known-zero"
+    }
+  },
+  "finding_count": 0,
+  "rewake_finding_count": 0,
+  "evidence_boundary": {
+    "scan": "candidate",
+    "static_fix_verification": "observed_static_only",
+    "runtime_verification": "not_performed"
+  },
+  "finding_events": [],
+  "findings": [],
+  "artifacts": {
+    "immutable_report": ".mimosa/reports/task-review-sess_9077025a-00b7-40a0-993e-7058e481d325-20260918T165104189Z-27696-593a313992ce.json",
+    "latest_report": ".mimosa/reports/task-review-sess_9077025a-00b7-40a0-993e-7058e481d325.json",
+    "history_summary": ".mimosa/history/run-20260918T165104189Z-27696-593a313992ce.json"
+  }
+}

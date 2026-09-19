@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "mimosa-finding-ledger-batch/v1",
+  "batchId": "stop-delivery-20260919T001926651Z-28380-8424466c42c5",
+  "runId": "20260919T001926651Z-28380-8424466c42c5",
+  "runStatus": "completed",
+  "coverage": {
+    "status": "complete",
+    "reasons": []
+  },
+  "source": {
+    "component": "zcode-hook",
+    "operationId": "StopDelivery"
+  },
+  "revision": "a6e69e5d808875592ef8875adfde089e896024d8",
+  "diffHash": "3a473484e667ceee27ddb5dc0ae14836fab89c97f773ffaf6384223d1bbbe8d0",
+  "rulesVersion": "unavailable",
+  "sessionHash": "a1401aa6b9aefd3b0e85b640a78fda46b6da6a4a99f0b475f9123503b3ef5d9c",
+  "reportRef": ".mimosa/reports/task-review-sess_9077025a-00b7-40a0-993e-7058e481d325-20260919T001926651Z-28380-8424466c42c5.json",
+  "events": [
+    {
+      "eventId": "hook-1cc0fa9ff05c5a741c8377013ea13d13",
+      "findingId": "mimosa-94994d6512f9d1ca6aaeee93",
+      "type": "finding_blocked",
+      "at": "2026-09-19T00:19:26.911Z",
+      "identity": {
+        "projectRelativeFile": "internal/smoke/smoke_test.go",
+        "ruleId": "security",
+        "codeEvidenceHash": "15ea13b91dc19ea385bc51ab73759376f8ec68e4d2355b07dae0a0cd8aac3d42",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 495,
+      "endLine": 495,
+      "reasonCode": "stop_rewake",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "15ea13b91dc19ea385bc51ab73759376f8ec68e4d2355b07dae0a0cd8aac3d42"
+      },
+      "sequence": 0
+    },
+    {
+      "eventId": "hook-d5e0c40e61ed71c974feaa594f2fd5c2",
+      "findingId": "mimosa-9d0341ec1f33df5c81a414df",
+      "type": "finding_blocked",
+      "at": "2026-09-19T00:19:26.911Z",
+      "identity": {
+        "projectRelativeFile": "internal/smoke/smoke_test.go",
+        "ruleId": "security",
+        "codeEvidenceHash": "8b0b3e1677fd78053e73e7a9c2f8e9c49e321f52f65a5072f9df4f5bd84d4be2",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 522,
+      "endLine": 522,
+      "reasonCode": "stop_rewake",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "8b0b3e1677fd78053e73e7a9c2f8e9c49e321f52f65a5072f9df4f5bd84d4be2"
+      },
+      "sequence": 1
+    },
+    {
+      "eventId": "hook-837aa7826ea6dc29080766a75e6d01ab",
+      "findingId": "mimosa-991d677c09855ca7f4efa886",
+      "type": "finding_blocked",
+      "at": "2026-09-19T00:19:26.911Z",
+      "identity": {
+        "projectRelativeFile": "internal/plugins/tools/bash.go",
+        "ruleId": "security",
+        "codeEvidenceHash": "3b6b81274d4b66852a13a547fb7802966667a992c419a781ae0a71af2603ffeb",
+        "confidence": "stable"
+      },
+      "scope": "direct",
+      "line": 113,
+      "endLine": 113,
+      "reasonCode": "stop_rewake",
+      "reportedToAgent": true,
+      "evidence": {
+        "kind": "source",
+        "boundary": "candidate",
+        "producer": "deterministic",
+        "evidenceHash": "3b6b81274d4b66852a13a547fb7802966667a992c419a781ae0a71af2603ffeb"
+      },
+      "sequence": 2
+    }
+  ],
+  "observedFindingIds": [],
+  "verifiedFiles": [],
+  "recordedAt": "2026-09-19T00:19:27.185Z"
+}

@@ -1,0 +1,15 @@
+[package]
+name = "rcode"
+version = "0.5.0"
+edition = "2021"
+description = "极简本地优先 coding agent（Rust 版，参照 tcode 行为规格）"
+
+# 依赖政策（全项目唯一的哲学让步）：Rust 标准库没有 TLS 和 JSON，
+# 而真实端点是 https——零依赖物理不可行。仅允许这两个直接依赖，
+# 除此之外一律手写（SSE 解析、agent loop、工具执行、权限闸门、会话持久化）。
+[dependencies]
+serde_json = "1"
+ureq = "2"
+
+[profile.release]
+strip = true
