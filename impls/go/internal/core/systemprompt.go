@@ -42,6 +42,12 @@ func SkillIndex(dirs []string) string {
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue // 目录刚好消失
+			}
+			// 权限等错误：stderr 警告后跳过——不静默（让用户看得见），也不打断启动
+			// （SkillIndex 在 FreshMessages 闭包语境被调用，上抛会击穿提示词装配）
+			fmt.Fprintf(os.Stderr, "skill 索引：跳过不可读目录 %s（%v）\n", dir, err)
 			continue
 		}
 		for _, entry := range entries {

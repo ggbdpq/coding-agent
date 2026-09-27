@@ -54,8 +54,10 @@ public static class SystemPrompt
             {
                 entries = Directory.GetFiles(dir, "*.md");
             }
-            catch
+            catch (Exception e)
             {
+                // 权限等错误：stderr 警告后跳过——不静默（让用户看得见），也不打断启动
+                Console.Error.WriteLine($"skill 索引：跳过不可读目录 {dir}（{e.Message}）");
                 continue;
             }
             foreach (var full in entries)

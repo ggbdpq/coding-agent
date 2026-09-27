@@ -22,7 +22,13 @@ pub fn skill_index(dirs: &[PathBuf]) -> Option<String> {
         };
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
-            Err(_) => continue,
+            // 目录刚好消失跳过；权限等错误：stderr 警告后跳过——不静默（让用户看得见），
+            // 也不打断启动（skill_index 在闭包语境被调用，上抛会击穿提示词装配）
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                eprintln!("skill 索引：跳过不可读目录 {}（{}）", dir.display(), e);
+                continue;
+            }
         };
         let dir_str = dir.to_string_lossy().to_string();
         for entry in entries.filter_map(|e| e.ok()) {
@@ -97,4 +103,17 @@ pub fn build_system_prompt(cwd: &str) -> String {
         parts.push(skills);
     }
     parts.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 错误契约：目录不可读（如指向文件）→ stderr 警告后跳过，返回 None。
+    /// eprintln 捕获不便断言，此处锁"跳过不崩"；警告文本由源码 eprintln! 保证。
+    #[test]
+    fn 不可读目录警告并跳过() {
+        let file_as_dir = std::path::PathBuf::from("Cargo.toml");
+        assert_eq!(skill_index(&[file_as_dir]), None);
+    }
 }

@@ -22,11 +22,15 @@ mid_turn）、lifecycle（是否持久化进 transcript）、providerVisibility�
 **5. skills/hook 信任准入** —— 扫描只认根 SKILL.md + 一层子目录；错误契约只吞
 ENOENT、EACCES 必上抛（防静默空索引）；plugin-scope symlink 一律拒绝（"拒绝即无
 逃逸"）；hook 信任按配置 digest 指纹，内容一变即掉信，含 10 分钟审阅超时状态机。
-落点：**已落地**（2026-09-27）——pcode 技能索引 `except OSError` → `except
-FileNotFoundError`（EACCES 上抛）+ `test_systemprompt.py` 2 例（红转绿）；tcode
-同病同修（删吞错 try/catch）+ 锁测试。**go/rust/cs 同病待五版同步**：SkillIndex
-无错误通道，需签名小改（go 返 error / rust Result / cs throw），建议按 3.3 式登记
-后统一动。symlink 边界 pcode 已达标（resolve + 包含检查），无需改。
+落点：**五版已同步**（2026-09-27，同日第三批修订）——调用链侦察发现 SkillIndex/
+skill_index 在 FreshMessages/fresh_messages **闭包语境**被调用（不可失败），原定
+"上抛"需改内核接口，且 ts/py 的抛异常属启动崩溃过重。契约统一修订为：
+**目录不存在静默跳过；权限等不可读错误 stderr 警告一行后跳过**（不静默不崩溃）。
+ts/py 由"上抛"修订并入本契约（测试翻转）；go/rust/cs 同病同修、签名零改动。
+红锁：py test_systemprompt（mock listdir）、go systemprompt_test（file-as-dir 触发，
+Windows ReadDir(文件) 不报错故 skip 并注明，红能力在 POSIX）、rust 行为锁；
+cs 警告分支无便携测试，由 Console.Error 源码保证。symlink 边界 pcode 已达标
+（resolve + 包含检查），无需改。
 
 **7. 事件式检查点 rewind** —— Edit/Write 的结构化输出（filePath/originalFile/
 structuredPatch）校验通过即序列化为检查点事件入会话流；回退时从事件流选检查点、
@@ -78,7 +82,7 @@ abandoned，标注只读/副作用范围）+ 已提交锚点截断 + 只读工�
 - **EACCES 错误契约**：`impls/python/pcode/core/systemprompt.py`（`except OSError` →
   `except FileNotFoundError`）+ `test/test_systemprompt.py` 2 例（红转绿）；
   `impls/typescript/src/core/systemprompt.ts` 删吞错 try/catch + `test/systemprompt.test.ts`。
-  go/rust/cs 同病待五版同步（见上）。
+  go/rust/cs 同病，随后同日修订五版统一为"stderr 警告+跳过"（见上，闭包语境修订）。
 - **路线图增量**：`docs/从零到一到一百.md` §3.3 四条既有大件补实现备忘/取向，
   新增搁置条目"检查点/rewind"。
 

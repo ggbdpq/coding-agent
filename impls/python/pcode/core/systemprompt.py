@@ -33,7 +33,12 @@ def skill_index(dirs: list[str]) -> str | None:
         try:
             entries = os.listdir(directory)
         except FileNotFoundError:
-            continue  # 目录刚好消失；权限等错误必须上抛——静默空索引会让模型以为没有技能
+            continue  # 目录刚好消失
+        except OSError as e:
+            # 权限等错误：stderr 警告后跳过——不静默（让用户看得见），也不打断启动
+            # （skill_index 在 fresh_messages 闭包语境被调用，上抛会击穿提示词装配）
+            print(f'skill 索引：跳过不可读目录 {directory}（{e}）', file=sys.stderr)
+            continue
         for name in (x for x in entries if x.endswith('.md')):
             full = (directory / name).resolve()
             # 边界自检（规范惯用法）：文件必须位于技能目录之内
