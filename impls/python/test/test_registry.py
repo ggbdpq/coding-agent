@@ -16,10 +16,10 @@ from pcode.kernel.registry import Registry
 from pcode.kernel.types import ChatClient, ChatMessage, ChatOptions, CompletionResult
 
 
-def fake_tool() -> ToolPlugin:
+def fake_tool(name: str = 't1') -> ToolPlugin:
     return define_plugin(
         ToolPlugin(
-            name='t1',
+            name=name,
             kind='tool',
             description='测试工具',
             parameters={'type': 'object', 'properties': {}},
@@ -99,6 +99,10 @@ class RegistryTest(unittest.TestCase):
                 }
             ],
         )
+
+    def test_注册顺序保持_装配顺序即优先级(self) -> None:
+        r = Registry().register(fake_tool('t1')).register(fake_tool('t2'))
+        self.assertEqual([t.name for t in r.tools()], ['t1', 't2'])
 
 
 if __name__ == '__main__':

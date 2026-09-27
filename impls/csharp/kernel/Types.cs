@@ -57,7 +57,7 @@ public enum TurnEndReason
 /// 规范事件流（v1 事件模型）：turn 是唯一生产者，壳/审计/回放是消费者。
 /// C# 没有 TS 的可辨识联合，用"抽象基类 + 嵌套 sealed record"表达同一契约：
 /// 每个变体一个 record，switch 模式匹配逐变体消费（见 shell/Repl.cs）。
-/// Permission/Usage 变体是占位契约（对应 tcode 的 R2/R5 预留），本版尚无生产者。
+/// Permission 变体是占位契约（生产者仅 tcode 的 web 壳）；Usage 自 v0.5 起由 Turn 发出。
 /// </summary>
 public abstract record AgentEvent
 {

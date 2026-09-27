@@ -65,3 +65,21 @@ test('重复裁剪幂等', () => {
   const { trimmed } = trimContext(messages, 5000);
   assert.equal(trimmed, 0, '占位消息不应被二次裁剪');
 });
+
+test('空内容工具输出不裁：无可省内容，替换反而增加预算', () => {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: 'sys' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'e', type: 'function', function: { name: 'bash', arguments: '{}' } }],
+    },
+    { role: 'tool', tool_call_id: 'e', content: '' },
+  ];
+  for (let i = 0; i < 30; i++) messages.push(...exchange(i, 3000));
+
+  const { trimmed } = trimContext(messages, 5000);
+  assert.equal(trimmed, 18, '只裁 30 条大输出中最旧 18 条，空内容不计');
+  const empty = messages.find((m) => m.role === 'tool' && m.tool_call_id === 'e');
+  assert.equal(empty?.content, '', '空内容 tool 消息不应被替换');
+});

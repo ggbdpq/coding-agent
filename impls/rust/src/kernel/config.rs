@@ -63,6 +63,29 @@ fn first_non_empty(a: &str, b: &str) -> String {
     }
 }
 
+/// 平台路径列表分隔符：Windows 用 ';'，POSIX 用 ':'（对齐其余四版的 path.delimiter）。
+fn path_list_separator() -> char {
+    if cfg!(windows) {
+        ';'
+    } else {
+        ':'
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_list_separator;
+
+    /// 家族契约：路径列表分隔符随平台（Windows ';' / POSIX ':'）。
+    /// 本测试在 Windows 上恒绿（旧实现硬编码 ';' 恰好同值）；红能力在 POSIX runner 上
+    /// 才成立——若有人改回硬编码 ';'，POSIX 上此测试即红。
+    #[test]
+    fn 路径列表分隔符随平台() {
+        let expected = if cfg!(windows) { ';' } else { ':' };
+        assert_eq!(path_list_separator(), expected);
+    }
+}
+
 /// 按优先级（环境变量 > 配置文件）加载配置；缺关键项时报中文指路。
 pub fn load_config() -> Result<Config, String> {
     let home = home_dir().ok_or_else(|| "找不到用户主目录（HOME/USERPROFILE 均为空）".to_string())?;
@@ -109,7 +132,7 @@ pub fn load_config() -> Result<Config, String> {
     };
 
     // 写白名单（R4）：config.json allowWriteDirs 优先，否则 RCODE_ALLOW_WRITE
-    //（';' 分隔，Windows path.delimiter）。全部归一化为绝对路径；
+    //（平台路径列表分隔符切分，对齐其余四版的 path.delimiter）。全部归一化为绝对路径；
     // 空段先跳过再归一——空串归一会静默得到 cwd，等于把整个工作目录送进白名单。
     let file_dirs: Vec<String> = file
         .get("allowWriteDirs")
@@ -121,7 +144,7 @@ pub fn load_config() -> Result<Config, String> {
     } else {
         std::env::var("RCODE_ALLOW_WRITE")
             .unwrap_or_default()
-            .split(';')
+            .split(path_list_separator())
             .map(str::to_string)
             .collect()
     };

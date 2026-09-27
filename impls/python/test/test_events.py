@@ -1,8 +1,8 @@
 """事件模型单测：turn 的规范事件序列（AgentEvent）是壳/审计/回放的公共契约。
 
-镜像 tcode test/events.test.ts 的 Python 版，按同步模型适配一处：
-异常路径（KeyboardInterrupt / 普通错误）不发 turn_end——先断尾修复、落盘，再上抛
-（展示方式是壳的事，与 tcode 发 turn_end(aborted/error) 的差异见 README 已知局限）。
+镜像 tcode test/events.test.ts 的 Python 版，同步模型下中断即 KeyboardInterrupt：
+异常路径先断尾修复、落盘，发 turn_end（aborted/error）再上抛——每轮恰一个终态事件，
+与 tcode/go/csharp 对齐（rust 无中止路径，error 路径同契约）。
 锁死三件事：事件类型与顺序、turn_end 终态原因、断尾修复与事件的互不干扰。
 """
 from __future__ import annotations
@@ -102,7 +102,7 @@ class EventSequenceTest(unittest.TestCase):
 
 
 class InterruptPathTest(unittest.TestCase):
-    def test_工具已执行后中断_结果仍在落盘序列且不发turn_end(self) -> None:
+    def test_工具已执行后中断_结果仍在落盘序列且发turn_end_aborted(self) -> None:
         first = True
         store = _FakeStore()
 
@@ -123,9 +123,11 @@ class InterruptPathTest(unittest.TestCase):
         self.assertEqual([m['role'] for m in app.messages], ['user', 'assistant', 'tool'])
         self.assertEqual(app.messages[-1]['content'], '工具结果')
         self.assertGreaterEqual(len(store.appended), 3, '断尾修复后的消息也应落盘')
-        self.assertNotIn('turn_end', [e.type for e in events])
+        end = events[-1]
+        self.assertEqual(end.type, 'turn_end')
+        self.assertEqual(end.reason, 'aborted')
 
-    def test_工具执行中中断_断尾补占位再落盘上抛(self) -> None:
+    def test_工具执行中中断_断尾补占位再落盘发turn_end_aborted上抛(self) -> None:
         store = _FakeStore()
 
         class _InterruptInTool:
@@ -154,9 +156,11 @@ class InterruptPathTest(unittest.TestCase):
         self.assertEqual(app.messages[-1]['content'], '（用户中止，未执行）')
         self.assertEqual(app.messages[-1]['tool_call_id'], 'c1')
         self.assertGreaterEqual(len(store.appended), 3)
-        self.assertNotIn('turn_end', [e.type for e in events])
+        end = events[-1]
+        self.assertEqual(end.type, 'turn_end')
+        self.assertEqual(end.reason, 'aborted')
 
-    def test_普通错误同样断尾修复落盘且不发turn_end(self) -> None:
+    def test_普通错误同样断尾修复落盘且发turn_end_error(self) -> None:
         class _Broken:
             def chat(self, messages: list[ChatMessage], opts: Any = None) -> CompletionResult:
                 raise RuntimeError('网络炸了')
@@ -169,7 +173,10 @@ class InterruptPathTest(unittest.TestCase):
 
         self.assertEqual([m['role'] for m in app.messages], ['user'])
         self.assertEqual(len(store.appended), 1, '异常路径仍要落盘已入列的消息')
-        self.assertEqual([e.type for e in events], ['turn_start', 'user'])
+        self.assertEqual([e.type for e in events], ['turn_start', 'user', 'turn_end'])
+        end = events[-1]
+        self.assertEqual(end.reason, 'error')
+        self.assertEqual(end.error, '网络炸了')
 
 
 if __name__ == '__main__':

@@ -52,51 +52,58 @@ export class Provider implements ChatClient {
     }
     if (!res.body) throw new Error('响应没有正文流');
 
-    // 流式增量装配：正文直接累加；工具调用按 index 分槽拼装碎片
+    // 流式增量装配：正文直接累加；工具调用按 index 分槽拼装碎片。
+    // 仅首字节前可重试：正文已开始接收后，读流中断一律改写为不可重试的普通错误
+    // （TypeError 会命中重试白名单，必须在源头改写；AbortError 保持原样上抛）
     let content = '';
     const calls = new Map<number, { id: string; name: string; args: string }>();
 
-    for await (const data of sseData(res.body)) {
-      if (data === '[DONE]') break;
-      let chunk: {
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
-        choices?: Array<{
-          delta?: {
-            content?: string | null;
-            tool_calls?: Array<{
-              index: number;
-              id?: string;
-              function?: { name?: string; arguments?: string };
-            }>;
-          };
-          finish_reason?: string | null;
-        }>;
-      };
-      try {
-        chunk = JSON.parse(data);
-      } catch {
-        continue; // 非 JSON 行（注释、心跳）直接跳过
+    try {
+      for await (const data of sseData(res.body)) {
+        if (data === '[DONE]') break;
+        let chunk: {
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+          choices?: Array<{
+            delta?: {
+              content?: string | null;
+              tool_calls?: Array<{
+                index: number;
+                id?: string;
+                function?: { name?: string; arguments?: string };
+              }>;
+            };
+            finish_reason?: string | null;
+          }>;
+        };
+        try {
+          chunk = JSON.parse(data);
+        } catch {
+          continue; // 非 JSON 行（注释、心跳）直接跳过
+        }
+        if (chunk.usage?.prompt_tokens || chunk.usage?.completion_tokens) {
+          opts.onUsage?.({
+            prompt_tokens: chunk.usage.prompt_tokens ?? 0,
+            completion_tokens: chunk.usage.completion_tokens ?? 0,
+          });
+        }
+        const choice = chunk.choices?.[0];
+        if (!choice) continue;
+        const delta = choice.delta ?? {};
+        if (delta.content) {
+          content += delta.content;
+          opts.onText?.(delta.content);
+        }
+        for (const tc of delta.tool_calls ?? []) {
+          const slot = calls.get(tc.index) ?? { id: '', name: '', args: '' };
+          if (tc.id) slot.id = tc.id;
+          if (tc.function?.name) slot.name += tc.function.name;
+          if (tc.function?.arguments) slot.args += tc.function.arguments;
+          calls.set(tc.index, slot);
+        }
       }
-      if (chunk.usage?.prompt_tokens || chunk.usage?.completion_tokens) {
-        opts.onUsage?.({
-          prompt_tokens: chunk.usage.prompt_tokens ?? 0,
-          completion_tokens: chunk.usage.completion_tokens ?? 0,
-        });
-      }
-      const choice = chunk.choices?.[0];
-      if (!choice) continue;
-      const delta = choice.delta ?? {};
-      if (delta.content) {
-        content += delta.content;
-        opts.onText?.(delta.content);
-      }
-      for (const tc of delta.tool_calls ?? []) {
-        const slot = calls.get(tc.index) ?? { id: '', name: '', args: '' };
-        if (tc.id) slot.id = tc.id;
-        if (tc.function?.name) slot.name += tc.function.name;
-        if (tc.function?.arguments) slot.args += tc.function.arguments;
-        calls.set(tc.index, slot);
-      }
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      throw new Error(`流中断：${(e as Error).message}`);
     }
 
     const tool_calls = [...calls.entries()]

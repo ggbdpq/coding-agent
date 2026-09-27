@@ -97,3 +97,17 @@ func TestRegistryToolSchemas(t *testing.T) {
 		t.Fatalf("schema 形状不符：\n got %+v\nwant %+v", schemas, want)
 	}
 }
+
+func TestRegistryPreservesRegistrationOrder(t *testing.T) {
+	r := NewRegistry().MustRegister(
+		Plugin{Tool: fakeTool},
+		Plugin{Tool: &ToolDef{Name: "t2"}},
+	)
+	got := make([]string, 0, len(r.Tools()))
+	for _, tool := range r.Tools() {
+		got = append(got, tool.Name)
+	}
+	if !reflect.DeepEqual(got, []string{"t1", "t2"}) {
+		t.Fatalf("注册顺序应保持（装配顺序即优先级），got %v", got)
+	}
+}

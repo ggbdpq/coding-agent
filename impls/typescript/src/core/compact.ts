@@ -3,6 +3,7 @@
 // 纪律：摘要失败/中止时原 messages 原封不动——compact 永不破坏会话。
 import type { App } from '../kernel/app.ts';
 import type { ChatMessage } from '../kernel/types.ts';
+import { estimateTokens } from './trim.ts';
 
 const MIN_MESSAGES = 5; // system + 至少 4 条对话才值得压缩
 const TAIL_KEEP = 4; // 保留最近多少条原文（摘要之外，任务细节不丢）
@@ -64,15 +65,4 @@ export async function compactContext(
   };
   messages.splice(1, tailStart - 1, summaryMsg);
   return { savedTokens: Math.max(0, before - estimateTokens(messages)) };
-}
-
-/** 与 trim 同款粗估：ceil(字符/3)+8/条 */
-function estimateTokens(messages: { content?: string | null; tool_calls?: unknown[] }[]): number {
-  let chars = 0;
-  for (const m of messages) {
-    chars += (m.content?.length ?? 0) + 8;
-    const calls = (m as { tool_calls?: Array<{ function: { arguments: string } }> }).tool_calls;
-    for (const tc of calls ?? []) chars += tc.function.arguments.length + 8;
-  }
-  return Math.ceil(chars / 3);
 }

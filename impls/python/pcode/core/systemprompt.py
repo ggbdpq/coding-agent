@@ -32,8 +32,8 @@ def skill_index(dirs: list[str]) -> str | None:
             continue
         try:
             entries = os.listdir(directory)
-        except OSError:
-            continue
+        except FileNotFoundError:
+            continue  # 目录刚好消失；权限等错误必须上抛——静默空索引会让模型以为没有技能
         for name in (x for x in entries if x.endswith('.md')):
             full = (directory / name).resolve()
             # 边界自检（规范惯用法）：文件必须位于技能目录之内

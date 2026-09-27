@@ -284,6 +284,13 @@ mod tests {
             ])
         );
     }
+
+    #[test]
+    fn 注册顺序保持_装配顺序即优先级() {
+        let r = Registry::new().with(vec![fake_tool("t1"), fake_tool("t2")]);
+        let names: Vec<&str> = r.tools().iter().map(|t| t.name).collect();
+        assert_eq!(names, vec!["t1", "t2"]);
+    }
 }
 
 /// 测试辅助：builder 风格批量注册。

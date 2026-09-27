@@ -202,3 +202,21 @@ func TestTurnEventsDanglingFixStillPersists(t *testing.T) {
 		t.Fatalf("turn_end reason 应为 aborted，got %q", end.Reason)
 	}
 }
+
+func TestFixDanglingToolCallsPlaceholder(t *testing.T) {
+	messages := []kernel.ChatMessage{
+		{Role: "user", Content: kernel.StrPtr("hi")},
+		{Role: "assistant", ToolCalls: []kernel.ToolCall{{
+			ID:       "c1",
+			Type:     "function",
+			Function: kernel.ToolCallFunction{Name: "fake", Arguments: "{}"},
+		}}},
+	}
+	got := fixDanglingToolCalls(messages)
+	if len(got) != 3 {
+		t.Fatalf("悬空调用应被补占位，len=%d", len(got))
+	}
+	if *got[2].Content != "（用户中止，未执行）" {
+		t.Fatalf("占位文本是家族统一契约，got %q", *got[2].Content)
+	}
+}

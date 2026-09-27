@@ -56,3 +56,8 @@ test('toolSchemas 输出 function calling 形状', () => {
     },
   ]);
 });
+
+test('注册顺序保持：装配顺序即优先级', () => {
+  const r = new Registry().register(fakeTool).register({ ...fakeTool, name: 't2' });
+  assert.deepEqual(r.tools().map((t) => t.name), ['t1', 't2']);
+});

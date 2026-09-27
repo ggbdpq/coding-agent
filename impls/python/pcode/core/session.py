@@ -60,7 +60,7 @@ class SessionStore:
             )
             with open(self._file_path, 'a', encoding='utf-8', newline='\n') as f:
                 f.write(line + '\n')
-        except OSError:
+        except Exception:  # 落盘失败静默：任何异常都不许打断对话（对齐 tcode 捕一切）
             pass
 
     def list_recent(self, n: int) -> list[SessionSummary]:

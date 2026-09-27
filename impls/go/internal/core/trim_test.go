@@ -105,3 +105,25 @@ func TestTrimContextIdempotent(t *testing.T) {
 		t.Fatalf("占位消息不应被二次裁剪，got %d", n)
 	}
 }
+
+func TestTrimContextSkipsEmptyContent(t *testing.T) {
+	messages := []kernel.ChatMessage{
+		{Role: "system", Content: kernel.StrPtr("sys")},
+		{Role: "assistant", ToolCalls: []kernel.ToolCall{{
+			ID:       "e",
+			Type:     "function",
+			Function: kernel.ToolCallFunction{Name: "bash", Arguments: "{}"},
+		}}},
+		{Role: "tool", ToolCallID: "e", Content: kernel.StrPtr("")},
+	}
+	for i := 0; i < 30; i++ {
+		messages = append(messages, exchange(i, 3000)...)
+	}
+
+	if trimmed := TrimContext(messages, 5000); trimmed != 18 {
+		t.Fatalf("只裁 30 条大输出中最旧 18 条，空内容不计，got %d", trimmed)
+	}
+	if *messages[2].Content != "" {
+		t.Fatalf("空内容 tool 消息不应被替换，got %q", *messages[2].Content)
+	}
+}

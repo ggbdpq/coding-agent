@@ -68,6 +68,25 @@ class TrimContextTest(unittest.TestCase):
         trim_context(messages, 5000)
         self.assertEqual(trim_context(messages, 5000).trimmed, 0, '占位消息不应被二次裁剪')
 
+    def test_空内容工具输出不裁(self) -> None:
+        messages: list[ChatMessage] = [
+            {'role': 'system', 'content': 'sys'},
+            {
+                'role': 'assistant',
+                'content': None,
+                'tool_calls': [
+                    {'id': 'e', 'type': 'function', 'function': {'name': 'bash', 'arguments': '{}'}}
+                ],
+            },
+            {'role': 'tool', 'tool_call_id': 'e', 'content': ''},
+        ]
+        for i in range(30):
+            messages.extend(exchange(i, 3000))
+
+        result = trim_context(messages, 5000)
+        self.assertEqual(result.trimmed, 18, '只裁 30 条大输出中最旧 18 条，空内容不计')
+        self.assertEqual(messages[2]['content'], '', '空内容 tool 消息不应被替换')
+
 
 if __name__ == '__main__':
     unittest.main()

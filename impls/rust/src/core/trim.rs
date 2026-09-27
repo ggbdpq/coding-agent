@@ -47,7 +47,7 @@ pub fn trim_context(messages: &mut [ChatMessage], limit: usize) -> usize {
             break;
         }
         if let Some(c) = messages[i].content.as_mut() {
-            if c != TRIM_PLACEHOLDER {
+            if !c.is_empty() && c != TRIM_PLACEHOLDER {
                 *c = TRIM_PLACEHOLDER.to_string();
                 trimmed += 1;
             }
@@ -139,5 +139,32 @@ mod tests {
         trim_context(&mut messages, 5000);
         let trimmed = trim_context(&mut messages, 5000);
         assert_eq!(trimmed, 0, "占位消息不应被二次裁剪");
+    }
+
+    #[test]
+    fn 空内容工具输出不裁() {
+        let mut messages = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::assistant(
+                None,
+                vec![ToolCall {
+                    id: "e".into(),
+                    name: "bash".into(),
+                    arguments: "{}".into(),
+                }],
+            ),
+            ChatMessage::tool("e", ""),
+        ];
+        for i in 0..30 {
+            messages.extend(exchange(i, 3000));
+        }
+
+        let trimmed = trim_context(&mut messages, 5000);
+        assert_eq!(trimmed, 18, "只裁 30 条大输出中最旧 18 条，空内容不计");
+        assert_eq!(
+            messages[2].content.as_deref(),
+            Some(""),
+            "空内容 tool 消息不应被替换"
+        );
     }
 }

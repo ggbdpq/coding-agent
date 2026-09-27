@@ -13,7 +13,7 @@
   "scripts": {
     "start": "node bin/tcode.js",
     "check": "tsc --noEmit",
-    "test": "node --test test/edit.test.ts test/context.test.ts test/registry.test.ts test/netguard.test.ts test/events.test.ts test/compact.test.ts test/approval.test.ts test/atrefs.test.ts test/signal.test.ts test/planmode.test.ts test/patch.test.ts test/diff.test.ts",
+    "test": "node --test test/edit.test.ts test/context.test.ts test/registry.test.ts test/netguard.test.ts test/events.test.ts test/loop.test.ts test/compact.test.ts test/approval.test.ts test/atrefs.test.ts test/signal.test.ts test/planmode.test.ts test/patch.test.ts test/diff.test.ts test/retry.test.ts test/systemprompt.test.ts",
     "smoke": "node test/smoke.mjs"
   },
   "devDependencies": {

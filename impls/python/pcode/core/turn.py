@@ -88,10 +88,11 @@ def run_user_turn(app: App, line: str, hooks: TurnHooks) -> None:
                 ),
             ),
         )
-    except BaseException:
+    except BaseException as e:
         # 中断可能留下"有工具调用、无回应"的断尾，补占位保证消息序列对 API 合法。
         # 同步模型里 Ctrl+C（KeyboardInterrupt）也走这里：先修复并落盘，再上抛给壳处理。
-        # 异常路径不发 turn_end：展示方式是壳的事（与 tcode 发 aborted/error 的差异见 README）。
+        # 终态事件与 tcode/go/csharp 对齐：KeyboardInterrupt=aborted，其余=error；
+        # 每轮恰发一个 turn_end，发完仍上抛（展示方式是壳的事）。
         last = app.messages[-1] if app.messages else None
         if last is not None and last.get('role') == 'assistant' and last.get('tool_calls'):
             answered = {
@@ -107,6 +108,10 @@ def run_user_turn(app: App, line: str, hooks: TurnHooks) -> None:
                         }
                     )
         append_since()
+        if isinstance(e, KeyboardInterrupt):
+            emit(TurnEnd(reason='aborted'))
+        else:
+            emit(TurnEnd(reason='error', error=str(e)))
         raise
     append_since()
     emit(TurnEnd(reason='completed'))

@@ -85,7 +85,7 @@ class YoloRef:
 # 每个变体一个 dataclass；类变量 type 是固定判别标识（ClassVar 不进 __init__/__eq__）。
 
 # turn 终态原因：completed=模型收尾；aborted=用户中止；error=异常。
-# 同步模型里 pcode 的异常路径不发 turn_end（先断尾修复落盘再上抛），保留三值与 tcode 对齐。
+# 同步模型里 aborted 由 KeyboardInterrupt（Ctrl+C）触发，error 由异常触发，与 tcode 对齐。
 TurnEndReason = Literal['completed', 'aborted', 'error']
 
 
@@ -174,7 +174,7 @@ class Usage:
 
 @dataclass
 class TurnEnd:
-    """一轮结束；同步模型下 pcode 只发 completed（异常路径不发，直接上抛）。"""
+    """一轮结束；异常路径发 aborted/error 后仍上抛（每轮恰一个终态事件）。"""
 
     reason: TurnEndReason
     error: str | None = None

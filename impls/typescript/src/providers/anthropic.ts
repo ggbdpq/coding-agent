@@ -139,48 +139,58 @@ export class AnthropicProvider implements ChatClient {
     }
     if (!res.body) throw new Error('响应没有正文流');
 
-    // 事件装配：text_delta 累加正文；tool_use 块按 index 收 input_json_delta 碎片
+    // 事件装配：text_delta 累加正文；tool_use 块按 index 收 input_json_delta 碎片。
+    // 仅首字节前可重试：正文已开始接收后，读流中断一律改写为不可重试的普通错误；
+    // 流内 error 事件置标志后停读（与 rust 的 in_stream_error 同法），避免被二次包装
     let text = '';
     const toolBlocks = new Map<number, { id: string; name: string; json: string }>();
+    let streamErrorMsg: string | null = null;
 
-    for await (const data of sseData(res.body)) {
-      let ev: AnthropicEvent;
-      try {
-        ev = JSON.parse(data);
-      } catch {
-        continue;
-      }
-      if (ev.type === 'error') {
-        throw new Error(`流内错误：${ev.error?.message ?? data}`);
-      }
-      if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
-        toolBlocks.set(ev.index ?? 0, {
-          id: ev.content_block.id ?? '',
-          name: ev.content_block.name ?? '',
-          json: '',
-        });
-        continue;
-      }
-      if (ev.type === 'content_block_delta') {
-        const d = ev.delta ?? {};
-        if (d.type === 'text_delta' && d.text) {
-          text += d.text;
-          opts.onText?.(d.text);
-        } else if (d.type === 'input_json_delta' && d.partial_json) {
-          const b = toolBlocks.get(ev.index ?? 0);
-          if (b) b.json += d.partial_json;
+    try {
+      for await (const data of sseData(res.body)) {
+        let ev: AnthropicEvent;
+        try {
+          ev = JSON.parse(data);
+        } catch {
+          continue;
         }
+        if (ev.type === 'error') {
+          streamErrorMsg = `流内错误：${ev.error?.message ?? data}`;
+          break;
+        }
+        if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+          toolBlocks.set(ev.index ?? 0, {
+            id: ev.content_block.id ?? '',
+            name: ev.content_block.name ?? '',
+            json: '',
+          });
+          continue;
+        }
+        if (ev.type === 'content_block_delta') {
+          const d = ev.delta ?? {};
+          if (d.type === 'text_delta' && d.text) {
+            text += d.text;
+            opts.onText?.(d.text);
+          } else if (d.type === 'input_json_delta' && d.partial_json) {
+            const b = toolBlocks.get(ev.index ?? 0);
+            if (b) b.json += d.partial_json;
+          }
+        }
+        // message_start/message_delta 携带 token 用量（R5：usage 进事件）
+        const usage = ev.type === 'message_start' ? ev.message?.usage : ev.usage;
+        if (usage && (usage.input_tokens || usage.output_tokens)) {
+          opts.onUsage?.({
+            prompt_tokens: usage.input_tokens ?? 0,
+            completion_tokens: usage.output_tokens ?? 0,
+          });
+        }
+        // message_delta / message_stop / ping：块拼完即返回，无需特殊处理
       }
-      // message_start/message_delta 携带 token 用量（R5：usage 进事件）
-      const usage = ev.type === 'message_start' ? ev.message?.usage : ev.usage;
-      if (usage && (usage.input_tokens || usage.output_tokens)) {
-        opts.onUsage?.({
-          prompt_tokens: usage.input_tokens ?? 0,
-          completion_tokens: usage.output_tokens ?? 0,
-        });
-      }
-      // message_delta / message_stop / ping：块拼完即返回，无需特殊处理
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      throw new Error(`流中断：${(e as Error).message}`);
     }
+    if (streamErrorMsg) throw new Error(streamErrorMsg);
 
     const tool_calls: ToolCall[] = [...toolBlocks.entries()]
       .sort(([a], [b]) => a - b)

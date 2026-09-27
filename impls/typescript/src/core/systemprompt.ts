@@ -20,12 +20,9 @@ export function skillIndex(dirs: string[]): string | null {
   for (const rawDir of dirs) {
     const dir = path.resolve(rawDir);
     if (!existsSync(dir)) continue;
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      continue;
-    }
+    // 目录存在但读不了（如权限）：必须上抛——静默空索引会让模型以为没有技能
+    // （学自 ZCode skills/scan.ts 的错误契约：只吞 ENOENT，existsSync 已兜住不存在）
+    const entries = readdirSync(dir);
     for (const f of entries.filter((x) => x.endsWith('.md'))) {
       const full = path.resolve(dir, f);
       // 边界自检（规范惯用法）：文件必须位于技能目录之内

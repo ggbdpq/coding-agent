@@ -58,7 +58,7 @@ func TrimContext(messages []kernel.ChatMessage, limit int) int {
 			break
 		}
 		m := &messages[i]
-		if m.Content != nil && *m.Content != TrimPlaceholder {
+		if m.Content != nil && *m.Content != "" && *m.Content != TrimPlaceholder {
 			m.Content = kernel.StrPtr(TrimPlaceholder)
 			trimmed++
 		}

@@ -153,3 +153,25 @@ test('compact：用户中止时原历史原封不动', async () => {
   await assert.rejects(compactContext(app, { signal: ac.signal }), (e: Error) => e.name === 'AbortError');
   assert.equal(app.messages.length, 21);
 });
+
+test('compact：savedTokens 按全局唯一估算口径计（计入 tool_call name）', async () => {
+  // 早段放一条长 name 的 tool_call（在被摘要区），尾部 4 条为纯 user/assistant：
+  // before = ceil(400/3) = 134，after = ceil(94/3) = 32 → 按规格公式 savedTokens = 102；
+  // 若用不计 name 的私有估算，before = ceil(100/3) = 34 → saved = 2，测试即红。
+  const messages: ChatMessage[] = [
+    { role: 'system', content: '系统提示' },
+    { role: 'user', content: 'q0' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'x'.repeat(300), arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'r1' },
+    { role: 'user', content: 'u1' },
+    { role: 'user', content: 'u2' },
+    { role: 'assistant', content: 'a2' },
+    { role: 'user', content: 'u3' },
+    { role: 'assistant', content: 'a3' },
+  ];
+  const app = fakeApp(summarizer, fakeStore(), messages);
+
+  const { savedTokens } = await compactContext(app, {});
+
+  assert.equal(savedTokens, 102, 'savedTokens 必须与 trim 的全局估算同口径');
+});

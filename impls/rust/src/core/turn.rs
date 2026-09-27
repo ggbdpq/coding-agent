@@ -140,7 +140,7 @@ fn fix_dangling_tool_calls(messages: &mut Vec<ChatMessage>) {
         .collect();
     for tc in &last.tool_calls {
         if !answered.contains(&tc.id) {
-            messages.push(ChatMessage::tool(tc.id.clone(), "（本轮出错，未执行）"));
+            messages.push(ChatMessage::tool(tc.id.clone(), "（用户中止，未执行）"));
         }
     }
 }
@@ -384,6 +384,79 @@ mod tests {
         assert!(
             matches!(events.last().unwrap(), AgentEvent::TurnEnd { reason: TurnEndReason::Error, .. }),
             "治理后本轮照常走 turn，终态为 error"
+        );
+    }
+
+    /// 断尾修复的占位文本是家族统一契约（tcode/py/go/cs 同文「（用户中止，未执行）」）。
+    #[test]
+    fn 断尾补占位文本对齐家族契约() {
+        let mut messages = vec![
+            ChatMessage::user("hi"),
+            ChatMessage::assistant(
+                None,
+                vec![ToolCall { id: "c1".into(), name: "fake".into(), arguments: "{}".into() }],
+            ),
+        ];
+        fix_dangling_tool_calls(&mut messages);
+        assert_eq!(messages.len(), 3, "悬空调用应被补占位");
+        assert_eq!(
+            messages.last().unwrap().content.as_deref(),
+            Some("（用户中止，未执行）"),
+            "占位文本是家族统一契约"
+        );
+    }
+
+    /// 熔断契约：40 = 带工具的模型请求上限；耗尽后不带工具再请求一次强制总结。
+    struct AlwaysToolCall {
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl ChatClient for AlwaysToolCall {
+        fn chat(
+            &self,
+            _messages: &[ChatMessage],
+            opts: &ChatOptions,
+        ) -> Result<CompletionResult, ChatError> {
+            let n = self.calls.get() + 1;
+            self.calls.set(n);
+            if n <= 40 {
+                return Ok(CompletionResult {
+                    message: ChatMessage::assistant(
+                        None,
+                        vec![ToolCall {
+                            id: "c1".into(),
+                            name: "fake".into(),
+                            arguments: "{}".into(),
+                        }],
+                    ),
+                });
+            }
+            if let Some(cb) = &opts.on_text {
+                cb("总结");
+            }
+            Ok(CompletionResult { message: ChatMessage::assistant(Some("总结".into()), vec![]) })
+        }
+    }
+
+    #[test]
+    fn 熔断_40轮后强制总结() {
+        let store = Rc::new(RefCell::new(FakeStore::default()));
+        let mut app =
+            fake_app(Rc::new(AlwaysToolCall { calls: std::cell::Cell::new(0) }), store);
+        let events: RefCell<Vec<AgentEvent>> = RefCell::new(Vec::new());
+        {
+            let mut emit = |ev: AgentEvent| events.borrow_mut().push(ev);
+            let result = run_user_turn(&mut app, "做事", &TurnHooks { check: None }, &mut emit);
+            assert!(result.is_ok());
+        }
+        assert_eq!(app.messages.len(), 82, "user + 40×(assistant+tool) + 总结");
+        let events = events.borrow();
+        assert!(
+            matches!(
+                events.last().unwrap(),
+                AgentEvent::TurnEnd { reason: TurnEndReason::Completed, .. }
+            ),
+            "熔断总结后应正常收尾"
         );
     }
 

@@ -69,5 +69,23 @@ internal static class TrimTests
             };
             Check.Eq(0, Trim.TrimContext(messages, 10), "占位与 user 消息都不是候选");
         });
+        Runner.Case("trim：空内容工具输出不裁——无可省内容，替换反而增加预算", () =>
+        {
+            var messages = new List<ChatMessage>
+            {
+                new ChatMessage { Role = "system", Content = "sys" },
+                new ChatMessage { Role = "assistant", ToolCalls = [new ToolCall("e", "bash", "{}")] },
+                ChatMessage.Tool("e", ""),
+            };
+            for (var i = 0; i < 30; i++)
+            {
+                messages.Add(new ChatMessage { Role = "assistant", ToolCalls = [new ToolCall($"c{i}", "bash", "{}")] });
+                messages.Add(ToolWith(3000));
+            }
+            var trimmed = Trim.TrimContext(messages, 5000);
+
+            Check.Eq(18, trimmed, "只裁 30 条大输出中最旧 18 条，空内容不计");
+            Check.Eq("", messages[2].Content, "空内容 tool 消息不应被替换");
+        });
     }
 }
