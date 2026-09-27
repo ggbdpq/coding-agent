@@ -1,0 +1,6 @@
+# Python 构建产物（历史误跟踪，已解除）
+__pycache__/
+*.pyc
+
+# 本地 agent 运行状态（.mimosa），不入版本控制
+.mimosa/
