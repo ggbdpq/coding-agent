@@ -1,0 +1,3 @@
+# 跨平台一致性：仓库内统一 LF（学自 gh/language——字节级对照依赖稳定行尾，
+# 同时消除 Windows autocrlf 的行尾告警与漂移）。
+* text=auto eol=lf
