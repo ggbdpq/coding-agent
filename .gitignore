@@ -4,3 +4,7 @@ __pycache__/
 
 # 本地 agent 运行状态（.mimosa），不入版本控制
 .mimosa/
+
+# conformance 产物
+conformance/.artifacts/
+conformance/reports/
