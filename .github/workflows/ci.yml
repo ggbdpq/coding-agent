@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  family-tests:
+    name: family tests (${{ matrix.lang }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lang: [typescript, python, go, rust, csharp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: matrix.lang == 'typescript'
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        if: matrix.lang == 'python'
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        if: matrix.lang == 'go'
+        with:
+          go-version: "stable"
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.lang == 'rust'
+      - uses: actions/setup-dotnet@v4
+        if: matrix.lang == 'csharp'
+        with:
+          dotnet-version: "8.0.x"
+      - name: 单元测试 + 冒烟（rust 分隔符契约等 POSIX 侧用例首次获得真实红能力）
+        working-directory: impls/${{ matrix.lang }}
+        run: |
+          set -e
+          case "${{ matrix.lang }}" in
+            typescript) npm test && npm run smoke ;;
+            python) python -m unittest discover -s test && python test/smoke.py ;;
+            go) go test ./... ;;
+            rust) cargo test ;;
+            csharp) dotnet run --project tests ;;
+          esac
+
+  conformance:
+    name: conformance suite (4 scenarios × 5 runtimes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      # 新鲜度门在各适配器内完成构建与校验（L1）；DOTNET_ROOT 由 csharp 适配器显式解析（L2）
+      - name: 一致性套件（共享契约 → API 行为 → 跨版等价判定）
+        run: node conformance/run.mjs all
+      - name: 上传一致性报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-reports
+          path: conformance/reports/
