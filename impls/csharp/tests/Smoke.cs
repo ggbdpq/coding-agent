@@ -45,7 +45,8 @@ internal static class Smoke
         if (dir is null)
             throw new Exception("冒烟：从测试输出目录向上找不到 ccode.csproj");
         var root = dir.FullName;
-        _exePath = Path.Combine(root, "bin", "Debug", "net8.0", "ccode.exe");
+        var appHost = OperatingSystem.IsWindows() ? "ccode.exe" : "ccode";
+        _exePath = Path.Combine(root, "bin", "Debug", "net8.0", appHost);
         _dllPath = Path.Combine(root, "bin", "Debug", "net8.0", "ccode.dll");
         _dotnetDir = Path.GetDirectoryName(Environment.ProcessPath) ?? "";
         if (!File.Exists(_exePath) && !File.Exists(_dllPath))
@@ -305,8 +306,11 @@ internal static class Smoke
         }
         else
         {
-            // 兜底：找不到 apphost 时用 dotnet exec 直跑 dll
-            psi.FileName = _dotnetDir.Length > 0 ? Path.Combine(_dotnetDir, "dotnet.exe") : "dotnet";
+            // 兜底：找不到 apphost 时用 dotnet muxer 直跑 dll（muxer 二进制名随平台）
+            var muxer = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+            psi.FileName = _dotnetDir.Length > 0 && File.Exists(Path.Combine(_dotnetDir, muxer))
+                ? Path.Combine(_dotnetDir, muxer)
+                : muxer;
             psi.ArgumentList.Add("exec");
             psi.ArgumentList.Add(_dllPath);
         }
@@ -322,7 +326,10 @@ internal static class Smoke
         env["CCODE_API_KEY"] = "test-key";
         env["CCODE_BASE_URL"] = _serverUrl;
         env["CCODE_MODEL"] = "fake-model";
-        if (_dotnetDir.Length > 0) env["DOTNET_ROOT"] = _dotnetDir;
+        // 仅当探测到真实 muxer 目录时才覆写 DOTNET_ROOT；否则保留外部环境值（CI/自定义安装位前提）
+        var muxerName = OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+        if (_dotnetDir.Length > 0 && File.Exists(Path.Combine(_dotnetDir, muxerName)))
+            env["DOTNET_ROOT"] = _dotnetDir;
         if (envExtra != null)
             foreach (var (key, value) in envExtra)
                 env[key] = value;

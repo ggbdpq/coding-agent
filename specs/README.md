@@ -29,5 +29,7 @@ spec 链接，原始权威文件保留在各 spec 头部。写作纪律见
 
 1. 动笔前先跑四兄弟版的对应模块 diff（对照笔记 `impls/typescript/docs/notes/` 里有差异清单）；
    与 tcode 行为冲突的 spec 是坏 spec——要么改代码要么改规格，不允许规范与现实各说各话。
-2. 冒烟场景（A/B/C/D/F/H）是这套规范的可用可执行面；spec 变更后五版冒烟必须全绿。
+2. 冒烟场景（A/B/C/D/F/H）是各版回归的可用可执行面；跨版一致性验收以根级
+   `conformance/` 套件为准（[ADR-002](../docs/adr/ADR-002-可执行一致性层.md)）——
+   spec 变更后：conformance 全绿 + 五版冒烟全绿。
 3. 一个主题一个文件（`agent-loop.md` 等），写完一个在索引表里把"权威出处"换成 spec 链接。

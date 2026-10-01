@@ -1,7 +1,7 @@
 // 一致性 runner 入口：node conformance/run.mjs <scenario-id|all>
 // 流程：R-schema-1 门 → 逐适配器 prepare(新鲜度门)/execute(只采集) → normalize → diff → 报告。
 // 退出码：0=全 PASS；1=存在 DRIFT；2=存在 INFRA 或门失败（fail closed）。
-import { readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalize, schemaGate } from "./lib/normalize.mjs";
@@ -131,6 +131,7 @@ for (const f of targets) {
   const report = render(scenario, null, results);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const out = join(CONF, "reports", `${scenario.id}-${stamp}.md`);
+  mkdirSync(join(CONF, "reports"), { recursive: true }); // fresh clone 上目录不存在（git 不带空目录）
   writeFileSync(out, report);
   const verdict = report.match(/## 总判定：(\w+)/)?.[1] ?? "UNKNOWN";
   summary.push(`${scenario.id}: ${verdict}`);

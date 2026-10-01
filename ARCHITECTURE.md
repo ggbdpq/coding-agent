@@ -13,17 +13,19 @@ fake 即公共 API）。研究记录见 [docs/ZCode学习笔记.md](docs/ZCode�
 根层 = 共享层                    impls/<lang>/ = 实现层（五版同构）
 ├── ARCHITECTURE.md  本文件      ├── kernel/    契约词汇（零依赖）
 ├── specs/           行为规格    ├── core/      语义层
-├── impls/           五实现      ├── providers/ 网络 IO（双协议 + 重试）
-├── docs/            手册/ADR    ├── plugins/   工具与命令（fs/执行 IO）
-└── references/      历史存档    └── shell/     装配与呈现（进程权威）
+├── conformance/     一致性套件  ├── providers/ 网络 IO（双协议 + 重试）
+├── impls/           五实现      ├── plugins/   工具与命令（fs/执行 IO）
+├── docs/            手册/ADR    └── shell/     装配与呈现（进程权威）
+└── references/      历史存档
 ```
 
 ## 裁决链
 
-**specs/ → impls/typescript 源码（参考实现）→ docs 教程与笔记。**
+**specs/ → conformance/（机器执行面）→ impls/typescript 源码（参考实现）→ docs 教程与笔记。**
 "参考实现不是规范"：实现代码与 spec 冲突时按 [specs/README.md](specs/README.md)
-写作约定 1 处理——要么改代码要么改规格，不允许规范与现实各说各话。
-跨实现重大结构决策走 [docs/adr/](docs/adr/)。
+写作约定 1 处理——要么改代码要么改规格，不允许规范与现实各说各话。conformance 是
+specs 的机器执行面（[ADR-002](docs/adr/ADR-002-可执行一致性层.md)）：场景期望值只锚
+specs，跨版等价由机器判定。跨实现重大结构决策走 [docs/adr/](docs/adr/)。
 
 ## 每层管 / 不管（职责可证伪）
 
