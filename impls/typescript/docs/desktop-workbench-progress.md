@@ -18,6 +18,7 @@
 - 上一轮：模型配置导入／导出——导出脱敏 JSON（不含密钥），导入逐条校验、忽略传入密钥、跳过重复端点，不激活；放宽持久化校验允许空密钥 profile（导入场景），contextLimit 非法仍拒绝。
 - 上一轮：账户余额——用量页新增"账户余额"卡片（打开自动查询＋手动刷新），`GET /usage/balance` 走已保存配置请求端点 `/user/balance`，10 秒超时、失败遮蔽凭证、运行期 409、Anthropic 端点明确提示不支持。
 - 本轮：钥匙串——macOS 上模型密钥经 `security` CLI 存入登录钥匙串，`config.json` 只留 `keyRef` 引用不落明文；切换按引用读取、删除清理条目、引用失效错误可见；`TCODE_KEYSTORE=off` 与无钥匙串平台回退明文（旧行为），旧明文配置兼容读取。
+- 本轮：自动化任务——设置新增"自动化"组，任务以免审批的隔离会话在当前项目后台执行，持久化于 `automations/`；可停止、重启标记中断可继续、结果可查看；修复变更面板 turn_end 的 loadDiff 残留引用。
 - 仅本地提交到 `develop`，不推送、不合入 `main`，构建产物不入库。
 
 ## 已完成
@@ -100,7 +101,7 @@
 | 2 | [ ] Git 审查与撤销闭环（续） | 逐文件审查、修改前快照、选择性撤销、暂存与提交已完成：撤销恢复到本轮快照而非 HEAD，快照后指纹不一致拒绝撤销以保护用户编辑。边界：bash 等命令写入和超过 1MB 的原文不在快照范围；撤销只针对最近一轮；git 提交依赖仓库自身身份配置；Windows/Linux 下 `git diff --no-index` 与中文路径仍未实测。 |
 | 2 | [ ] 多项目日常管理与视觉完善 | 最近项目、归档／恢复、项目移除（只删导航记录，历史保留，重开目录可恢复）、当前／所有项目搜索、侧栏折叠和四组常用快捷键已完成；更多快捷键及视觉细节尚未实现或完整验收。 |
 | 2 | [ ] 模型配置维护 | 多组本地配置、命名、编辑、快捷切换、连接测试、非活动配置删除、模型发现与导入／导出均已完成。导出为脱敏 JSON（结构上不含密钥，仅 hasApiKey 标记）；导入忽略传入密钥、逐条校验并跳过重复端点与非法条目、不激活不改动活动配置；持久化 profile 允许空密钥（使用前须在原端点填写，错误可见）。 |
-| 3 | [ ] 自动化任务 | 无持久化调度、自动化菜单和后台执行闭环；先做一条可停止、可恢复、可查看结果的本地任务。 |
+| 3 | [ ] 自动化任务 | 第一条本地任务闭环已完成：设置 → 自动化创建（当前项目、以免审批的隔离会话运行），任务持久化在数据目录 `automations/`，运行中可停止、服务重启后标记中断可继续、结果与会话过程可回查。尚未做：定时调度、非当前项目、通知与历史清理。 |
 | 3 | [ ] 插件管理／市场与 MCP | 当前仅有源码注册的内置命令和工具；安装、启停、外部 MCP 连接及权限管理未实现，目录页不等同于插件市场。 |
 | 按需 | [ ] Worktree、多任务／子智能体 | 当前一次打开一个操作项目、串行执行一轮；没有 worktree 隔离、并发任务、输入排队及子会话编排。引入前先解决全局 cwd 与状态所有权。 |
 | 按需 | [ ] 长期记忆、Hook、浏览器／电脑控制 | 当前只有 AGENTS.md 和 Markdown 技能；没有对应的产品设置及运行机制。不为了对齐参考产品菜单而先造空入口。 |
@@ -115,8 +116,8 @@
 
 | 边界 | 已运行检查 | 结果 |
 | --- | --- | --- |
-| TypeScript 核心与公共 HTTP/SSE、真实进程／文件 | `npm test` | 179/179：Git 审查与撤销 9 项、项目移除与配置删除回归之外，新增模型发现 4 项、导入／导出 3 项、账户余额 4 项与钥匙串 4 项（保存入串不落明文、双组切换与删除清理、off 回退、引用失效可见）（Bearer 请求 DeepSeek 形状解析、失败遮蔽凭证、未配置与 Anthropic 拒绝、运行期 409）（导出脱敏且不改配置、导入忽略密钥／跳过重复端点／不激活／重启生效、非数组与超量拒绝） |
-| 浏览器可见交互 | `npm run test:ui` | 50/50：变更面板逐文件渲染、暂存→提交链路、diff 纯文本转义（无 HTML 注入）、错误与截断提示可见；项目移除按钮、配置删除列表与模型发现候选（datalist）与导出下载／导入文件反馈与用量页余额卡片（自动查询、失败留在卡片内）回归 |
+| TypeScript 核心与公共 HTTP/SSE、真实进程／文件 | `npm test` | 183/183：Git 审查与撤销 9 项、项目移除／配置删除、模型发现 4 项、导入／导出 3 项、账户余额 4 项、钥匙串 4 项之外，本轮新增自动化任务 4 项（创建即执行并真实写文件、停止、重启中断后继续、非法输入拒绝） |
+| 浏览器可见交互 | `npm run test:ui` | 51/51：变更面板逐文件审查、模型发现候选、导入／导出、余额卡片、自动化页创建／停止／继续等回归；设置分组断言更新为八组 |
 | 原生启动与 Tauri IPC/ACL | `npm run test:startup`（在 `desktop/`） | 13/13 本轮实跑通过；本轮未改原生源码 |
 | 核心端到端冒烟 | `npm run smoke` | 7 项通过，使用假 SSE 模型 |
 | 类型与补丁格式 | `npm run check`、`git diff --check` | 通过 |
@@ -135,6 +136,7 @@
 - 工作台 UI：[web.html](../src/shell/web.html)；HTTP/SSE 与会话编排：[web.ts](../src/shell/web.ts)。
 - Git 逐文件审查、暂存、提交与撤销执行：[webgit.ts](../src/shell/webgit.ts)；写前快照日志（工具侧）：[filejournal.ts](../src/plugins/tools/filejournal.ts)。
 - 配置与最近项目：[config.ts](../src/kernel/config.ts)；会话记录：[session.ts](../src/core/session.ts)。
+- 自动化任务存储与执行：[automation.ts](../src/core/automation.ts)；回归：[web-automation.test.mjs](../test/web-automation.test.mjs)。
 - 技能发现与模型索引：[systemprompt.ts](../src/core/systemprompt.ts)。
 - 桌面进程生命周期：[backend.rs](../desktop/src-tauri/src/backend.rs)；原生选择与 ACL：[workspace.rs](../desktop/src-tauri/src/workspace.rs)。
 - 浏览器行为回归：[web-ui.test.mjs](../test/web-ui.test.mjs)；公共服务回归：[web.test.mjs](../test/web.test.mjs)；压缩恢复与真实 CLI：[web-context.test.mjs](../test/web-context.test.mjs)；模型连接：[web-model.test.mjs](../test/web-model.test.mjs)；实际写入审批：[write-trust.test.ts](../test/write-trust.test.ts)。
