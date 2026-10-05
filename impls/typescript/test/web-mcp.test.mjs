@@ -29,6 +29,10 @@ process.stdin.on('data', (chunk) => {
     if (msg.method === 'initialize') respond(msg, { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'fake', version: '1.0.0' } });
     else if (msg.method === 'tools/list') respond(msg, { tools: [{ name: 'echo', description: '回显文本', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }] });
     else if (msg.method === 'tools/call') respond(msg, { content: [{ type: 'text', text: 'echo:' + (msg.params?.arguments?.text ?? '') }] });
+    else if (msg.method === 'resources/list') respond(msg, { resources: [{ uri: 'file:///config', name: '服务配置', description: '当前配置内容' }] });
+    else if (msg.method === 'resources/read') respond(msg, { contents: [{ uri: msg.params?.uri, text: '配置内容正文' }] });
+    else if (msg.method === 'prompts/list') respond(msg, { prompts: [{ name: 'greet', description: '生成问候', arguments: [{ name: 'who' }] }] });
+    else if (msg.method === 'prompts/get') respond(msg, { messages: [{ role: 'user', content: { type: 'text', text: '向 ' + (msg.params?.arguments?.who ?? '世界') + ' 问好' } }] });
   }
 });
 process.stdin.resume();
@@ -49,6 +53,10 @@ async function fixture(t, { enabled = true, transport = 'stdio', trusted = false
       if (msg.method === 'initialize') { res.writeHead(200, { 'content-type': 'application/json', 'mcp-session-id': 'sess-http-1' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'fake-http', version: '1.0.0' } } })); }
       else if (msg.method === 'tools/list') respond({ tools: [{ name: 'echo', description: '回显文本', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }] });
       else if (msg.method === 'tools/call') respond({ content: [{ type: 'text', text: 'echo:' + (msg.params?.arguments?.text ?? '') }] });
+      else if (msg.method === 'resources/list') respond({ resources: [{ uri: 'file:///config', name: '服务配置', description: '当前配置内容' }] });
+      else if (msg.method === 'resources/read') respond({ contents: [{ uri: msg.params?.uri, text: '配置内容正文' }] });
+      else if (msg.method === 'prompts/list') respond({ prompts: [{ name: 'greet', description: '生成问候', arguments: [{ name: 'who' }] }] });
+      else if (msg.method === 'prompts/get') respond({ messages: [{ role: 'user', content: { type: 'text', text: '向 ' + (msg.params?.arguments?.who ?? '世界') + ' 问好' } }] });
       else { res.writeHead(404).end(); }
       return;
     }
@@ -58,10 +66,17 @@ async function fixture(t, { enabled = true, transport = 'stdio', trusted = false
     requests.push(body);
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (value) => res.write(`data: ${JSON.stringify(value)}\n\n`);
+    const user = body.messages.findLast((m) => m.role === 'user')?.content ?? '';
+    const prefix = transport === 'http' ? 'mcp__httponly' : 'mcp__demo';
+    const lastUserIndex = body.messages.map((m) => m.role).lastIndexOf('user');
+    const toolAfterUser = body.messages.slice(lastUserIndex + 1).some((m) => m.role === 'tool');
     const hasToolResult = body.messages.some((m) => m.role === 'tool');
-    if (!hasToolResult) {
-      const toolName = `mcp__${transport === 'http' ? 'httponly' : 'demo'}__echo`;
-      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: toolName, arguments: JSON.stringify({ text: 'hi' }) } }] } }] });
+    if (user.includes('读取') && !toolAfterUser) {
+      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: `${prefix}__read_resource`, arguments: JSON.stringify({ uri: 'file:///config' }) } }] } }] });
+    } else if (user.includes('提示词') && !toolAfterUser) {
+      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: `${prefix}__get_prompt`, arguments: JSON.stringify({ name: 'greet', arguments: { who: '世界' } }) } }] } }] });
+    } else if (!hasToolResult) {
+      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: `${prefix}__echo`, arguments: JSON.stringify({ text: 'hi' }) } }] } }] });
     } else {
       send({ choices: [{ delta: { content: '工具结果已收到：' + body.messages.findLast((m) => m.role === 'tool')?.content } }] });
     }
@@ -196,4 +211,37 @@ test('HTTP Streamable 传输：连接测试列出工具、桥接调用经审批�
   const state = await approvedTurn(h);
   assert.match(state.messages.at(-1).content, /echo:hi/, 'HTTP 工具调用结果回传模型');
   assert.equal((await h.post('mcp/servers', { name: 'bad-url', url: 'ftp://x/mcp', enabled: true })).status, 400);
+});
+
+test('资源与提示词桥接：聚合工具读取资源正文、获取提示词模板', async (t) => {
+  const h = await fixture(t);
+  await until(async () => (await h.state()).capabilities.tools.some((tool) => tool.name === 'mcp__demo__read_resource'), '资源聚合工具桥接');
+  const tools = (await h.state()).capabilities.tools.map((tool) => tool.name);
+  assert.equal(tools.includes('mcp__demo__get_prompt'), true, '提示词聚合工具桥接');
+
+  await h.post('send', { text: '读取 file:///config 资源' });
+  const mark = Date.now();
+  while (Date.now() < mark + 5000) {
+    const state = await h.state();
+    const pending = state.pending?.[0];
+    if (pending) await h.post('permission', { id: pending.id, decision: 'allow' });
+    if (state.status === 'completed' && !state.busy) {
+      assert.match(state.messages.at(-1).content, /配置内容正文/, '资源正文回传模型');
+      break;
+    }
+    await delay(20);
+  }
+  await h.post('send', { text: '用 greet 提示词生成问候' });
+  const mark2 = Date.now();
+  while (Date.now() < mark2 + 5000) {
+    const state = await h.state();
+    const pending = state.pending?.[0];
+    if (pending) await h.post('permission', { id: pending.id, decision: 'allow' });
+    if (state.status === 'completed' && !state.busy) {
+      assert.match(state.messages.at(-1).content, /向 世界 问好|向 .* 问好/, '提示词模板文本回传模型');
+      return;
+    }
+    await delay(20);
+  }
+  throw new Error('提示词轮未在时限内完成');
 });

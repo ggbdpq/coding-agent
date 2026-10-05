@@ -35,6 +35,8 @@ const CALL_TIMEOUT = 60_000;
 export class McpManager {
   private readonly connections = new Map<string, Promise<Connection>>();
   private readonly toolsCache = new Map<string, McpTool[]>();
+  private readonly resourcesCache = new Map<string, Array<{ uri: string; name: string; description?: string }>>();
+  private readonly promptsCache = new Map<string, Array<{ name: string; description?: string; arguments?: Array<{ name: string }> }>>();
 
   /** 已启用服务器的工具桥接列表；停用的服务器回收进程 */
   toolPlugins(servers: McpServerConfig[], cwd: string): ToolPlugin[] {
@@ -44,14 +46,43 @@ export class McpManager {
       for (const tool of this.toolsCache.get(server.id) ?? []) {
         plugins.push(this.wrap(server, tool, cwd));
       }
+      // 资源与提示词聚合工具：description 内嵌清单，模型自主选择 uri/name
+      if ((this.resourcesCache.get(server.id) ?? []).length) {
+        plugins.push({
+          name: `mcp__${server.name}__read_resource`,
+          kind: 'tool',
+          description: `读取 MCP 服务器 ${server.name} 的资源正文。可用资源：\n${this.describeResources(server.id)}`,
+          parameters: { type: 'object', properties: { uri: { type: 'string', description: '要读取的资源 URI' } }, required: ['uri'] },
+          needsPermission: true,
+          skipPermission: server.trusted ? () => true : undefined,
+          preview: (args) => `读取 MCP 资源 ${String(args?.uri ?? '')}（服务器 ${server.name}）`,
+          run: async (args) => this.readResource(server, cwd, String(args?.uri ?? '')),
+        });
+      }
+      if ((this.promptsCache.get(server.id) ?? []).length) {
+        plugins.push({
+          name: `mcp__${server.name}__get_prompt`,
+          kind: 'tool',
+          description: `获取 MCP 服务器 ${server.name} 的提示词模板生成文本。可用提示词：\n${this.describePrompts(server.id)}`,
+          parameters: { type: 'object', properties: { name: { type: 'string', description: '提示词名称' }, arguments: { type: 'object', description: '模板参数' } }, required: ['name'] },
+          needsPermission: true,
+          skipPermission: server.trusted ? () => true : undefined,
+          preview: (args) => `获取 MCP 提示词 ${String(args?.name ?? '')}（服务器 ${server.name}）`,
+          run: async (args) => this.getPrompt(server, cwd, String(args?.name ?? ''), args?.arguments as Record<string, unknown> | undefined),
+        });
+      }
     }
     return plugins;
   }
 
-  /** 连接测试：返回工具名列表 */
-  async test(server: McpServerConfig, cwd: string): Promise<string[]> {
+  /** 连接测试：返回工具/资源/提示词清单 */
+  async test(server: McpServerConfig, cwd: string): Promise<{ tools: string[]; resources: number; prompts: number }> {
     const connection = await this.ensureConnected(server, cwd);
-    return connection.tools.map((tool) => tool.name);
+    return {
+      tools: connection.tools.map((tool) => tool.name),
+      resources: (this.resourcesCache.get(server.id) ?? []).length,
+      prompts: (this.promptsCache.get(server.id) ?? []).length,
+    };
   }
 
   /** 配置删除/停用时回收子进程与缓存 */
@@ -59,6 +90,8 @@ export class McpManager {
     const pending = this.connections.get(serverId);
     this.connections.delete(serverId);
     this.toolsCache.delete(serverId);
+    this.resourcesCache.delete(serverId);
+    this.promptsCache.delete(serverId);
     if (pending) void pending.then((connection) => connection.shutdown()).catch(() => {});
   }
 
@@ -70,6 +103,8 @@ export class McpManager {
     connecting.catch(() => {
       this.connections.delete(server.id);
       this.toolsCache.delete(server.id);
+      this.resourcesCache.delete(server.id);
+      this.promptsCache.delete(server.id);
     });
     return connecting;
   }
@@ -141,6 +176,7 @@ export class McpManager {
       const listed = (await Promise.race([connection.request('tools/list', {}, REQUEST_TIMEOUT), deadline])) as { tools?: McpTool[] };
       connection.tools = Array.isArray(listed.tools) ? listed.tools : [];
       this.toolsCache.set(server.id, connection.tools);
+      await this.loadCapabilities(server.id, connection);
     } catch (error) {
       connection.shutdown();
       failAll((error as Error).message);
@@ -214,6 +250,7 @@ export class McpManager {
       const listed = (await Promise.race([connection.request('tools/list', {}, REQUEST_TIMEOUT), deadline])) as { tools?: McpTool[] };
       connection.tools = Array.isArray(listed.tools) ? listed.tools : [];
       this.toolsCache.set(server.id, connection.tools);
+      await this.loadCapabilities(server.id, connection);
     } catch (error) {
       connection.shutdown();
       this.connections.delete(server.id);
@@ -221,6 +258,46 @@ export class McpManager {
       throw error;
     }
     return connection;
+  }
+
+  /** 连接后拉取资源与提示词清单（失败不阻塞工具桥接，仅缺失该能力） */
+  private async loadCapabilities(serverId: string, connection: Connection): Promise<void> {
+    try {
+      const listed = await connection.request('resources/list', {}, REQUEST_TIMEOUT) as { resources?: Array<{ uri: string; name: string; description?: string }> };
+      this.resourcesCache.set(serverId, Array.isArray(listed.resources) ? listed.resources : []);
+    } catch { this.resourcesCache.delete(serverId); }
+    try {
+      const listed = await connection.request('prompts/list', {}, REQUEST_TIMEOUT) as { prompts?: Array<{ name: string; description?: string; arguments?: Array<{ name: string }> }> };
+      this.promptsCache.set(serverId, Array.isArray(listed.prompts) ? listed.prompts : []);
+    } catch { this.promptsCache.delete(serverId); }
+  }
+
+  private describeResources(serverId: string): string {
+    const resources = this.resourcesCache.get(serverId) ?? [];
+    return resources.map((resource) => `${resource.uri} — ${resource.name}`).join('\n') || '（服务器未提供资源）';
+  }
+
+  private describePrompts(serverId: string): string {
+    const prompts = this.promptsCache.get(serverId) ?? [];
+    return prompts.map((prompt) => `${prompt.name} — ${prompt.description ?? ''}`).join('\n') || '（服务器未提供提示词）';
+  }
+
+  /** 读取资源正文（resources/read） */
+  private async readResource(server: McpServerConfig, cwd: string, uri: string): Promise<string> {
+    const connection = await this.ensureConnected(server, cwd);
+    const result = await connection.request('resources/read', { uri }, CALL_TIMEOUT);
+    const contents = Array.isArray(result.contents) ? result.contents as Array<{ text?: string }> : [];
+    const text = contents.map((block) => typeof block?.text === 'string' ? block.text : JSON.stringify(block)).join('\n');
+    return text || '（资源无文本内容）';
+  }
+
+  /** 获取提示词模板生成的消息文本（prompts/get） */
+  private async getPrompt(server: McpServerConfig, cwd: string, name: string, args: Record<string, unknown> | undefined): Promise<string> {
+    const connection = await this.ensureConnected(server, cwd);
+    const result = await connection.request('prompts/get', { name, arguments: args ?? {} }, CALL_TIMEOUT);
+    const messages = Array.isArray(result.messages) ? result.messages as Array<{ content?: { text?: string } }> : [];
+    const text = messages.map((message) => typeof message.content?.text === 'string' ? message.content.text : JSON.stringify(message.content)).join('\n');
+    return text || '（提示词未生成文本）';
   }
 
   private async callTool(connection: Connection, toolName: string, args: Record<string, unknown>): Promise<string> {
