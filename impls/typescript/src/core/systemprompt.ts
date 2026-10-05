@@ -55,6 +55,26 @@ export function skillIndex(dirs: string[]): string | null {
   return skills.length ? ['## 可用技能（按需用 read 读取全文）', ...skills.map((skill) => `- ${skill.path}：${skill.description}（用 read 工具按需读取全文）`)].join('\n') : null;
 }
 
+const MAX_MEMORY_LINES = 200;
+
+/** 记忆注入整理：按行去重（保留首次出现），超过上限保留最新并提示省略；文件本身不动 */
+export function memorySection(content: string): string | null {
+  const lines = content.trim().split('\n').filter((line) => line.trim() && !line.startsWith('#'));
+  if (!lines.length) return null;
+  const seen = new Set<string>();
+  const entries: string[] = [];
+  for (const line of lines) {
+    if (seen.has(line)) continue;
+    seen.add(line);
+    entries.push(line);
+  }
+  const omitted = entries.length - MAX_MEMORY_LINES;
+  const kept = omitted > 0 ? entries.slice(omitted) : entries;
+  const head = ['# 长期记忆（memory.md，跨会话沉淀，供参考不必复述；新增条目用 memory_append 工具追加）'];
+  if (omitted > 0) head.push(`（已省略最早 ${omitted} 条，完整内容见 memory.md）`);
+  return [...head, ...kept].join('\n');
+}
+
 export function buildSystemPrompt(cwd: string, homeDir?: string, dataDir?: string): string {
   const home = path.resolve(homeDir ?? homedir());
   const globalDir = path.resolve(dataDir ?? path.join(home, '.tcode'));
@@ -75,7 +95,8 @@ export function buildSystemPrompt(cwd: string, homeDir?: string, dataDir?: strin
   const global = readIfExists(path.join(globalDir, 'AGENTS.md'));
   if (global) parts.push('', '# 用户全局指令（~/.tcode/AGENTS.md）', global);
   const memory = readIfExists(path.join(globalDir, 'memory.md'));
-  if (memory) parts.push('', '# 长期记忆（memory.md，跨会话沉淀，供参考不必复述；新增条目用 memory_append 工具追加）', memory);
+  const memoryBlock = memory ? memorySection(memory) : null;
+  if (memoryBlock) parts.push('', memoryBlock);
   const project = readIfExists(path.join(path.resolve(cwd), 'AGENTS.md'));
   if (project) parts.push('', '# 项目指令（AGENTS.md）', project);
   const skills = skillIndex([

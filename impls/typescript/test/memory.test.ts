@@ -84,3 +84,26 @@ test('memory_append 工具的注入说明进入系统提示词', () => {
   const prompt = buildSystemPrompt('/tmp/whatever', dir, dir);
   assert.match(prompt, /memory_append/, '模型须知如何沉淀记忆');
 });
+
+test('注入时自动整理：重复行折叠、超过 200 条保留最新并提示省略', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'tcode-mem-'));
+  const lines = Array.from({ length: 210 }, (_, i) => `- 记忆 ${i + 1}`);
+  lines.push('- 记忆 5', '- 记忆 5', '', '- 记忆 5');
+  writeFileSync(path.join(dir, 'memory.md'), ['# 长期记忆', ...lines].join('\n'));
+  const prompt = buildSystemPrompt('/tmp/whatever', dir, dir);
+  const memoryBlock = prompt.slice(prompt.indexOf('# 长期记忆'));
+  const count = (memoryBlock.match(/^- 记忆 \d+$/gm) ?? []).length;
+  assert.equal(count, 200, '注入恰好 200 条内容行');
+  assert.match(memoryBlock, /已省略最早 10 条/, '截断提示可见（210 条唯一内容行保留最新 200 条）');
+  assert.match(memoryBlock, /- 记忆 210/, '保留的是最新条目');
+  const firstOccurrence = memoryBlock.indexOf('- 记忆 5\n');
+  assert.equal(memoryBlock.indexOf('- 记忆 5\n', firstOccurrence + 1), -1, '重复行折叠为一次');
+});
+
+test('条数上限内不出现省略提示', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'tcode-mem-'));
+  writeFileSync(path.join(dir, 'memory.md'), '- 唯一一条\n');
+  const prompt = buildSystemPrompt('/tmp/whatever', dir, dir);
+  assert.doesNotMatch(prompt, /已省略最早/);
+  assert.match(prompt, /- 唯一一条/);
+});
