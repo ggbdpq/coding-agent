@@ -3,6 +3,7 @@
 // 这里只声明最小的结构化接口。
 import type { Config } from './config.ts';
 import type { Registry } from './registry.ts';
+import type { ToolPlugin } from './plugin.ts';
 import type { ChatClient, ChatMessage, YoloRef } from './types.ts';
 
 export const VERSION = '0.5.0';
@@ -33,6 +34,8 @@ export interface App {
   config: Config;
   registry: Registry;
   provider: ChatClient;
+  /** MCP 桥接工具（外部服务器启用时）；缺省为空 */
+  mcpTools?: () => ToolPlugin[];
   store: SessionStoreLike;
   yolo: YoloRef;
   /** Plan Mode（只读规划）：开启时写类工具被 agentloop 拒绝 */

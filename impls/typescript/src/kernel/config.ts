@@ -56,7 +56,19 @@ export interface Config {
   preferences?: WebPreferences;
   modelProfiles?: ModelProfile[];
   activeModelProfileId?: string | null;
+  /** 外部 MCP 工具服务器（stdio）；enabled 控制是否桥接进工具列表 */
+  mcpServers?: McpServerConfig[];
   configError?: string;
+}
+
+export interface McpServerConfig {
+  id: string;
+  /** 工具名标识：^[a-zA-Z0-9_-]{1,40}$，桥接为 mcp__<name>__<tool> */
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  enabled: boolean;
 }
 
 interface FileConfig {
@@ -75,6 +87,7 @@ interface FileConfig {
   preferences?: WebPreferences;
   modelProfiles?: ModelProfile[];
   activeModelProfileId?: string | null;
+  mcpServers?: McpServerConfig[];
 }
 
 function readJsonConfig(tcodeDir: string): FileConfig {
@@ -112,6 +125,17 @@ function readJsonConfig(tcodeDir: string): FileConfig {
       }
     }
     if (fields.activeModelProfileId !== undefined && fields.activeModelProfileId !== null && (typeof fields.activeModelProfileId !== 'string' || !(fields.modelProfiles as ModelProfile[] | undefined)?.some((profile) => profile.id === fields.activeModelProfileId))) throw new Error();
+    if (fields.mcpServers !== undefined) {
+      if (!Array.isArray(fields.mcpServers)) throw new Error();
+      const ids = new Set<string>();
+      for (const server of fields.mcpServers as McpServerConfig[]) {
+        if (!server || typeof server.id !== 'string' || !server.id || typeof server.name !== 'string' || !/^[a-zA-Z0-9_-]{1,40}$/.test(server.name) || ids.has(server.id)) throw new Error();
+        if (typeof server.command !== 'string' || !server.command || server.enabled !== true && server.enabled !== false) throw new Error();
+        if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some((arg) => typeof arg !== 'string'))) throw new Error();
+        if (server.env !== undefined && (typeof server.env !== 'object' || server.env === null || Object.values(server.env).some((value) => typeof value !== 'string'))) throw new Error();
+        ids.add(server.id);
+      }
+    }
     return value as FileConfig;
   } catch {
     throw new Error('config.json 的格式或字段无效，请在模型设置中重新保存');
@@ -193,7 +217,7 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
     : apiKey === selected.apiKey) : false;
   const activeModelProfileId = selected && keyMatches && selected.baseUrl === baseUrl && selected.model === model
     && selected.protocol === protocol && selected.contextLimit === contextLimit ? selected.id : null;
-  return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, contextLimit, tcodeDir, modelProfiles: file.modelProfiles ?? [], activeModelProfileId,
+  return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, contextLimit, tcodeDir, modelProfiles: file.modelProfiles ?? [], mcpServers: file.mcpServers ?? [], activeModelProfileId,
     ...(options.allowIncomplete ? { workspace: file.workspace || (options.desktop ? '' : process.cwd()), projects: file.projects ?? [], archivedProjects: file.archivedProjects ?? [], preferences: file.preferences ?? { ...defaultPreferences }, configError } : {}),
   };
 }
@@ -406,6 +430,38 @@ export function deleteModelProfile(current: Config, id: unknown): Config {
   if (profile.keyRef) deleteSecret(keyStoreFor(current.tcodeDir), profile.keyRef);
   persistConfig(current, { modelProfiles });
   return { ...current, modelProfiles };
+}
+
+/** 保存 MCP 服务器配置（有 id 更新、无 id 新建）；仅持久化，不触碰已建立的连接。 */
+export function saveMcpServer(current: Config, input: Record<string, unknown>): Config {
+  const servers = [...(current.mcpServers ?? [])];
+  const id = typeof input.id === 'string' && input.id ? input.id : randomUUID();
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (!name || name.length > 40 || !/^[a-zA-Z0-9_-]+$/.test(name)) throw new ConfigInputError('名称须为 1–40 个字母、数字、下划线或连字符');
+  const command = typeof input.command === 'string' ? input.command.trim() : '';
+  if (!command) throw new ConfigInputError('启动命令不能为空');
+  let args: string[] | undefined;
+  if (input.args !== undefined) {
+    if (!Array.isArray(input.args) || input.args.some((arg) => typeof arg !== 'string')) throw new ConfigInputError('启动参数须为字符串数组');
+    args = input.args as string[];
+  }
+  let env: Record<string, string> | undefined;
+  if (input.env !== undefined) {
+    if (typeof input.env !== 'object' || input.env === null || Array.isArray(input.env) || Object.values(input.env).some((value) => typeof value !== 'string')) throw new ConfigInputError('环境变量须为字符串到字符串的映射');
+    env = input.env as Record<string, string>;
+  }
+  const enabled = input.enabled === true;
+  const index = servers.findIndex((server) => server.id === id);
+  const server: McpServerConfig = { id, name, command, ...(args ? { args } : {}), ...(env ? { env } : {}), enabled };
+  if (index >= 0) servers[index] = server; else servers.push(server);
+  persistConfig(current, { mcpServers: servers });
+  return { ...current, mcpServers: servers };
+}
+
+export function deleteMcpServer(current: Config, id: unknown): Config {
+  const mcpServers = (current.mcpServers ?? []).filter((server) => server.id !== id);
+  persistConfig(current, { mcpServers });
+  return { ...current, mcpServers };
 }
 
 /** 导入模型配置：传入的密钥一律忽略（凭证须在原端点重新填写），重复端点与非法条目逐条报告并跳过；不激活、不改动活动配置。 */

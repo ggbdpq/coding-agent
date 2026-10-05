@@ -10,7 +10,7 @@ import { createPermissionGate, type PermissionDecision } from '../core/permissio
 import { runUserTurn } from '../core/turn.ts';
 import type { AgentEvent } from '../kernel/types.ts';
 import { VERSION, selectProvider, type App } from '../kernel/app.ts';
-import { saveWebConfig, saveModelProfile, selectModelProfile, deleteModelProfile, importModelProfiles, saveWorkspace, saveProjectArchive, removeProject, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
+import { saveWebConfig, saveModelProfile, selectModelProfile, deleteModelProfile, importModelProfiles, saveMcpServer, deleteMcpServer, saveWorkspace, saveProjectArchive, removeProject, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
 import { SessionStore } from '../core/session.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
@@ -18,6 +18,7 @@ import { appendJournal, journalError, loadJournal, resetJournal, saveJournal, se
 import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type ChangesResult } from './webgit.ts';
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
 import { AutomationRunner } from '../core/automation.ts';
+import { McpManager } from '../core/mcp.ts';
 import { fetchBalance, listModels } from '../providers/models.ts';
 import { pickWorkspace } from './workspacepicker.ts';
 
@@ -106,6 +107,12 @@ export async function startWeb(app: App): Promise<void> {
 
   // 自动化任务：隔离会话后台执行，定义与状态持久化在数据目录 automations/
   const automations = new AutomationRunner(app.config.tcodeDir);
+  // 外部 MCP 工具服务器：启用的服务器工具桥接进每轮工具列表
+  const mcp = new McpManager();
+  app.mcpTools = () => mcp.toolPlugins(app.config.mcpServers ?? [], process.cwd());
+  // 启动时预热启用的服务器连接（完成后刷新工具列表）
+  void Promise.all((app.config.mcpServers ?? []).filter((server) => server.enabled)
+    .map((server) => mcp.test(server, process.cwd()).catch(() => {}))).then(() => sendState());
 
   // 写前快照日志：记录本轮 agent 通过 edit/write/apply_patch 修改的文件原文，支撑"撤销本轮修改"。
   // bash 写入无法归因，不在快照范围；日志按会话落盘，重启后仍可撤销上一轮。
@@ -258,7 +265,8 @@ export async function startWeb(app: App): Promise<void> {
       preferences: app.config.preferences ?? { theme: 'system', fontSize: 16, enterToSend: true },
       capabilities: {
         commands: app.registry.commands().map((command) => ({ name: command.name, usage: command.usage, description: command.summary })),
-        tools: app.registry.tools().map((tool) => ({ name: tool.name, description: tool.description })),
+        tools: [...app.registry.tools(), ...(app.mcpTools?.() ?? [])].map((tool) => ({ name: tool.name, description: tool.description })),
+        mcpServers: (app.config.mcpServers ?? []).map(({ env: _env, ...safe }) => safe),
         skills: skillDirectories().flatMap((dir, index) => index && app.config.workspace === '' ? [] : discoverSkills([dir]).map((skill) => ({ ...skill, scope: index ? 'project' : 'global' }))),
       },
       config: { baseUrl, model, protocol: protocol ?? 'auto', contextLimit, workspace: cwd, hasApiKey: !!apiKey,
@@ -340,6 +348,12 @@ export async function startWeb(app: App): Promise<void> {
     abort = new AbortController();
     resetJournal(app.config.tcodeDir, store.currentId ?? 'unknown');
     try {
+      // MCP 工具桥接就绪（连接预热完成或 2 秒上限）后再组装本轮工具
+      await Promise.race([
+        Promise.all((app.config.mcpServers ?? []).filter((server) => server.enabled)
+          .map((server) => mcp.test(server, process.cwd()).catch(() => {}))),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
       await runUserTurn(app, text, {
         check: gate,
         signal: abort.signal,
@@ -514,6 +528,47 @@ export async function startWeb(app: App): Promise<void> {
         json(res, 502, { error: safeError((error as Error).message).slice(0, 400) });
       } finally {
         clearTimeout(timer);
+      }
+      return;
+    }
+    if (req.method === 'POST' && path === '/mcp/servers') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改 MCP 服务器' }); return; }
+      Object.assign(app.config, saveMcpServer(app.config, body));
+      mcp.shutdown(String(body.id ?? '')); // 配置变更后旧连接与工具缓存作废
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/mcp/servers/delete') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能删除 MCP 服务器' }); return; }
+      const id = String(body.id ?? '');
+      Object.assign(app.config, deleteMcpServer(app.config, id));
+      mcp.shutdown(id);
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/mcp/servers/enabled') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改 MCP 服务器' }); return; }
+      const id = String(body.id ?? '');
+      const server = (app.config.mcpServers ?? []).find((entry) => entry.id === id);
+      if (!server) { json(res, 404, { error: '没有这个 MCP 服务器' }); return; }
+      if (typeof body.enabled !== 'boolean') throw new ConfigInputError('enabled 须为布尔值');
+      Object.assign(app.config, saveMcpServer(app.config, { ...server, enabled: body.enabled }));
+      mcp.shutdown(id);
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/mcp/test') {
+      const id = String(body.id ?? '');
+      const server = (app.config.mcpServers ?? []).find((entry) => entry.id === id);
+      if (!server) { json(res, 404, { error: '没有这个 MCP 服务器' }); return; }
+      const previousStatus = status;
+      busy = true; status = 'running'; sendState();
+      try {
+        const tools = await mcp.test(server, process.cwd());
+        status = previousStatus;
+        json(res, 200, { tools });
+      } catch (error) {
+        status = previousStatus;
+        json(res, 502, { error: safeError((error as Error).message) });
+      } finally {
+        sendState();
       }
       return;
     }

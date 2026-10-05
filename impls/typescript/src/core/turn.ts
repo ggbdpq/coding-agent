@@ -53,7 +53,7 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
     mark = app.messages.length - 1;
     await runTurn(app.messages, {
       provider: app.provider,
-      tools: app.registry.tools(),
+      tools: [...app.registry.tools(), ...(app.mcpTools?.() ?? [])],
       app,
       check: hooks.check,
       signal: hooks.signal,

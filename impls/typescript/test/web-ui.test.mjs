@@ -38,10 +38,12 @@ async function withPage(state, routes, verify, { initScript } = {}) {
     if (routes[endpoint]) {
       let raw = ''; req.on('data', (chunk) => { raw += chunk; });
       req.on('end', async () => {
+        console.error('[MOCK] hit', endpoint);
         try { const result = await routes[endpoint](raw ? JSON.parse(raw) : {}, { emit, state }); reply(res, result); }
-        catch (error) { reply(res, { error: error.message }, 400); }
+        catch (error) { console.error('[MOCK] handler error', endpoint, error.message); reply(res, { error: error.message }, 400); }
       }); return;
     }
+    console.error('[MOCK] UNROUTED', req.method, endpoint);
     if (endpoint === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(pageSource()); return; }
     res.writeHead(404).end();
   });
@@ -1209,5 +1211,45 @@ test('自动化设置可创建任务、查看状态与结果、停止与继续',
     await page.getByRole('button', { name: '运行任务', exact: true }).click();
     await page.waitForFunction(() => document.getElementById('automation-name').value === '', undefined, { timeout: 3000 });
     await page.getByText('夜间检查', { exact: true }).waitFor();
+  });
+});
+
+test('命令页可管理 MCP 服务器：添加、测试连接与启停', async () => {
+  const state = initialState();
+  let servers = [];
+  let tested = 0;
+  await withPage(state, {
+    '/mcp/servers': (body) => {
+      const server = { id: body.id || 'srv-1', name: body.name, command: body.command, args: body.args, enabled: body.enabled };
+      if (body.id) servers = servers.map((entry) => (entry.id === body.id ? { ...entry, ...server } : entry));
+      else servers.push(server);
+      state.capabilities.mcpServers = servers; state.seq++;
+      return { ok: true, state };
+    },
+    '/mcp/servers/enabled': (body) => {
+      servers = servers.map((entry) => (entry.id === body.id ? { ...entry, enabled: body.enabled } : entry));
+      state.capabilities.mcpServers = servers; state.seq++;
+      return { ok: true, state };
+    },
+    '/mcp/servers/delete': (body) => {
+      servers = servers.filter((entry) => entry.id !== body.id);
+      state.capabilities.mcpServers = servers; state.seq++;
+      return { ok: true, state };
+    },
+    '/mcp/test': () => { tested++; return { tools: tested === 1 ? ['echo'] : [] }; },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await navigation.getByRole('button', { name: '命令', exact: true }).click();
+    await page.getByRole('button', { name: '添加服务器', exact: true }).click();
+    await page.getByLabel('名称（字母、数字、下划线、连字符）', { exact: true }).fill('demo');
+    await page.getByLabel('启动命令', { exact: true }).fill('node');
+    await page.getByLabel(/启动参数/, { exact: false }).fill('["server.mjs"]');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.getByText('demo', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '测试 MCP 服务器 demo', exact: true }).click();
+    await page.getByText('连接成功，工具：echo', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '停用 demo', exact: true }).click();
+    await page.getByText('demo（已停用）', { exact: true }).waitFor();
   });
 });

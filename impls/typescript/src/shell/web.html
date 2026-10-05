@@ -278,7 +278,15 @@
         <div class="settings-actions"><button type="button" id="skill-cancel">取消编辑</button><button type="submit" class="primary">保存技能</button></div>
       </form>
     </section>
-    <section data-settings="commands" hidden><h1>命令</h1><p class="settings-description">命令作用于当前会话。填入后可以补充参数，再发送执行。</p><div class="settings-card"><h2>可用命令</h2><div id="command-list"></div></div><div class="settings-card"><h2>可用工具</h2><p>模型可调用的本地工具，执行时遵循当前权限设置。</p><div id="tool-list"></div></div></section>
+    <section data-settings="commands" hidden><h1>命令</h1><p class="settings-description">命令作用于当前会话。填入后可以补充参数，再发送执行。</p><div class="settings-card"><h2>可用命令</h2><div id="command-list"></div></div><div class="settings-card"><h2>可用工具</h2><p>模型可调用的本地工具，执行时遵循当前权限设置。</p><div id="tool-list"></div></div>
+      <div class="settings-card"><div class="bar"><h2>外部工具（MCP）</h2><button id="mcp-new">添加服务器</button></div><p>通过 stdio 运行本地 MCP 服务器；其工具以 mcp__名称__工具 的形式加入会话，调用前逐次审批。</p><div id="mcp-error" role="alert"></div><div id="mcp-list"></div>
+        <form id="mcp-form" hidden><h2 id="mcp-form-title">添加 MCP 服务器</h2>
+          <label>名称（字母、数字、下划线、连字符）<input id="mcp-name" required maxlength="40" pattern="[a-zA-Z0-9_-]+" autocomplete="off"></label>
+          <label>启动命令<input id="mcp-command" required placeholder="node" autocomplete="off"></label>
+          <label>启动参数（JSON 数组，可选）<input id="mcp-args" placeholder='["server.mjs","--port","3000"]' autocomplete="off"></label>
+          <label class="inline-check"><input id="mcp-enabled" type="checkbox" checked> 启用（工具加入会话）</label>
+          <div class="bar"><button type="button" id="mcp-cancel" hidden>取消</button><button type="button" class="primary" id="mcp-save">保存</button></div>
+        </form></div></section>
   </main>
 </section>
 </div>
@@ -378,6 +386,9 @@
     renderModelProfiles();
     for (const field of $('settings-page').querySelectorAll('form input, form select, form textarea, form button')) field.disabled = !connected || !!view?.busy || saving || changing || connectionBusy;
     $('skill-new').disabled = !connected || !!view?.busy || saving || changing;
+    for (const button of document.querySelectorAll('#mcp-list button, #automation-list button, #mcp-new')) {
+      button.disabled = !connected || !!view?.busy || saving || changing;
+    }
     $('skill-scope').disabled ||= editingSkill;
     $('settings-close').disabled = saving || changing || connectionBusy;
     for (const button of document.querySelectorAll('[data-section]')) button.disabled = saving || changing || connectionBusy;
@@ -826,7 +837,7 @@
     $('theme').value = preferences.theme; $('font-size').value = String(preferences.fontSize); $('enter-to-send').checked = preferences.enterToSend;
     if (section === 'usage') { void loadUsage(); void loadBalance(); }
     if (section === 'automation') void renderAutomations();
-    if (section === 'commands') renderCommands();
+    if (section === 'commands') { renderCommands(); $('mcp-form').hidden = true; renderMcpServers(); }
     if (section === 'skills') { skillRequest++; $('skill-form').hidden = true; renderSkills(); }
   }
   function renderSkills() {
@@ -913,6 +924,71 @@
     finally { if (request === usageRequest) $('usage-refresh').disabled = false; }
   }
   $('usage-refresh').onclick = loadUsage;
+  let editingMcpId = null;
+  function renderMcpServers() {
+    const fragment = document.createDocumentFragment();
+    for (const server of view.capabilities?.mcpServers || []) {
+      const entry = row('capability-entry', undefined, fragment), bar = row('bar', undefined, entry);
+      const name = document.createElement('code'); name.textContent = server.name + (server.enabled ? '' : '（已停用）');
+      const test = document.createElement('button'); test.textContent = '测试连接'; test.setAttribute('aria-label', '测试 MCP 服务器 ' + server.name);
+      test.onclick = async () => {
+        mcpFeedback(''); test.disabled = true;
+        try { const result = await api('/mcp/test', { id: server.id }); mcpFeedback(`连接成功，工具：${result.tools.join(', ') || '（无）'}`); }
+        catch (error) { mcpFeedback(error.message, true); }
+        finally { test.disabled = false; }
+      };
+      const edit = document.createElement('button'); edit.textContent = '编辑'; edit.setAttribute('aria-label', '编辑 MCP 服务器 ' + server.name);
+      edit.onclick = () => { editingMcpId = server.id; $('mcp-form-title').textContent = '编辑 MCP 服务器 ' + server.name; fillMcpForm(server); };
+      const toggle = document.createElement('button'); toggle.textContent = server.enabled ? '停用' : '启用'; toggle.setAttribute('aria-label', (server.enabled ? '停用 ' : '启用 ') + server.name);
+      toggle.onclick = async () => {
+        mcpFeedback(''); toggle.disabled = true;
+        try { const result = await api('/mcp/servers/enabled', { id: server.id, enabled: !server.enabled }); applyState(result.state); renderMcpServers(); }
+        catch (error) { mcpFeedback(error.message, true); toggle.disabled = false; }
+      };
+      const remove = document.createElement('button'); remove.textContent = '删除'; remove.setAttribute('aria-label', '删除 MCP 服务器 ' + server.name);
+      remove.onclick = async () => {
+        mcpFeedback(''); remove.disabled = true;
+        try { const result = await api('/mcp/servers/delete', { id: server.id }); applyState(result.state); renderMcpServers(); }
+        catch (error) { mcpFeedback(error.message, true); }
+      };
+      bar.append(name, test, edit, toggle, remove);
+      row('settings-path', [server.command, ...(server.args || [])].join(' '), entry);
+    }
+    if (!fragment.childNodes.length) row('dim', '尚未添加 MCP 服务器；添加后其工具会在会话中可用', fragment);
+    $('mcp-list').replaceChildren(fragment);
+  }
+  function mcpFeedback(message, error = false) {
+    $('mcp-error').textContent = message; $('mcp-error').classList.toggle('error', !!message && error);
+    if (message) settingsFeedback('');
+  }
+  function fillMcpForm(server) {
+    editingMcpId = server?.id ?? null;
+    $('mcp-name').value = server?.name || ''; $('mcp-command').value = server?.command || '';
+    $('mcp-args').value = server?.args ? JSON.stringify(server.args) : '';
+    $('mcp-enabled').checked = server?.enabled ?? true;
+    $('mcp-form').hidden = false; $('mcp-cancel').hidden = false; $('mcp-error').textContent = '';
+  }
+  $('mcp-new').onclick = () => { if (!connected || view?.busy || saving || changing) return; fillMcpForm(null); };
+  $('mcp-cancel').onclick = () => { $('mcp-form').hidden = true; $('mcp-cancel').hidden = true; editingMcpId = null; };
+  $('mcp-save').onclick = async () => {
+    if (!connected || view?.busy || saving || changing) return;
+    mcpFeedback('');
+    let args;
+    const rawArgs = $('mcp-args').value.trim();
+    if (rawArgs) { try { args = JSON.parse(rawArgs); } catch { mcpFeedback('启动参数不是有效的 JSON 数组', true); return; } }
+    saving = true; controls();
+    try {
+      const result = await api('/mcp/servers', {
+        ...(editingMcpId ? { id: editingMcpId } : {}),
+        name: $('mcp-name').value.trim(), command: $('mcp-command').value.trim(),
+        ...(args ? { args } : {}), enabled: $('mcp-enabled').checked,
+      });
+      applyState(result.state); editingMcpId = null;
+      $('mcp-form').hidden = true; $('mcp-cancel').hidden = true;
+      renderMcpServers();
+    } catch (error) { mcpFeedback(error.message, true); }
+    finally { saving = false; controls(); }
+  };
   async function loadBalance() {
     const request = ++balanceRequest;
     $('balance-refresh').disabled = true;
