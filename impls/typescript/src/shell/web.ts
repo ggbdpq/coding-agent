@@ -20,6 +20,7 @@ import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type Changes
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
 import { AutomationRunner } from '../core/automation.ts';
 import { McpManager } from '../core/mcp.ts';
+import { setSessionCwd } from '../plugins/tools/pathguard.ts';
 import { mergedCatalog } from '../core/mcp_catalog.ts';
 import { fetchBalance, listModels } from '../providers/models.ts';
 import { pickWorkspace } from './workspacepicker.ts';
@@ -112,6 +113,8 @@ export async function startWeb(app: App): Promise<void> {
   // 外部 MCP 工具服务器：启用的服务器工具桥接进每轮工具列表
   const mcp = new McpManager();
   app.mcpTools = () => mcp.toolPlugins(app.config.mcpServers ?? [], process.cwd());
+  // 会话工作目录注入：与进程 cwd 同步设置（单会话语义），显式化路径解析的所有权
+  setSessionCwd(app.config.workspace ?? process.cwd());
   // 启动时预热启用的服务器连接（完成后刷新工具列表）
   void Promise.all((app.config.mcpServers ?? []).filter((server) => server.enabled)
     .map((server) => mcp.test(server, process.cwd()).catch(() => {}))).then(() => { refreshSystemPrompt(); sendState(); });
@@ -281,7 +284,9 @@ export async function startWeb(app: App): Promise<void> {
 
   function switchWorkspace(next: typeof app.config) {
     const changed = next.workspace !== (app.config.workspace ?? process.cwd());
-    if (next.workspace) process.chdir(next.workspace); Object.assign(app.config, next);
+    if (next.workspace) process.chdir(next.workspace);
+    setSessionCwd(next.workspace ?? null);
+    Object.assign(app.config, next);
     if (changed) {
       resetModes(); app.resetMessages(); app.startSession(); replaceActivity([]);
       const recent = store.listWorkspace(process.cwd()).find((session) => session.id !== store.currentId && session.label);
