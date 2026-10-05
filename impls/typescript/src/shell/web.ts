@@ -845,6 +845,7 @@ export async function startWeb(app: App): Promise<void> {
         });
         const output = safeError((captureBuf ?? []).join('\n').replace(ANSI_RE, ''));
         if (rawCmd === 'new') replaceActivity([]);
+        refreshSystemPrompt(); // /memory 等命令可能改系统提示词来源文件
         sendEvent({ type: 'command', output });
         busy = false;
         json(res, 200, {

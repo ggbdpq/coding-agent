@@ -19,6 +19,7 @@ import compactCommand from './commands/compact.ts';
 import initCommand from './commands/init.ts';
 import sessionsCommand from './commands/sessions.ts';
 import exitCommand from './commands/exit.ts';
+import memoryCommand from './commands/memory.ts';
 import anthropicPlugin from '../providers/anthropic.ts';
 import openaiPlugin from '../providers/openai.ts';
 import replPlugin from '../shell/repl.ts';
@@ -45,6 +46,7 @@ export const builtinPlugins: Plugin[] = [
   compactCommand,
   initCommand,
   sessionsCommand,
+  memoryCommand,
   exitCommand,
   // —— 协议（anthropic 在前按 URL 命中，openai 恒真兜底必须在后） ——
   anthropicPlugin,
