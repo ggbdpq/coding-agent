@@ -112,7 +112,7 @@ export async function startWeb(app: App): Promise<void> {
   app.mcpTools = () => mcp.toolPlugins(app.config.mcpServers ?? [], process.cwd());
   // 启动时预热启用的服务器连接（完成后刷新工具列表）
   void Promise.all((app.config.mcpServers ?? []).filter((server) => server.enabled)
-    .map((server) => mcp.test(server, process.cwd()).catch(() => {}))).then(() => sendState());
+    .map((server) => mcp.test(server, process.cwd()).catch(() => {}))).then(() => { refreshSystemPrompt(); sendState(); });
 
   // 写前快照日志：记录本轮 agent 通过 edit/write/apply_patch 修改的文件原文，支撑"撤销本轮修改"。
   // bash 写入无法归因，不在快照范围；日志按会话落盘，重启后仍可撤销上一轮。
@@ -235,7 +235,7 @@ export async function startWeb(app: App): Promise<void> {
     const marker = '\n# Plan Mode（当前生效）';
     const previous = app.messages[0]?.content ?? '';
     const plan = app.planMode.value && previous.includes(marker) ? previous.slice(previous.indexOf(marker)) : '';
-    app.messages[0] = { role: 'system', content: buildSystemPrompt(app.config.workspace ?? process.cwd(), undefined, app.config.tcodeDir) + plan };
+    app.messages[0] = { role: 'system', content: buildSystemPrompt(app.config.workspace ?? process.cwd(), undefined, app.config.tcodeDir) + plan + mcp.promptSection(app.config.mcpServers ?? []) };
   }
 
   if (app.messages.length > 1) replaceActivity(fromMessages(app.messages));
@@ -535,6 +535,7 @@ export async function startWeb(app: App): Promise<void> {
       if (busy) { json(res, 409, { error: '任务运行期间不能修改 MCP 服务器' }); return; }
       Object.assign(app.config, saveMcpServer(app.config, body));
       mcp.shutdown(String(body.id ?? '')); // 配置变更后旧连接与工具缓存作废
+      refreshSystemPrompt();
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/mcp/servers/delete') {
@@ -552,6 +553,7 @@ export async function startWeb(app: App): Promise<void> {
       if (typeof body.enabled !== 'boolean') throw new ConfigInputError('enabled 须为布尔值');
       Object.assign(app.config, saveMcpServer(app.config, { ...server, enabled: body.enabled }));
       mcp.shutdown(id);
+      refreshSystemPrompt();
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/mcp/test') {

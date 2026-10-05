@@ -245,3 +245,14 @@ test('资源与提示词桥接：聚合工具读取资源正文、获取提示�
   }
   throw new Error('提示词轮未在时限内完成');
 });
+
+test('资源与提示词清单注入系统提示词', async (t) => {
+  const h = await fixture(t);
+  await until(async () => (await h.state()).capabilities.tools.some((tool) => tool.name === 'mcp__demo__read_resource'), '预热完成');
+  await h.post('send', { text: '随便说点什么' });
+  // 第一个模型请求即可验证 system 注入（无需等轮次结束）
+  await until(async () => h.requests.length > 0, '首个模型请求');
+  const system = h.requests.at(-1).messages[0]?.content ?? '';
+  assert.match(system, /file:\/\/\/config — 服务配置/, '资源清单注入系统提示词');
+  assert.match(system, /greet — 生成问候/, '提示词清单注入系统提示词');
+});

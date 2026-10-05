@@ -272,6 +272,22 @@ export class McpManager {
     } catch { this.promptsCache.delete(serverId); }
   }
 
+  /** 系统提示词注入段：启用且已连接服务器的资源/提示词清单；无内容返回空串 */
+  promptSection(servers: McpServerConfig[]): string {
+    const blocks: string[] = [];
+    for (const server of servers) {
+      if (!server.enabled) continue;
+      const resources = this.resourcesCache.get(server.id) ?? [];
+      const prompts = this.promptsCache.get(server.id) ?? [];
+      if (!resources.length && !prompts.length) continue;
+      const lines = [`MCP 服务器 ${server.name}：`];
+      for (const resource of resources) lines.push(`- 资源 ${resource.uri} — ${resource.name}`);
+      for (const prompt of prompts) lines.push(`- 提示词 ${prompt.name} — ${prompt.description ?? ''}（用 ${server.name} 的 get_prompt 工具获取）`);
+      blocks.push(lines.join('\n'));
+    }
+    return blocks.length ? '\n\n# 可用的 MCP 资源与提示词\n' + blocks.join('\n\n') : '';
+  }
+
   private describeResources(serverId: string): string {
     const resources = this.resourcesCache.get(serverId) ?? [];
     return resources.map((resource) => `${resource.uri} — ${resource.name}`).join('\n') || '（服务器未提供资源）';
