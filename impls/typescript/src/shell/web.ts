@@ -561,13 +561,14 @@ export async function startWeb(app: App): Promise<void> {
       const previousStatus = status;
       busy = true; status = 'running'; sendState();
       try {
-        const tools = await mcp.test(server, process.cwd());
+        const result = await mcp.test(server, process.cwd());
         status = previousStatus;
-        json(res, 200, { tools });
+        json(res, 200, result);
       } catch (error) {
         status = previousStatus;
         json(res, 502, { error: safeError((error as Error).message) });
       } finally {
+        busy = false;
         sendState();
       }
       return;
