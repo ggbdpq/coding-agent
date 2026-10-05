@@ -65,7 +65,10 @@ export interface McpServerConfig {
   id: string;
   /** 工具名标识：^[a-zA-Z0-9_-]{1,40}$，桥接为 mcp__<name>__<tool> */
   name: string;
+  /** stdio 传输的启动命令；url 存在时使用 HTTP 传输，此字段可空 */
   command: string;
+  /** HTTP Streamable 传输的端点；存在时优先于 command */
+  url?: string;
   args?: string[];
   env?: Record<string, string>;
   enabled: boolean;
@@ -130,7 +133,15 @@ function readJsonConfig(tcodeDir: string): FileConfig {
       const ids = new Set<string>();
       for (const server of fields.mcpServers as McpServerConfig[]) {
         if (!server || typeof server.id !== 'string' || !server.id || typeof server.name !== 'string' || !/^[a-zA-Z0-9_-]{1,40}$/.test(server.name) || ids.has(server.id)) throw new Error();
-        if (typeof server.command !== 'string' || !server.command || server.enabled !== true && server.enabled !== false) throw new Error();
+        // command 与 url 至少其一：url 为 HTTP 传输，command 为 stdio
+        if (server.command !== undefined && typeof server.command !== 'string') throw new Error();
+        let hasUrl = false;
+        if (server.url !== undefined) {
+          if (typeof server.url !== 'string') throw new Error();
+          try { const parsed = new URL(server.url); hasUrl = ['http:', 'https:'].includes(parsed.protocol); } catch { hasUrl = false; }
+          if (!hasUrl) throw new Error();
+        }
+        if (!server.command && !hasUrl) throw new Error();
         if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some((arg) => typeof arg !== 'string'))) throw new Error();
         if (server.env !== undefined && (typeof server.env !== 'object' || server.env === null || Object.values(server.env).some((value) => typeof value !== 'string'))) throw new Error();
         ids.add(server.id);
@@ -439,7 +450,17 @@ export function saveMcpServer(current: Config, input: Record<string, unknown>): 
   const name = typeof input.name === 'string' ? input.name.trim() : '';
   if (!name || name.length > 40 || !/^[a-zA-Z0-9_-]+$/.test(name)) throw new ConfigInputError('名称须为 1–40 个字母、数字、下划线或连字符');
   const command = typeof input.command === 'string' ? input.command.trim() : '';
-  if (!command) throw new ConfigInputError('启动命令不能为空');
+  let url: string | undefined;
+  if (input.url !== undefined) {
+    if (typeof input.url !== 'string') throw new ConfigInputError('MCP 端点须为 HTTP(S) 地址');
+    url = input.url.trim().replace(/\/+$/, '');
+    if (url) {
+      try { const parsed = new URL(url); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error(); }
+      catch { throw new ConfigInputError('MCP 端点须为 HTTP(S) 地址'); }
+    }
+  }
+  if (!command && !url) throw new ConfigInputError('启动命令或 MCP 端点至少填写一项');
+  if (command && input.url === undefined) url = undefined;
   let args: string[] | undefined;
   if (input.args !== undefined) {
     if (!Array.isArray(input.args) || input.args.some((arg) => typeof arg !== 'string')) throw new ConfigInputError('启动参数须为字符串数组');
@@ -452,7 +473,7 @@ export function saveMcpServer(current: Config, input: Record<string, unknown>): 
   }
   const enabled = input.enabled === true;
   const index = servers.findIndex((server) => server.id === id);
-  const server: McpServerConfig = { id, name, command, ...(args ? { args } : {}), ...(env ? { env } : {}), enabled };
+  const server: McpServerConfig = { id, name, command, ...(url ? { url } : {}), ...(args ? { args } : {}), ...(env ? { env } : {}), enabled };
   if (index >= 0) servers[index] = server; else servers.push(server);
   persistConfig(current, { mcpServers: servers });
   return { ...current, mcpServers: servers };

@@ -34,7 +34,7 @@ process.stdin.on('data', (chunk) => {
 process.stdin.resume();
 `;
 
-async function fixture(t, { enabled = true } = {}) {
+async function fixture(t, { enabled = true, transport = 'stdio' } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tcode-mcp-')));
   const data = path.join(root, 'data'), workspace = path.join(root, 'project');
   for (const directory of [data, workspace]) mkdirSync(directory);
@@ -42,6 +42,16 @@ async function fixture(t, { enabled = true } = {}) {
   writeFileSync(fakeServerPath, FAKE_SERVER);
   const requests = [];
   const provider = createServer(async (req, res) => {
+    if (transport === 'http' && req.method === 'POST' && req.url === '/mcp') {
+      let raw = ''; for await (const chunk of req) raw += chunk;
+      const msg = JSON.parse(raw);
+      const respond = (result) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result })); };
+      if (msg.method === 'initialize') { res.writeHead(200, { 'content-type': 'application/json', 'mcp-session-id': 'sess-http-1' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'fake-http', version: '1.0.0' } } })); }
+      else if (msg.method === 'tools/list') respond({ tools: [{ name: 'echo', description: '回显文本', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }] });
+      else if (msg.method === 'tools/call') respond({ content: [{ type: 'text', text: 'echo:' + (msg.params?.arguments?.text ?? '') }] });
+      else { res.writeHead(404).end(); }
+      return;
+    }
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') { res.writeHead(404).end(); return; }
     let raw = ''; for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
@@ -50,7 +60,8 @@ async function fixture(t, { enabled = true } = {}) {
     const send = (value) => res.write(`data: ${JSON.stringify(value)}\n\n`);
     const hasToolResult = body.messages.some((m) => m.role === 'tool');
     if (!hasToolResult) {
-      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: 'mcp__demo__echo', arguments: JSON.stringify({ text: 'hi' }) } }] } }] });
+      const toolName = `mcp__${transport === 'http' ? 'httponly' : 'demo'}__echo`;
+      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: toolName, arguments: JSON.stringify({ text: 'hi' }) } }] } }] });
     } else {
       send({ choices: [{ delta: { content: '工具结果已收到：' + body.messages.findLast((m) => m.role === 'tool')?.content } }] });
     }
@@ -61,7 +72,9 @@ async function fixture(t, { enabled = true } = {}) {
   writeFileSync(configFile, JSON.stringify({
     apiKey: 'mcp-key', baseUrl: `http://127.0.0.1:${provider.address().port}/v1`, model: 'mcp-model',
     protocol: 'openai', contextLimit: 40000, workspace, approval: 'normal', allowWriteDirs: [workspace],
-    ...(enabled ? { mcpServers: [{ id: 'srv-demo', name: 'demo', command: process.execPath, args: [fakeServerPath], enabled: true }] } : {}),
+    ...(enabled ? { mcpServers: [transport === 'http'
+      ? { id: 'srv-http', name: 'httponly', url: `http://127.0.0.1:${provider.address().port}/mcp`, enabled: true }
+      : { id: 'srv-demo', name: 'demo', command: process.execPath, args: [fakeServerPath], enabled: true }] } : {}),
   }));
   const env = { ...process.env, TCODE_DATA_DIR: data };
   for (const key of ['TCODE_API_KEY', 'TCODE_BASE_URL', 'TCODE_MODEL', 'TCODE_PROTOCOL', 'TCODE_APPROVAL']) delete env[key];
@@ -103,7 +116,8 @@ async function approvedTurn(h) {
     if (state.status === 'completed' && !state.busy) return state;
     await delay(20);
   }
-  throw new Error('工具轮未在时限内完成');
+  const state = await h.state();
+  throw new Error('工具轮未在时限内完成：' + JSON.stringify({ status: state.status, busy: state.busy, pending: state.pending, last: state.messages.at(-1)?.content?.slice(0, 200) }));
 }
 
 test('MCP 服务器配置持久化、连接测试列出工具，重启后仍可用', async (t) => {
@@ -149,4 +163,16 @@ test('MCP 配置 CRUD：非法输入拒绝，删除后连接测试 404', async (
   const after = await h.state();
   assert.equal(after.capabilities.tools.some((tool) => tool.name.startsWith('mcp__demo__')), false, '删除后工具不再桥接');
   assert.equal((await h.post('mcp/test', { id: 'srv-demo' })).status, 404);
+});
+
+test('HTTP Streamable 传输：连接测试列出工具、桥接调用经审批回传', async (t) => {
+  const h = await fixture(t, { transport: 'http' });
+  await until(async () => (await h.state()).capabilities.tools.some((tool) => tool.name === 'mcp__httponly__echo'), '启动预热后 HTTP 服务器工具桥接');
+  const listed = (await h.state()).capabilities.tools;
+  const probe = await h.post('mcp/test', { id: 'srv-http' });
+  assert.equal(probe.status, 200);
+  assert.deepEqual(probe.body.tools, ['echo']);
+  const state = await approvedTurn(h);
+  assert.match(state.messages.at(-1).content, /echo:hi/, 'HTTP 工具调用结果回传模型');
+  assert.equal((await h.post('mcp/servers', { name: 'bad-url', url: 'ftp://x/mcp', enabled: true })).status, 400);
 });

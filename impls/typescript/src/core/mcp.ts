@@ -2,12 +2,17 @@
 // 按需连接（initialize → tools/list），连接长驻复用；配置停用/删除时回收进程。
 // 工具以 mcp__<server>__<tool> 桥接进工具列表，调用走主审批闸（needsPermission）。
 import { spawn, type ChildProcess } from 'node:child_process';
+import { sseData } from '../providers/sse.ts';
+
+let nextHttpRequestId = 1;
 import type { ToolPlugin } from '../kernel/plugin.ts';
 
 export interface McpServerConfig {
   id: string;
   name: string;
   command: string;
+  /** HTTP Streamable 传输端点；存在时走 HTTP，否则走 stdio */
+  url?: string;
   args?: string[];
   env?: Record<string, string>;
   enabled: boolean;
@@ -16,7 +21,7 @@ export interface McpServerConfig {
 interface McpTool { name: string; description?: string; inputSchema?: Record<string, unknown>; }
 
 interface Connection {
-  child: ChildProcess;
+  child?: ChildProcess;
   tools: McpTool[];
   request: (method: string, params: Record<string, unknown>, timeout: number) => Promise<Record<string, unknown>>;
   shutdown: () => void;
@@ -58,7 +63,7 @@ export class McpManager {
   private ensureConnected(server: McpServerConfig, cwd: string): Promise<Connection> {
     const existing = this.connections.get(server.id);
     if (existing) return existing;
-    const connecting = this.connect(server, cwd);
+    const connecting = server.url ? this.connectHttp(server) : this.connect(server, cwd);
     this.connections.set(server.id, connecting);
     connecting.catch(() => {
       this.connections.delete(server.id);
@@ -137,6 +142,80 @@ export class McpManager {
     } catch (error) {
       connection.shutdown();
       failAll((error as Error).message);
+      throw error;
+    }
+    return connection;
+  }
+
+  /** HTTP Streamable 传输：无状态 POST（接受 JSON 或 SSE 响应），透传 Mcp-Session-Id */
+  private async connectHttp(server: McpServerConfig): Promise<Connection> {
+    const url = server.url!;
+    let sessionId: string | null = null;
+    const request = (method: string, params: Record<string, unknown>, timeout: number): Promise<Record<string, unknown>> =>
+      new Promise((resolve, reject) => {
+        const id = nextHttpRequestId++;
+        const timer = setTimeout(() => reject(new Error(`MCP 请求超时（${Math.round(timeout / 1000)} 秒）：${method}`)), timeout);
+        void (async () => {
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              accept: 'application/json, text/event-stream',
+              ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+            signal: AbortSignal.timeout(timeout),
+          });
+          const sid = res.headers.get('mcp-session-id');
+          if (sid) sessionId = sid;
+          if (res.status !== 200) {
+            const text = await res.text().catch(() => '');
+            reject(new Error(`HTTP ${res.status}：${text.slice(0, 300) || res.statusText}`));
+            return;
+          }
+          const contentType = res.headers.get('content-type') ?? '';
+          if (contentType.includes('text/event-stream') && res.body) {
+            for await (const data of sseData(res.body)) {
+              if (data === '[DONE]') break;
+              let message: { id?: number; result?: Record<string, unknown>; error?: { message?: string } };
+              try { message = JSON.parse(data); } catch { continue; }
+              if (message.id !== id) continue;
+              if (message.error) reject(new Error(message.error.message || 'MCP 请求被服务器拒绝'));
+              else resolve(message.result ?? {});
+              return;
+            }
+            resolve({});
+            return;
+          }
+          const message = await res.json() as { error?: { message?: string }; result?: Record<string, unknown> };
+          if (message.error) reject(new Error(message.error.message || 'MCP 请求被服务器拒绝'));
+          else resolve(message.result ?? {});
+        })().catch((error: Error) => {
+          clearTimeout(timer);
+          if (error.name === 'TimeoutError') reject(new Error(`MCP 请求超时（${Math.round(timeout / 1000)} 秒）：${method}`));
+          else reject(error);
+        });
+      });
+    const connection: Connection = {
+      tools: [],
+      request,
+      shutdown: () => { if (sessionId) void fetch(url, { method: 'DELETE', headers: { 'mcp-session-id': sessionId } }).catch(() => {}); },
+    };
+    try {
+      const deadline = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('MCP 服务器连接超时')), REQUEST_TIMEOUT));
+      await Promise.race([
+        connection.request('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'tcode', version: '0.5.0' } }, REQUEST_TIMEOUT).then(() => {
+          void fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(sessionId ? { 'mcp-session-id': sessionId } : {}) }, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} }) }).catch(() => {});
+        }),
+        deadline,
+      ]);
+      const listed = (await Promise.race([connection.request('tools/list', {}, REQUEST_TIMEOUT), deadline])) as { tools?: McpTool[] };
+      connection.tools = Array.isArray(listed.tools) ? listed.tools : [];
+      this.toolsCache.set(server.id, connection.tools);
+    } catch (error) {
+      connection.shutdown();
+      this.connections.delete(server.id);
+      this.toolsCache.delete(server.id);
       throw error;
     }
     return connection;
