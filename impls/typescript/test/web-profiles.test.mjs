@@ -130,7 +130,9 @@ test('命名保存当前模型配置，保留工作区与会话并通过 SSE 发
   assert.equal(state.config.workspace, before.config.workspace); assert.deepEqual(state.preferences, before.preferences);
   assert.deepEqual(state.config.allowWriteDirs, before.config.allowWriteDirs); assert.deepEqual(state.usage, before.usage);
   const persisted = JSON.parse(readFileSync(h.configFile, 'utf8'));
-  assert.equal(persisted.activeModelProfileId, profile.id); assert.equal(persisted.modelProfiles[0].apiKey, 'profile-original-key');
+  assert.equal(persisted.activeModelProfileId, profile.id);
+  assert.equal(persisted.modelProfiles[0].apiKey, '', '明文密钥不能落盘');
+  assert.equal(persisted.modelProfiles[0].keyRef, profile.id);
   await until(() => h.events.slice(eventMark).some((event) => event.type === 'state' && event.state.activeModelProfileId === profile.id));
   noKeys(response.body); noKeys(h.events); noKeys(await h.state());
 });
@@ -474,4 +476,89 @@ test('导入非数组或超过 50 条拒绝', async (t) => {
   assert.equal((await h.post('model-profiles/import', { profiles: 'nope' })).status, 400);
   const fiftyOne = Array.from({ length: 51 }, (_, i) => ({ name: `配置 ${i}`, baseUrl: `${h.endpoint}/p${i}`, model: 'm', protocol: 'openai', contextLimit: 1000 }));
   assert.equal((await h.post('model-profiles/import', { profiles: fiftyOne })).status, 400);
+});
+
+// Slice 8：密钥入 macOS 钥匙串——config.json 不落明文，切换/删除/回退与读取失败均可见。
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+
+const keyringService = (tcodeDir) => 'tcode:' + createHash('sha256').update(tcodeDir).digest('hex').slice(0, 16);
+function keyringSet(service, account, value) {
+  execFileSync('security', ['add-generic-password', '-U', '-s', service, '-a', account, '-w', value]);
+}
+function keyringGet(service, account) {
+  try { return execFileSync('security', ['find-generic-password', '-s', service, '-a', account, '-w'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
+  catch { return null; }
+}
+function keyringDelete(service, account) {
+  try { execFileSync('security', ['delete-generic-password', '-s', service, '-a', account]); } catch {}
+}
+
+test('保存模型配置密钥写入钥匙串，config.json 只留引用不落明文，重启后连接测试仍用该密钥', async (t) => {
+  const h = await fixture(t);
+  const service = keyringService(h.data);
+  t.after(() => { keyringDelete(service, 'active'); });
+  const saved = await h.post('model-profiles/save', currentProfile(h));
+  assert.equal(saved.status, 200);
+  const profile = saved.body.state.modelProfiles[0];
+  const persisted = JSON.parse(readFileSync(h.configFile, 'utf8'));
+  assert.equal(persisted.modelProfiles[0].apiKey, '', '明文密钥不能落盘');
+  assert.equal(persisted.modelProfiles[0].keyRef, profile.id, '落盘的是钥匙串引用');
+  assert.equal(JSON.stringify(persisted).includes('profile-original-key'), false);
+  assert.equal(keyringGet(service, profile.id), 'profile-original-key', '密钥必须写入钥匙串');
+  assert.equal(saved.body.state.config.hasApiKey, true);
+  await h.restart();
+  const state = await h.state();
+  assert.equal(state.config.hasApiKey, true, '重启后从钥匙串恢复活动密钥');
+  assert.equal((await h.post('model/test')).status, 200, '重启后连接测试用钥匙串里的密钥');
+  assert.equal(h.requests.at(-1).headers.authorization, 'Bearer profile-original-key');
+  assert.equal(JSON.stringify(await h.state()).includes('profile-original-key'), false, '读接口不回显钥匙串密钥');
+});
+
+test('切换配置按引用从钥匙串读取密钥，两组明文都不落盘；删除配置清理钥匙串条目', async (t) => {
+  const h = await fixture(t);
+  const service = keyringService(h.data);
+  const first = await h.post('model-profiles/save', currentProfile(h));
+  const firstId = first.body.state.activeModelProfileId;
+  const second = await h.post('model-profiles/save', secondProfile(h));
+  const secondId = second.body.state.activeModelProfileId;
+  t.after(() => { keyringDelete(service, firstId); keyringDelete(service, secondId); });
+  assert.equal(JSON.parse(readFileSync(h.configFile, 'utf8')).modelProfiles.every((profile) => profile.apiKey === '' && profile.keyRef), true);
+  assert.equal(keyringGet(service, firstId), 'profile-original-key');
+  assert.equal(keyringGet(service, secondId), h.secondKey);
+  assert.equal((await h.post('model-profiles/select', { id: firstId })).status, 200);
+  assert.equal((await h.post('model/test')).status, 200);
+  assert.equal(h.requests.at(-1).headers.authorization, 'Bearer profile-original-key');
+  const deleted = await h.post('model-profiles/delete', { id: secondId });
+  assert.equal(deleted.status, 200);
+  assert.equal(keyringGet(service, secondId), null, '删除配置必须清理钥匙串条目');
+});
+
+test('TCODE_KEYSTORE=off 回退明文落盘（兼容无钥匙串平台），行为与旧版一致', async (t) => {
+  const h = await fixture(t);
+  await h.restart({ TCODE_KEYSTORE: 'off' });
+  const saved = await h.post('model-profiles/save', currentProfile(h));
+  assert.equal(saved.status, 200);
+  const persisted = JSON.parse(readFileSync(h.configFile, 'utf8'));
+  assert.equal(persisted.modelProfiles[0].apiKey, 'profile-original-key', '回退模式下密钥明文落盘');
+  assert.equal(persisted.modelProfiles[0].keyRef, undefined);
+});
+
+test('钥匙串引用失效时重启后错误可见且不产生明文', async (t) => {
+  const h = await fixture(t);
+  const service = keyringService(h.data);
+  const saved = await h.post('model-profiles/save', currentProfile(h));
+  const profileId = saved.body.state.activeModelProfileId;
+  keyringDelete(service, profileId);
+  t.after(() => { keyringDelete(service, profileId); });
+  await h.restart();
+  const state = await h.state();
+  assert.match(state.configError, /钥匙串/, '顶层密钥读取失败必须可见');
+  assert.equal(state.config.hasApiKey, false);
+  assert.equal(JSON.stringify(state).includes('profile-original-key'), false);
+  const select = await h.post('model-profiles/select', { id: profileId });
+  assert.equal(select.status, 200);
+  const probe = await h.post('model/test');
+  assert.equal(probe.status, 400);
+  assert.match(probe.body.error, /钥匙串/);
 });

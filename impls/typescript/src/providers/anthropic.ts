@@ -5,6 +5,7 @@
 import { sseData } from './sse.ts';
 import { RetryableError, withRetry } from './retry.ts';
 import { definePlugin } from '../kernel/plugin.ts';
+import { keyStoreFor, peekSecret } from '../kernel/keyring.ts';
 import type {
   ChatClient,
   ChatMessage,
@@ -227,5 +228,8 @@ export default definePlugin({
   name: 'anthropic',
   kind: 'provider',
   matches: (baseUrl: string) => baseUrl.includes('/anthropic'),
-  create: (config: Config) => new AnthropicProvider(config.baseUrl, config.apiKey, config.model, (config.modelProfiles ?? []).map((profile) => profile.apiKey)),
+  create: (config: Config) => {
+    const store = keyStoreFor(config.tcodeDir);
+    return new AnthropicProvider(config.baseUrl, config.apiKey, config.model, (config.modelProfiles ?? []).map((profile) => profile.apiKey || peekSecret(store, profile.keyRef)).filter((key): key is string => !!key));
+  },
 });

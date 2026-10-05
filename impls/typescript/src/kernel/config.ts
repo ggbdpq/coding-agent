@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { Protocol } from './types.ts';
+import { deleteSecret, getSecret, keyStoreFor, setSecret } from './keyring.ts';
 
 export interface WebPreferences {
   theme: 'system' | 'dark' | 'light';
@@ -22,6 +23,8 @@ export interface ModelProfile {
   model: string;
   protocol?: Protocol;
   contextLimit: number;
+  /** 密钥在钥匙串的引用（account）；存在时 apiKey 为空串，明文不落盘 */
+  keyRef?: string;
 }
 
 export interface Config {
@@ -58,6 +61,8 @@ export interface Config {
 
 interface FileConfig {
   apiKey?: string;
+  /** 顶层未命名活动配置的钥匙串引用；存在时 apiKey 为空串 */
+  keyRef?: string;
   baseUrl?: string;
   model?: string;
   protocol?: string;
@@ -79,7 +84,7 @@ function readJsonConfig(tcodeDir: string): FileConfig {
     const value = JSON.parse(readFileSync(file, 'utf8')) as unknown;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
     const fields = value as Record<string, unknown>;
-    for (const key of ['apiKey', 'baseUrl', 'model', 'protocol', 'approval', 'workspace']) {
+    for (const key of ['apiKey', 'baseUrl', 'model', 'protocol', 'approval', 'workspace', 'keyRef']) {
       if (fields[key] !== undefined && typeof fields[key] !== 'string') throw new Error();
     }
     if (fields.protocol !== undefined && !['openai', 'anthropic'].includes(String(fields.protocol))) throw new Error();
@@ -98,6 +103,7 @@ function readJsonConfig(tcodeDir: string): FileConfig {
         if (!profile || typeof profile.id !== 'string' || !profile.id.trim() || typeof profile.name !== 'string' || !profile.name.trim() || ids.has(profile.id)) throw new Error();
         // apiKey 允许为空：导入的脱敏配置在原端点重新填写密钥前不可用（select 后错误可见）
         if (typeof profile.apiKey !== 'string' || typeof profile.baseUrl !== 'string' || !profile.baseUrl || typeof profile.model !== 'string' || !profile.model || !Number.isSafeInteger(profile.contextLimit) || profile.contextLimit <= 0) throw new Error();
+        if (profile.keyRef !== undefined && typeof profile.keyRef !== 'string') throw new Error();
         if (profile.protocol !== undefined && !['openai', 'anthropic'].includes(profile.protocol)) throw new Error();
         let parsedUrl: URL;
         try { parsedUrl = new URL(profile.baseUrl); } catch { throw new Error(); }
@@ -121,7 +127,17 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
     if (!options.allowIncomplete) throw error;
     configError = (error as Error).message;
   }
-  const apiKey = process.env.TCODE_API_KEY ?? file.apiKey ?? '';
+  const store = keyStoreFor(tcodeDir);
+  const fromEnv = process.env.TCODE_API_KEY !== undefined && process.env.TCODE_API_KEY !== '';
+  let apiKey: string;
+  if (fromEnv) apiKey = process.env.TCODE_API_KEY!;
+  else if (file.keyRef) {
+    const secret = store.available ? getSecret(store, file.keyRef) : null;
+    if (secret === null) {
+      apiKey = '';
+      configError = '从钥匙串读取活动密钥失败，请在模型设置重新保存密钥';
+    } else apiKey = secret;
+  } else apiKey = file.apiKey ?? '';
   const baseUrl = (process.env.TCODE_BASE_URL ?? file.baseUrl ?? '').replace(/\/+$/, '');
   const model = process.env.TCODE_MODEL ?? file.model ?? '';
   const contextLimit = Number(process.env.TCODE_CONTEXT_LIMIT || file.contextLimit) || 100_000;
@@ -170,7 +186,12 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
     );
   }
   const selected = file.modelProfiles?.find((profile) => profile.id === file.activeModelProfileId);
-  const activeModelProfileId = selected && selected.apiKey === apiKey && selected.baseUrl === baseUrl && selected.model === model
+  // env 覆盖时活动值来自环境，不与任何保存项匹配；keyRef 型 profile 比较顶层引用
+  // 匹配语义：非 env 时 keyRef 型比较顶层引用、明文型比较明文；env 覆盖值与保存密钥等价时仍算激活
+  const keyMatches = selected ? (selected.keyRef
+    ? (fromEnv ? process.env.TCODE_API_KEY === getSecret(store, selected.keyRef) : selected.keyRef === (file.keyRef ?? null))
+    : apiKey === selected.apiKey) : false;
+  const activeModelProfileId = selected && keyMatches && selected.baseUrl === baseUrl && selected.model === model
     && selected.protocol === protocol && selected.contextLimit === contextLimit ? selected.id : null;
   return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, contextLimit, tcodeDir, modelProfiles: file.modelProfiles ?? [], activeModelProfileId,
     ...(options.allowIncomplete ? { workspace: file.workspace || (options.desktop ? '' : process.cwd()), projects: file.projects ?? [], archivedProjects: file.archivedProjects ?? [], preferences: file.preferences ?? { ...defaultPreferences }, configError } : {}),
@@ -286,11 +307,18 @@ export function saveWebConfig(current: Config, input: Record<string, unknown>, v
   }
   const archivedProjects = (current.archivedProjects ?? []).filter((directory) => directory !== workspace);
   const modelUpdate = ['apiKey', 'baseUrl', 'model', 'protocol', 'contextLimit'].some((key) => input[key] !== undefined);
-  const modelProfiles = modelUpdate ? current.modelProfiles?.map((profile) => profile.id === current.activeModelProfileId
-    ? { ...profile, apiKey, baseUrl, model, protocol, contextLimit } : profile) : current.modelProfiles;
+  // 顶层未命名配置的密钥：钥匙串可用时存 account=active 条目，磁盘只留引用
+  const store = keyStoreFor(current.tcodeDir);
+  const keyRef = apiKey && store.available ? 'active' : undefined;
+  if (keyRef) setSecret(store, 'active', apiKey);
+  const modelProfiles = modelUpdate ? current.modelProfiles?.map((profile) => {
+    if (profile.id !== current.activeModelProfileId) return profile;
+    if (keyRef) { setSecret(store, profile.id, apiKey); return { ...profile, apiKey: '', keyRef: profile.id, baseUrl, model, protocol, contextLimit }; }
+    return { ...profile, apiKey, baseUrl, model, protocol, contextLimit };
+  }) : current.modelProfiles;
   const next: Config = { ...current, apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, modelProfiles, configError: undefined };
   validate?.(next);
-  persistConfig(current, { apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, modelProfiles });
+  persistConfig(current, { apiKey: keyRef ? '' : apiKey, ...(keyRef ? { keyRef } : {}), baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, modelProfiles });
   return next;
 }
 
@@ -308,26 +336,63 @@ export function saveModelProfile(current: Config, input: Record<string, unknown>
   if (input.apiKey !== undefined && typeof input.apiKey !== 'string') throw new ConfigInputError('API Key 须为文本');
   const explicitKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
   if (input.useActiveKey && (!current.apiKey || normalizedUrl !== current.baseUrl)) throw new ConfigInputError('只有相同端点可以明确沿用当前凭证');
-  const key = explicitKey || (input.useActiveKey ? current.apiKey : '');
-  const values = modelFields(previous ?? { apiKey: '', baseUrl: '', model: '', contextLimit: current.contextLimit }, { ...input, apiKey: key });
-  const profile: ModelProfile = { id: previous?.id ?? randomUUID(), name: input.name.trim(), ...values };
+  const rawKey = explicitKey || (input.useActiveKey ? current.apiKey : '');
+  const store = keyStoreFor(current.tcodeDir);
+  const id = previous?.id ?? randomUUID();
+  const keyRef = rawKey && store.available ? id : previous?.keyRef;
+  if (rawKey && store.available) setSecret(store, id, rawKey);
+  const key = rawKey || previous?.apiKey || '';
+  // keyRef 沿用时哨兵满足"必须有凭证"校验；真实密钥由下方显式构造的 profile 决定。
+  // 哨兵只限端点未变的沿用——换端点必须重填密钥，不能被哨兵绕过。
+  const requestedUrl = typeof input.baseUrl === 'string' ? input.baseUrl.trim().replace(/\/+$/, '') : undefined;
+  const endpointChanged = requestedUrl !== undefined && previous !== undefined && requestedUrl !== previous.baseUrl;
+  const values = modelFields(previous ?? { apiKey: '', baseUrl: '', model: '', contextLimit: current.contextLimit }, { ...input, apiKey: key || (keyRef && !endpointChanged ? 'stored-in-keyring' : '') });
+  // 密钥管理：钥匙串可用时明文只进钥匙串，profile 与磁盘只留引用
+  let activeKey: string;
+  if (keyRef) {
+    if (rawKey) activeKey = rawKey;
+    else {
+      const secret = getSecret(store, keyRef);
+      if (secret === null) throw new ConfigInputError('从钥匙串读取密钥失败，请重新填写密钥后再保存');
+      activeKey = secret;
+    }
+  } else activeKey = key || values.apiKey;
+  const profile: ModelProfile = {
+    id, name: input.name.trim(), baseUrl: values.baseUrl, model: values.model,
+    protocol: values.protocol, contextLimit: values.contextLimit,
+    apiKey: keyRef ? '' : (rawKey || values.apiKey),
+    ...(keyRef ? { keyRef } : {}),
+  };
   const modelProfiles = previous ? profiles.map((entry) => entry.id === previous.id ? profile : entry) : [...profiles, profile];
-  const next = { ...current, ...values, modelProfiles, activeModelProfileId: profile.id,
+  const next = { ...current, baseUrl: values.baseUrl, model: values.model, protocol: values.protocol, contextLimit: values.contextLimit,
+    apiKey: activeKey, modelProfiles, activeModelProfileId: id,
     configError: current.configError?.includes('项目目录不可用') ? current.configError : undefined };
   validate?.(next);
-  persistConfig(current, { ...values, modelProfiles, activeModelProfileId: profile.id });
+  persistConfig(current, { baseUrl: values.baseUrl, model: values.model, protocol: values.protocol, contextLimit: values.contextLimit,
+    apiKey: keyRef ? '' : profile.apiKey, ...(keyRef ? { keyRef } : {}), modelProfiles, activeModelProfileId: id });
   return next;
 }
 
 export function selectModelProfile(current: Config, id: unknown, validate?: (next: Config) => void): Config {
   const profile = typeof id === 'string' && current.modelProfiles?.find((entry) => entry.id === id);
   if (!profile) throw new ConfigInputError('模型配置不存在');
-  const { apiKey, baseUrl, model, protocol, contextLimit } = profile;
+  let apiKey = profile.apiKey;
+  let keyMissing: string | undefined;
+  if (profile.keyRef) {
+    const secret = getSecret(keyStoreFor(current.tcodeDir), profile.keyRef);
+    if (secret === null) {
+      // 放行激活但密钥缺失：用户可在设置里重新填写保存；失败原因进 configError 可见
+      apiKey = '';
+      keyMissing = '从钥匙串读取该配置的密钥失败，请在模型设置重新填写密钥';
+    } else apiKey = secret;
+  }
+  const { baseUrl, model, protocol, contextLimit } = profile;
   const values = { apiKey, baseUrl, model, protocol, contextLimit };
   const next = { ...current, ...values, activeModelProfileId: profile.id,
-    configError: current.configError?.includes('项目目录不可用') ? current.configError : undefined };
+    configError: keyMissing ?? (current.configError?.includes('项目目录不可用') ? current.configError : undefined) };
   validate?.(next);
-  persistConfig(current, { ...values, activeModelProfileId: profile.id });
+  // 顶层 keyRef 与活动 profile 的引用同步，重启后才能从钥匙串恢复正确密钥
+  persistConfig(current, { ...values, ...(profile.keyRef ? { keyRef: profile.keyRef } : { keyRef: undefined }), activeModelProfileId: profile.id });
   return next;
 }
 
@@ -338,6 +403,7 @@ export function deleteModelProfile(current: Config, id: unknown): Config {
   if (!profile) throw new ConfigInputError('模型配置不存在');
   if (profile.id === current.activeModelProfileId) throw new ConfigInputError('正在使用的模型配置不能删除，请先切换到其他配置');
   const modelProfiles = profiles.filter((entry) => entry.id !== profile.id);
+  if (profile.keyRef) deleteSecret(keyStoreFor(current.tcodeDir), profile.keyRef);
   persistConfig(current, { modelProfiles });
   return { ...current, modelProfiles };
 }

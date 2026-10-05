@@ -249,7 +249,7 @@ export async function startWeb(app: App): Promise<void> {
     return { ready: !!(apiKey && baseUrl && model && cwd && !configError), projects: projectList.filter((project) => !archived.has(project.path)),
       archivedProjects: projectList.filter((project) => archived.has(project.path)),
       version: VERSION, dataDir: app.config.tcodeDir,
-      modelProfiles: (app.config.modelProfiles ?? []).map(({ id, name, baseUrl, model, protocol, contextLimit, apiKey }) => ({ id, name, baseUrl, model, protocol: protocol ?? 'auto', contextLimit, hasApiKey: !!apiKey })),
+      modelProfiles: (app.config.modelProfiles ?? []).map(({ id, name, baseUrl, model, protocol, contextLimit, apiKey, keyRef }) => ({ id, name, baseUrl, model, protocol: protocol ?? 'auto', contextLimit, hasApiKey: !!(apiKey || keyRef) })),
       activeModelProfileId: app.config.activeModelProfileId ?? null,
       preferences: app.config.preferences ?? { theme: 'system', fontSize: 16, enterToSend: true },
       capabilities: {
@@ -538,7 +538,8 @@ export async function startWeb(app: App): Promise<void> {
     if (req.method === 'POST' && path === '/model/test') {
       if (busy) { json(res, 409, { error: '任务运行期间不能测试模型连接' }); return; }
       if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
-        throw new ConfigInputError('请先保存有效的模型配置');
+        // 钥匙串读取失败等配置级错误优先透出，指引重填密钥
+        throw new ConfigInputError(app.config.configError?.includes('钥匙串') ? app.config.configError : '请先保存有效的模型配置');
       }
       const previousStatus = status, controller = new AbortController();
       const probeUsage = { prompt_tokens: 0, completion_tokens: 0 };
@@ -588,7 +589,7 @@ export async function startWeb(app: App): Promise<void> {
       json(res, 200, { exportedAt: new Date().toISOString(),
         profiles: (app.config.modelProfiles ?? []).map((profile) => ({
           name: profile.name, baseUrl: profile.baseUrl, model: profile.model,
-          protocol: profile.protocol ?? 'auto', contextLimit: profile.contextLimit, hasApiKey: !!profile.apiKey,
+          protocol: profile.protocol ?? 'auto', contextLimit: profile.contextLimit, hasApiKey: !!(profile.apiKey || profile.keyRef),
         })) });
       return;
     }

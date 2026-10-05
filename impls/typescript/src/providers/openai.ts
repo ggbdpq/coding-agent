@@ -3,6 +3,7 @@
 import { sseData } from './sse.ts';
 import { RetryableError, withRetry } from './retry.ts';
 import { definePlugin } from '../kernel/plugin.ts';
+import { keyStoreFor, peekSecret } from '../kernel/keyring.ts';
 import type { ChatClient, ChatMessage, ChatOptions, CompletionResult, ToolSchema } from '../kernel/types.ts';
 
 export class Provider implements ChatClient {
@@ -133,5 +134,8 @@ export default definePlugin({
   kind: 'provider',
   // 兜底：注册顺序放清单最后，没被其他 provider 命中的 BASE_URL 都走 OpenAI 兼容
   matches: () => true,
-  create: (config) => new Provider(config.baseUrl, config.apiKey, config.model, (config.modelProfiles ?? []).map((profile) => profile.apiKey)),
+  create: (config) => {
+    const store = keyStoreFor(config.tcodeDir);
+    return new Provider(config.baseUrl, config.apiKey, config.model, (config.modelProfiles ?? []).map((profile) => profile.apiKey || peekSecret(store, profile.keyRef)).filter((key): key is string => !!key));
+  },
 });
