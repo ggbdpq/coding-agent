@@ -279,6 +279,7 @@
       </form>
     </section>
     <section data-settings="commands" hidden><h1>命令</h1><p class="settings-description">命令作用于当前会话。填入后可以补充参数，再发送执行。</p><div class="settings-card"><h2>可用命令</h2><div id="command-list"></div></div><div class="settings-card"><h2>可用工具</h2><p>模型可调用的本地工具，执行时遵循当前权限设置。</p><div id="tool-list"></div></div>
+      <div class="settings-card"><div class="bar"><h2>长期记忆</h2><div class="bar"><button id="memory-save" class="primary">保存记忆</button><button id="memory-clear">清空</button></div></div><p>memory.md 的内容会注入每轮对话（跨会话、跨项目）。编辑后点击保存；清空不可恢复。</p><textarea id="memory-editor" rows="8" aria-label="长期记忆（memory.md）" placeholder="长期记忆为空。例如：用户偏好 pnpm；回答要简短" spellcheck="false"></textarea></div>
       <div class="settings-card"><div class="bar"><h2>外部工具（MCP）</h2><button id="mcp-new">添加服务器</button></div><p>通过 stdio 运行本地 MCP 服务器；其工具以 mcp__名称__工具 的形式加入会话，调用前逐次审批。</p><div id="mcp-error" role="alert"></div><div id="mcp-list"></div>
         <form id="mcp-form" hidden><h2 id="mcp-form-title">添加 MCP 服务器</h2>
           <label>名称（字母、数字、下划线、连字符）<input id="mcp-name" required maxlength="40" pattern="[a-zA-Z0-9_-]+" autocomplete="off"></label>
@@ -388,7 +389,7 @@
     renderModelProfiles();
     for (const field of $('settings-page').querySelectorAll('form input, form select, form textarea, form button')) field.disabled = !connected || !!view?.busy || saving || changing || connectionBusy;
     $('skill-new').disabled = !connected || !!view?.busy || saving || changing;
-    for (const button of document.querySelectorAll('#mcp-list button, #automation-list button, #mcp-new')) {
+    for (const button of document.querySelectorAll('#mcp-list button, #automation-list button, #mcp-new, #memory-save, #memory-clear')) {
       button.disabled = !connected || !!view?.busy || saving || changing;
     }
     $('skill-scope').disabled ||= editingSkill;
@@ -839,7 +840,7 @@
     $('theme').value = preferences.theme; $('font-size').value = String(preferences.fontSize); $('enter-to-send').checked = preferences.enterToSend;
     if (section === 'usage') { void loadUsage(); void loadBalance(); }
     if (section === 'automation') void renderAutomations();
-    if (section === 'commands') { renderCommands(); $('mcp-form').hidden = true; renderMcpServers(); }
+    if (section === 'commands') { renderCommands(); $('mcp-form').hidden = true; renderMcpServers(); void loadMemoryEditor(); }
     if (section === 'skills') { skillRequest++; $('skill-form').hidden = true; renderSkills(); }
   }
   function renderSkills() {
@@ -927,6 +928,32 @@
   }
   $('usage-refresh').onclick = loadUsage;
   let editingMcpId = null;
+  async function loadMemoryEditor() {
+    try {
+      const result = await api('/memory');
+      $('memory-editor').value = result.content;
+    } catch (error) { mcpFeedback(`长期记忆读取失败：${error.message}`, true); }
+  }
+  $('memory-save').onclick = async () => {
+    if (!connected || view?.busy || saving || changing) return;
+    mcpFeedback(''); $('memory-save').disabled = true;
+    try {
+      await api('/memory', { content: $('memory-editor').value });
+      mcpFeedback('长期记忆已保存并注入后续对话');
+    } catch (error) { mcpFeedback(error.message, true); }
+    finally { $('memory-save').disabled = false; }
+  };
+  $('memory-clear').onclick = async () => {
+    if (!window.confirm('清空长期记忆？该操作不可恢复。')) return;
+    if (!connected || view?.busy || saving || changing) return;
+    mcpFeedback(''); $('memory-clear').disabled = true;
+    try {
+      await api('/memory/clear', {});
+      $('memory-editor').value = '';
+      mcpFeedback('长期记忆已清空');
+    } catch (error) { mcpFeedback(error.message, true); }
+    finally { $('memory-clear').disabled = false; }
+  };
   function renderMcpServers() {
     const fragment = document.createDocumentFragment();
     for (const server of view.capabilities?.mcpServers || []) {

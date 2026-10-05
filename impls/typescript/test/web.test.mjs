@@ -535,3 +535,38 @@ test('命令输出进入会话历史，刷新状态不会擦掉帮助结果', as
   assert.ok(result.body.output.includes('/help'));
   assert.ok((await h.state()).activity.some((event) => event.type === 'command' && event.output === result.body.output));
 });
+
+test('长期记忆端点：读取、保存、清空 memory.md 且保存后注入系统提示词', async (t) => {
+  const h = await harness(t);
+  const memoryFile = path.join(h.dir, 'data', 'memory.md');
+  writeFileSync(memoryFile, '- 旧记忆一条\n');
+
+  const read1 = await fetch(h.url + 'memory');
+  assert.equal(read1.status, 200);
+  assert.deepEqual(await read1.json(), { content: '- 旧记忆一条\n' });
+
+  const saved = await h.post('memory', { content: '- 新记忆：用户偏好 pnpm\n- 回答要简短\n' });
+  assert.equal(saved.status, 200);
+  assert.equal(readFileSync(memoryFile, 'utf8'), '- 新记忆：用户偏好 pnpm\n- 回答要简短\n', '保存必须真实写文件');
+  const mode = execFileSync('node', ['-e', `console.log((require('fs').statSync(${JSON.stringify(memoryFile)}).mode & 0o777).toString(8))`]).toString().trim();
+  assert.equal(mode, '600', '记忆文件权限 0600');
+
+  const oversized = 'x'.repeat(256 * 1024 + 1);
+  assert.equal((await h.post('memory', { content: oversized })).status, 400);
+
+  const state = await h.state();
+  void state;
+  await h.post('send', { text: '随便说点什么' });
+  await until(() => h.requests.length > 0 && h.requests[0].messages[0]?.content?.includes('新记忆：用户偏好 pnpm'), '保存后注入系统提示词');
+
+  const removed = await h.post('memory/clear', {});
+  assert.equal(removed.status, 200);
+  assert.equal(existsSync(memoryFile), false, '清空删除记忆文件');
+  assert.deepEqual(await (await fetch(h.url + 'memory')).json(), { content: '' });
+});
+
+test('记忆端点校验：content 须为字符串', async (t) => {
+  const h = await harness(t);
+  assert.equal((await h.post('memory', { content: 123 })).status, 400);
+  assert.equal((await h.post('memory', {})).status, 400);
+});

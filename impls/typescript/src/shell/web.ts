@@ -4,7 +4,7 @@
 // 同一服务仅运行一个项目的一轮任务；历史会话复用 JSONL，不另建数据库。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { readFileSync, statSync, lstatSync, existsSync, mkdirSync, writeFileSync, renameSync, realpathSync } from 'node:fs';
+import { readFileSync, statSync, lstatSync, existsSync, mkdirSync, writeFileSync, renameSync, realpathSync, unlinkSync } from 'node:fs';
 import nodePath from 'node:path';
 import { createPermissionGate, type PermissionDecision } from '../core/permission.ts';
 import { runUserTurn } from '../core/turn.ts';
@@ -634,6 +634,32 @@ export async function startWeb(app: App): Promise<void> {
       if (automations.isRunning(id)) { json(res, 409, { error: '该任务正在运行' }); return; }
       if (task.status === 'completed') { json(res, 409, { error: '任务已完成，无需继续' }); return; }
       runAutomation(id, true);
+      json(res, 200, { ok: true }); return;
+    }
+    if (req.method === 'GET' && path === '/memory') {
+      const file = nodePath.join(app.config.tcodeDir, 'memory.md');
+      json(res, 200, { content: existsSync(file) ? readFileSync(file, 'utf8') : '' });
+      return;
+    }
+    if (req.method === 'POST' && path === '/memory') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改长期记忆' }); return; }
+      if (typeof body.content !== 'string' || Buffer.byteLength(body.content) > 256 * 1024) {
+        throw new ConfigInputError('记忆内容须为不超过 256KB 的文本');
+      }
+      const file = nodePath.join(app.config.tcodeDir, 'memory.md');
+      if (!body.content) { try { unlinkSync(file); } catch {} }
+      else {
+        const temporary = file + `.${randomBytes(8).toString('hex')}.tmp`;
+        writeFileSync(temporary, body.content, { mode: 0o600, flag: 'wx' });
+        renameSync(temporary, file);
+      }
+      refreshSystemPrompt();
+      json(res, 200, { ok: true }); return;
+    }
+    if (req.method === 'POST' && path === '/memory/clear') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能清空长期记忆' }); return; }
+      try { unlinkSync(nodePath.join(app.config.tcodeDir, 'memory.md')); } catch {}
+      refreshSystemPrompt();
       json(res, 200, { ok: true }); return;
     }
     if (req.method === 'GET' && path === '/usage/balance') {

@@ -1286,3 +1286,27 @@ test('自动化任务结束时工作区顶部出现通知', async () => {
     await page.getByText('自动化任务「夜间检查」已完成', { exact: true }).waitFor();
   });
 });
+
+test('命令页可编辑与清空长期记忆', async () => {
+  const state = initialState();
+  let memory = '- 旧记忆一条\n';
+  let cleared = false;
+  await withPage(state, {
+    '/memory': () => (cleared ? { content: '' } : { content: memory }),
+    '/memory/clear': () => { cleared = true; memory = ''; return { ok: true }; },
+  }, async (page) => {
+    await page.on('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await navigation.getByRole('button', { name: '命令', exact: true }).click();
+    const editor = page.getByRole('textbox', { name: '长期记忆（memory.md）', exact: true });
+    await editor.waitFor();
+    await page.waitForFunction(() => document.getElementById('memory-editor').value !== '', undefined, { timeout: 3000 });
+    await editor.fill('- 新记忆：用户偏好 pnpm');
+    await page.getByRole('button', { name: '保存记忆', exact: true }).click();
+    await page.getByText('长期记忆已保存并注入后续对话', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '清空', exact: true }).click();
+    await page.getByText('长期记忆已清空', { exact: true }).waitFor();
+    assert.equal(await editor.inputValue(), '');
+  });
+});
