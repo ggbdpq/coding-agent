@@ -60,6 +60,7 @@
   .heading { flex: 1; min-width: 0; }
   .heading h1 { display: block; font-size: 16px; margin: 0; font-weight: 600; }
   .model { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #model-profile-switch { width: 100%; max-width: 280px; min-width: 0; margin-top: 6px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 7px; color: inherit; background: var(--field); font-size: 12px; }
   #status { font-size: 12px; color: var(--muted); white-space: nowrap; }
   #status[data-status="waiting_approval"] { color: #eab568; }
   #status[data-status="error"] { color: #f59292; }
@@ -180,7 +181,7 @@
 <header>
   <button id="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" aria-controls="workspace-sidebar" aria-keyshortcuts="Meta+B Control+B" title="收起侧栏 · ⌘/Ctrl+B">☰</button>
   <nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden><button id="compact-new" aria-label="新任务">＋ 新任务</button><button id="compact-search" aria-label="搜索">搜索</button><button id="compact-settings" aria-label="设置">设置</button></nav>
-  <div class="heading"><h1 id="title">tcode</h1><span class="model" id="model">连接中…</span></div>
+  <div class="heading"><h1 id="title">tcode</h1><span class="model" id="model">连接中…</span><select id="model-profile-switch" aria-label="切换模型配置"><option value="">当前模型 · 未命名配置</option></select></div>
   <span id="status" role="status">连接中</span>
   <label class="toggle"><input type="checkbox" id="yolo"> 全部免审批</label>
   <button id="settings">模型设置</button>
@@ -221,10 +222,13 @@
     <section id="settings-model" data-settings="model" hidden>
   <h1>模型</h1>
   <p class="settings-description">请求发送到你配置的 API 端点。API Key 仅用于保存，不读回页面。</p>
+  <div class="settings-card"><h2>已保存的模型</h2><label>已保存模型配置<select id="settings-model-profile" aria-label="已保存模型配置"><option value="">当前模型 · 未命名配置</option></select></label><p id="model-profile-status" aria-live="polite"></p><div class="bar"><button id="model-profile-new">新建模型配置</button><button id="model-profile-cancel" hidden>取消新建</button></div></div>
   <form id="settings-form">
+    <label>配置名称<input id="config-profile-name" maxlength="80" autocomplete="off" placeholder="填写名称可保存到模型列表"></label>
     <label>API 端点<input id="config-base-url" name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
     <label>模型<input id="config-model" name="model" required autocomplete="off"></label>
     <label>API Key<input id="config-api-key" name="apiKey" type="password" autocomplete="new-password" placeholder="填写密钥；已保存时留空保留"></label>
+    <p id="model-key-hint" class="settings-description"></p>
     <label>协议<select id="config-protocol" name="protocol"><option value="auto">自动识别</option><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></label>
     <label>上下文 Token 上限<input id="config-context-limit" name="contextLimit" type="number" min="1" step="1" required></label>
     <div id="config-error" role="alert"></div>
@@ -269,6 +273,7 @@
   const log = $('log'), input = $('input');
   let view = null, connected = false, sending = false, saving = false, changing = false, renamingId = null, lastSeq = -1, diffRequest = 0;
   let settingsSection = null, setupOpened = false;
+  let editingModelProfileId = null, originalActiveModelProfileId = null, newModelProfile = false, modelDraftDirty = false, originalModelBase = '', originalModelHasKey = false;
   let extraWriteDirs = [];
   let usageRequest = 0;
   let skillRequest = 0, editingSkill = false;
@@ -347,6 +352,7 @@
     $('compact-new').disabled = $('new').disabled; $('compact-search').disabled = $('search-open').disabled; $('compact-settings').disabled = $('settings-home').disabled;
     $('general-workspace-pick').disabled = $('settings').disabled;
     $('settings-save').disabled = $('settings').disabled;
+    renderModelProfiles();
     for (const field of $('settings-page').querySelectorAll('form input, form select, form textarea, form button')) field.disabled = !connected || !!view?.busy || saving || changing || connectionBusy;
     $('skill-new').disabled = !connected || !!view?.busy || saving || changing;
     $('skill-scope').disabled ||= editingSkill;
@@ -369,6 +375,62 @@
     renderProjects(); renderProjectManagement(); renderSessions(); if (settingsSection === 'commands') renderCommands(); if (settingsSection === 'skills') renderSkills();
   }
   function navigationBlocked() { return !connected || !view || view.busy || sending || saving || changing || testingConnection || cancellingConnection; }
+  function renderModelProfiles() {
+    for (const choice of [$('model-profile-switch'), $('settings-model-profile')]) {
+      const current = document.createElement('option'); current.value = ''; current.textContent = '当前模型 · 未命名配置';
+      current.disabled = !!view?.activeModelProfileId;
+      choice.replaceChildren(current);
+      for (const profile of view?.modelProfiles || []) {
+        const option = document.createElement('option'); option.value = profile.id; option.textContent = profile.name;
+        choice.append(option);
+      }
+      choice.value = view?.activeModelProfileId || ''; choice.disabled = navigationBlocked();
+    }
+    const active = view?.modelProfiles?.find((profile) => profile.id === view.activeModelProfileId);
+    const editing = view?.modelProfiles?.find((profile) => profile.id === editingModelProfileId);
+    let label = active ? '当前活动配置：' + active.name : '当前模型尚未保存为命名配置';
+    if (editingModelProfileId && editingModelProfileId !== view?.activeModelProfileId) label = '正在编辑' + (editing?.name || '已保存配置') + '；当前使用' + (active?.name || '未命名配置');
+    else if (!editingModelProfileId && originalActiveModelProfileId !== (view?.activeModelProfileId || null)) label = '正在编辑未命名配置；当前使用' + (active?.name || '未命名配置');
+    $('model-profile-status').textContent = newModelProfile ? '新配置 · 尚未保存' : label + (modelDraftDirty ? ' · 未保存的修改' : '');
+    $('model-profile-new').disabled = navigationBlocked(); $('model-profile-cancel').disabled = navigationBlocked(); $('model-profile-cancel').hidden = !newModelProfile;
+  }
+  function fillModelForm() {
+    const config = view.config, profile = view.modelProfiles?.find((item) => item.id === view.activeModelProfileId);
+    editingModelProfileId = profile?.id || null; newModelProfile = false; modelDraftDirty = false;
+    originalActiveModelProfileId = view.activeModelProfileId || null;
+    originalModelBase = config.baseUrl || ''; originalModelHasKey = !!config.hasApiKey;
+    $('config-profile-name').value = profile?.name || ''; $('config-profile-name').required = !!profile;
+    $('config-base-url').value = config.baseUrl || ''; $('config-model').value = config.model || '';
+    $('config-api-key').value = ''; $('config-protocol').value = config.protocol || 'auto';
+    $('config-context-limit').value = config.contextLimit || 100000;
+    $('config-error').textContent = view.configError || '';
+    modelKeyHint(); renderModelProfiles();
+  }
+  function modelKeyHint() {
+    const endpointChanged = $('config-base-url').value.trim().replace(/\/+$/, '') !== originalModelBase.replace(/\/+$/, '');
+    const ownerChanged = !editingModelProfileId && originalActiveModelProfileId !== (view?.activeModelProfileId || null);
+    $('config-api-key').required = newModelProfile || !originalModelHasKey || endpointChanged || ownerChanged;
+    $('model-key-hint').textContent = newModelProfile ? '新配置需要填写自己的 API Key。' : ownerChanged ? '活动配置已切换，请为这份草稿重新填写 API Key。' : endpointChanged ? '更换 API 端点后需要填写新密钥，已保存的密钥不会自动发往新端点。' : 'API Key 不回显；留空会保留这组配置已保存的密钥。';
+  }
+  async function selectModelProfile(id) {
+    if (!id || navigationBlocked() || id === view.activeModelProfileId) return;
+    changing = true; controls(); clearError();
+    try { const result = await api('/model-profiles/select', { id }); applyState(result.state); return true; }
+    catch (error) { showError(error); return false; }
+    finally { changing = false; controls(); }
+  }
+  $('model-profile-switch').onchange = (event) => selectModelProfile(event.target.value);
+  $('settings-model-profile').onchange = async (event) => { if (await selectModelProfile(event.target.value)) fillModelForm(); };
+  $('model-profile-new').onclick = () => {
+    if (navigationBlocked()) return;
+    newModelProfile = true; editingModelProfileId = null; modelDraftDirty = false;
+    $('config-profile-name').value = ''; $('config-profile-name').required = true;
+    $('config-base-url').value = ''; $('config-model').value = ''; $('config-api-key').value = '';
+    $('config-protocol').value = 'auto'; $('config-context-limit').value = 100000; $('config-error').textContent = '';
+    settingsFeedback(''); modelKeyHint(); controls(); $('config-profile-name').focus();
+  };
+  $('model-profile-cancel').onclick = () => { if (!navigationBlocked()) { fillModelForm(); settingsFeedback(''); } };
+  $('settings-form').oninput = () => { modelDraftDirty = true; modelKeyHint(); renderModelProfiles(); };
   function renderProjectManagement() {
     const fragment = document.createDocumentFragment();
     for (const [projects, archived] of [[view?.projects || [], false], [view?.archivedProjects || [], true]]) {
@@ -572,9 +634,11 @@
   }
   function applyState(state) {
     if (view && state.currentSessionId === view.currentSessionId && state.config?.workspace === view.config?.workspace && Number(state.seq) < lastSeq) return;
+    if (view && (view.activeModelProfileId !== state.activeModelProfileId || ['baseUrl', 'model', 'protocol', 'contextLimit'].some((field) => view.config?.[field] !== state.config?.[field]))) connectionResult('');
     const workspaceChanged = view && view.config?.workspace !== state.config?.workspace;
     const refreshDiff = view && ((view.busy && !state.busy) || workspaceChanged);
     view = state; lastSeq = Number(state.seq) || 0;
+    if (settingsSection) modelKeyHint();
     $('title').textContent = state.title || 'tcode';
     $('model').textContent = `${state.config?.model || '模型未配置'} · ${state.config?.protocol === 'auto' ? '自动识别协议' : state.config?.protocol || ''}`;
     const workspace = state.config?.workspace || '';
@@ -594,6 +658,7 @@
   }
   function openSettings(section = 'general') {
     if (!view || saving || changing) return;
+    const opening = !settingsSection;
     const changedSection = settingsSection !== section;
     settingsSection = section; settingsFeedback('');
     $('workspace-sidebar').hidden = true; $('chat').hidden = true; toggleDiff(false); $('settings-page').hidden = false;
@@ -603,10 +668,7 @@
       if (button.dataset.section === section) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
     }
     const config = view.config;
-    $('config-base-url').value = config.baseUrl || ''; $('config-model').value = config.model || '';
-    $('config-api-key').value = ''; $('config-protocol').value = config.protocol || 'auto';
-    $('config-context-limit').value = config.contextLimit || 100000;
-    $('config-error').textContent = view.configError || '';
+    if (opening) fillModelForm();
     $('approval').value = config.approval || 'normal'; extraWriteDirs = [...(config.allowWriteDirs || [])]; renderWriteDirs();
     const preferences = view.preferences || { theme: 'system', fontSize: 16, enterToSend: true };
     $('theme').value = preferences.theme; $('font-size').value = String(preferences.fontSize); $('enter-to-send').checked = preferences.enterToSend;
@@ -807,7 +869,14 @@
       baseUrl: $('config-base-url').value.trim(), model: $('config-model').value.trim(), apiKey: $('config-api-key').value,
       protocol: $('config-protocol').value, contextLimit: Number($('config-context-limit').value),
     };
-    try { const result = await api('/config', config); applyState(result.state); $('config-api-key').value = ''; settingsFeedback('设置已保存'); clearError(); }
+    const name = $('config-profile-name').value.trim();
+    const profile = newModelProfile || editingModelProfileId || name;
+    if (profile) {
+      config.name = name;
+      if (editingModelProfileId) config.id = editingModelProfileId;
+      else if (!newModelProfile && originalActiveModelProfileId === (view.activeModelProfileId || null) && !config.apiKey && config.baseUrl.replace(/\/+$/, '') === view.config.baseUrl.replace(/\/+$/, '')) { config.useActiveKey = true; config.sourceModelProfileId = originalActiveModelProfileId; }
+    }
+    try { const result = await api(profile ? '/model-profiles/save' : '/config', config); applyState(result.state); fillModelForm(); connectionResult(''); settingsFeedback('设置已保存'); clearError(); }
     catch (error) { $('config-error').textContent = error.message; }
     finally { saving = false; $('settings-save').disabled = false; $('settings-close').disabled = false; controls(); }
   };

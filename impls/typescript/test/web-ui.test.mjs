@@ -14,6 +14,7 @@ const initialState = (override = {}) => ({
   config: { baseUrl: 'http://127.0.0.1:8080/v1', model: 'test-model', protocol: 'auto', contextLimit: 100000, workspace: '/tmp/ui-project', hasApiKey: true, approval: 'normal', allowWriteDirs: [] },
   projects: [{ path: '/tmp/ui-project', name: 'ui-project', available: true, sessionCount: 0 }],
   archivedProjects: [],
+  modelProfiles: [], activeModelProfileId: null,
   preferences: { theme: 'dark', fontSize: 16, enterToSend: true },
   capabilities: { commands: [], skills: [], tools: [] }, version: '0.5.0', dataDir: '/tmp/ui-data',
   currentSessionId: 's1', title: '新会话', sessions: [], messages: [], activity: [],
@@ -123,6 +124,241 @@ test('设置中心独立于工作区，七组可导航且模型保存后能返�
     await page.getByRole('button', { name: '返回工作区', exact: true }).click();
     assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isVisible(), true);
     assert.equal(await page.getByText('updated-model · 自动识别协议', { exact: true }).isVisible(), true);
+  });
+});
+
+test('工作区可快捷切换已保存模型，保留会话、消息草稿和用量且配置名称只作为文本', async () => {
+  const profile = { id: 'p2', name: '本地 <img src=x onerror="alert(1)">', baseUrl: 'http://127.0.0.1:8081/v1', model: 'second-model', protocol: 'openai', contextLimit: 32000, hasApiKey: true };
+  const state = initialState({ modelProfiles: [profile], title: '已有任务', activity: [{ type: 'text', delta: '已有回答', seq: 1 }], usage: { prompt_tokens: 20, completion_tokens: 4 }, seq: 1 });
+  let selected;
+  await withPage(state, { '/model-profiles/select': (body) => {
+    selected = body; state.activeModelProfileId = profile.id; state.config = { ...state.config, ...profile }; state.seq++;
+    return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill('尚未发送的任务');
+    const choice = page.getByRole('combobox', { name: '切换模型配置', exact: true });
+    await choice.selectOption(profile.id);
+    await page.getByText('second-model · openai', { exact: true }).waitFor();
+    assert.deepEqual(selected, { id: 'p2' });
+    assert.equal(await page.getByRole('heading', { name: '已有任务', exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('已有回答', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), '尚未发送的任务');
+    assert.equal(await page.getByLabel('会话 Token 用量', { exact: true }).textContent(), '输入 20 · 输出 4 · 共 24 Tokens');
+    assert.equal(await choice.locator('option:checked').textContent(), profile.name);
+    assert.equal(await page.locator('#model-profile-switch img').count(), 0);
+  });
+});
+
+test('旧模型可命名保存并激活，未保存模型草稿在设置分组与状态同步后保留', async () => {
+  const state = initialState(); let saved;
+  await withPage(state, { '/model-profiles/save': (body) => {
+    saved = body;
+    const profile = { ...body, id: 'saved-one', hasApiKey: true }; delete profile.apiKey; delete profile.useActiveKey;
+    state.modelProfiles = [profile]; state.activeModelProfileId = profile.id; state.config = { ...state.config, ...profile }; state.seq++;
+    return { ok: true, state };
+  } }, async (page, { emit }) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByLabel('配置名称', { exact: true }).fill('本地 OpenAI');
+    await page.getByLabel('模型', { exact: true }).fill('named-model');
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await navigation.getByRole('button', { name: '常规', exact: true }).click();
+    await navigation.getByRole('button', { name: '模型', exact: true }).click();
+    state.seq = 2; emit({ type: 'state', state });
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'named-model');
+    assert.equal(await page.getByLabel('配置名称', { exact: true }).inputValue(), '本地 OpenAI');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    assert.deepEqual(saved, { name: '本地 OpenAI', apiKey: '', baseUrl: 'http://127.0.0.1:8080/v1', model: 'named-model', protocol: 'auto', contextLimit: 100000, useActiveKey: true, sourceModelProfileId: null });
+    assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), '');
+    assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).inputValue(), 'saved-one');
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    await page.reload();
+    assert.equal(await page.getByRole('combobox', { name: '切换模型配置', exact: true }).inputValue(), 'saved-one');
+  });
+});
+
+test('其他页面切换活动模型后，未命名草稿不能自动借用新活动配置的隐藏密钥', async () => {
+  const other = { id: 'other', name: '其他活动配置', ...initialState().config };
+  const state = initialState({ modelProfiles: [other] }); const saves = [];
+  await withPage(state, { '/model-profiles/save': (body) => {
+    saves.push(body);
+    const profile = { ...body, id: 'new-saved', hasApiKey: true }; delete profile.apiKey;
+    state.modelProfiles.push(profile); state.activeModelProfileId = profile.id; state.config = { ...state.config, ...profile }; state.seq++;
+    return { ok: true, state };
+  } }, async (page, { emit }) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByLabel('配置名称', { exact: true }).fill('旧模型草稿');
+    await page.getByLabel('模型', { exact: true }).fill('draft-model');
+    state.activeModelProfileId = other.id; state.config = { ...state.config, ...other }; state.seq++;
+    emit({ type: 'state', state });
+    await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).locator('option:checked').filter({ hasText: other.name }).waitFor({ state: 'attached' });
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'draft-model');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByRole('button', { name: '保存设置', exact: true }).and(page.locator(':enabled')).waitFor();
+    assert.equal(saves.length, 0, '活动配置 owner 已变化，空白 key 不应触发自动复制');
+    await page.getByText('正在编辑未命名配置；当前使用其他活动配置', { exact: false }).waitFor();
+    await page.getByLabel('API Key', { exact: true }).fill('draft-own-key');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    assert.equal(saves[0].apiKey, 'draft-own-key'); assert.equal('useActiveKey' in saves[0], false);
+  });
+});
+
+test('其他页面切换模型时，已保存配置草稿仍编辑原配置并明确当前使用的模型', async () => {
+  const first = { id: 'first', name: '原配置', ...initialState().config }, other = { ...first, id: 'other', name: '其他配置', model: 'other-model' };
+  const state = initialState({ modelProfiles: [first, other], activeModelProfileId: 'first' }); let saved;
+  await withPage(state, { '/model-profiles/save': (body) => {
+    saved = body;
+    const profile = { ...first, ...body }; delete profile.apiKey;
+    state.modelProfiles = [profile, other]; state.activeModelProfileId = profile.id; state.config = { ...state.config, ...profile }; state.seq++;
+    return { ok: true, state };
+  } }, async (page, { emit }) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByLabel('模型', { exact: true }).fill('original-draft-model');
+    state.activeModelProfileId = other.id; state.config = { ...state.config, ...other }; state.seq++;
+    emit({ type: 'state', state });
+    await page.getByText('正在编辑原配置；当前使用其他配置', { exact: false }).waitFor();
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'original-draft-model');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    assert.equal(saved.id, 'first'); assert.equal(saved.apiKey, ''); assert.equal('useActiveKey' in saved, false);
+    assert.equal(state.activeModelProfileId, 'first');
+  });
+});
+
+test('新模型配置单独填写密钥，取消可恢复活动配置，保存后能编辑且换端点必须填写新密钥', async () => {
+  const first = { id: 'first', name: '已有配置', ...initialState().config };
+  const state = initialState({ modelProfiles: [first], activeModelProfileId: first.id }); const saves = [];
+  await withPage(state, { '/model-profiles/save': (body) => {
+    saves.push(body);
+    const profile = { ...body, id: body.id || 'second', hasApiKey: true }; delete profile.apiKey;
+    state.modelProfiles = [...state.modelProfiles.filter((item) => item.id !== profile.id), profile];
+    state.activeModelProfileId = profile.id; state.config = { ...state.config, ...profile }; state.seq++;
+    return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByRole('button', { name: '新建模型配置', exact: true }).click();
+    assert.equal(await page.getByLabel('配置名称', { exact: true }).inputValue(), '');
+    assert.equal(await page.getByLabel('API 端点', { exact: true }).inputValue(), '');
+    await page.getByLabel('配置名称', { exact: true }).fill('取消的草稿');
+    await page.getByRole('button', { name: '取消新建', exact: true }).click();
+    assert.equal(await page.getByLabel('配置名称', { exact: true }).inputValue(), '已有配置');
+    assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).locator('option[value=""]').getAttribute('disabled'), '', '活动配置已命名时不能误显示为未命名');
+    assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), '');
+    await page.getByRole('button', { name: '新建模型配置', exact: true }).click();
+    await page.getByLabel('配置名称', { exact: true }).fill('第二个模型');
+    await page.getByLabel('API 端点', { exact: true }).fill(first.baseUrl);
+    await page.getByLabel('模型', { exact: true }).fill('other-model');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    assert.equal(saves.length, 0, '新配置不能默认复制活动密钥，即使端点相同');
+    await page.getByLabel('API Key', { exact: true }).fill('second-private-key');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByRole('button', { name: '保存设置', exact: true }).and(page.locator(':enabled')).waitFor();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    assert.deepEqual(saves[0], { name: '第二个模型', baseUrl: first.baseUrl, model: 'other-model', apiKey: 'second-private-key', protocol: 'auto', contextLimit: 100000 });
+    assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), '');
+    await page.getByLabel('模型', { exact: true }).fill('edited-model');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByRole('button', { name: '保存设置', exact: true }).and(page.locator(':enabled')).waitFor();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    assert.equal(saves[1].id, 'second'); assert.equal(saves[1].apiKey, '');
+    await page.getByLabel('API 端点', { exact: true }).fill('http://127.0.0.1:9999/v1');
+    await page.getByText('更换 API 端点后需要填写新密钥，已保存的密钥不会自动发往新端点。', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    assert.equal(saves.length, 2);
+  });
+});
+
+test('设置内选择保存配置后填入活动字段并清空旧连接测试结果', async () => {
+  const profile = { id: 'anthropic', name: 'Anthropic 本地', baseUrl: 'http://127.0.0.1:8082', model: 'other-model', protocol: 'anthropic', contextLimit: 64000, hasApiKey: true };
+  const state = initialState({ modelProfiles: [profile] });
+  await withPage(state, {
+    '/model/test': () => ({ ok: true, elapsedMs: 12, usage: { prompt_tokens: 1, completion_tokens: 2 } }),
+    '/model-profiles/select': ({ id }) => {
+      assert.equal(id, profile.id); state.activeModelProfileId = id; state.config = { ...state.config, ...profile }; state.seq++;
+      return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByRole('button', { name: '测试已保存的连接', exact: true }).click();
+    await page.getByText('连接成功', { exact: false }).waitFor();
+    await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).selectOption(profile.id);
+    await page.getByLabel('配置名称', { exact: true }).and(page.locator(':enabled')).waitFor();
+    assert.equal(await page.getByLabel('配置名称', { exact: true }).inputValue(), profile.name);
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), profile.model);
+    assert.equal(await page.getByRole('combobox', { name: /^协议/ }).inputValue(), 'anthropic');
+    assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), '');
+    assert.equal(await page.getByText('连接成功', { exact: false }).isVisible(), false, '旧模型连接结果不能用于新活动模型');
+  });
+});
+
+test('模型配置保存或切换失败保留编辑草稿、原活动配置和错误反馈', async () => {
+  const first = { id: 'first', name: '活动配置', ...initialState().config }, second = { ...first, id: 'second', name: '其他配置', model: 'other-model' };
+  const state = initialState({ modelProfiles: [first, second], activeModelProfileId: 'first' });
+  await withPage(state, {
+    '/model-profiles/save': () => { throw new Error('配置文件保存失败'); },
+    '/model-profiles/select': () => { throw new Error('模型切换失败'); },
+  }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByLabel('配置名称', { exact: true }).fill('未保存配置');
+    await page.getByLabel('模型', { exact: true }).fill('draft-model');
+    await page.getByLabel('API Key', { exact: true }).fill('draft-private-key');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByText('配置文件保存失败', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'draft-model');
+    assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), 'draft-private-key');
+    const choice = page.getByRole('combobox', { name: '已保存模型配置', exact: true });
+    await choice.selectOption('second');
+    await page.getByText('模型切换失败', { exact: true }).filter({ visible: true }).waitFor();
+    assert.equal(await choice.inputValue(), 'first');
+    assert.equal(await page.getByLabel('配置名称', { exact: true }).inputValue(), '未保存配置');
+    assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), 'draft-private-key');
+  });
+});
+
+test('审批等待、连接测试和失联期间，模型切换、新建和保存均禁用', async () => {
+  const profile = { id: 'saved', name: '已保存模型', ...initialState().config };
+  await withPage(initialState({ modelProfiles: [profile], busy: true, status: 'waiting_approval' }), {}, async (page) => {
+    assert.equal(await page.getByRole('combobox', { name: '切换模型配置', exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分组', exact: true }).getByRole('button', { name: '模型', exact: true }).click();
+    assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '新建模型配置', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '保存设置', exact: true }).isDisabled(), true);
+  });
+  let finish, arrived;
+  const started = new Promise((resolve) => { arrived = resolve; });
+  await withPage(initialState({ modelProfiles: [profile] }), { '/model/test': () => new Promise((resolve) => { finish = resolve; arrived(); }) }, async (page, { streams }) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByRole('button', { name: '测试已保存的连接', exact: true }).click(); await started;
+    assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '新建模型配置', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '保存设置', exact: true }).isDisabled(), true);
+    finish({ ok: true, elapsedMs: 5, usage: { prompt_tokens: 1, completion_tokens: 1 } });
+    await page.getByText('连接成功', { exact: false }).waitFor();
+    assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).isDisabled(), false);
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    for (const stream of streams) stream.destroy();
+    await page.getByText('连接断开，正在重连', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('combobox', { name: '切换模型配置', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '模型设置', exact: true }).isDisabled(), true);
+  });
+});
+
+test('长模型配置名称在390px浅色和深色工作区及设置中不产生横向溢出', async () => {
+  const profile = { id: 'long', name: '很长的本地模型配置名称'.repeat(6), ...initialState().config };
+  const state = initialState({ modelProfiles: [profile], activeModelProfileId: 'long' });
+  await withPage(state, {}, async (page, { emit }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    for (const theme of ['light', 'dark']) {
+      state.preferences.theme = theme; state.seq++; emit({ type: 'state', state });
+      await page.locator(`html[data-color="${theme}"]`).waitFor();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, '工作区无横向溢出');
+      await page.getByRole('button', { name: '模型设置', exact: true }).click();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, '模型设置无横向溢出');
+      assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).inputValue(), 'long');
+      await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    }
   });
 });
 

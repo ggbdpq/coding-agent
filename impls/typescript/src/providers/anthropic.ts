@@ -104,11 +104,13 @@ export class AnthropicProvider implements ChatClient {
   private baseUrl: string;
   private apiKey: string;
   private model: string;
+  private redactKeys: string[];
 
-  constructor(baseUrl: string, apiKey: string, model: string) {
+  constructor(baseUrl: string, apiKey: string, model: string, knownKeys: string[] = []) {
     this.baseUrl = baseUrl;
     this.apiKey = apiKey;
     this.model = model;
+    this.redactKeys = [apiKey, ...knownKeys].filter(Boolean).sort((a, b) => b.length - a.length);
   }
 
   /** 与 OpenAI 版相同的重试纪律：最多 3 次，仅首字节前可重试 */
@@ -131,7 +133,8 @@ export class AnthropicProvider implements ChatClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      const safeText = this.apiKey ? text.split(this.apiKey).join('[凭证已隐藏]') : text;
+      // 完整正文先隐藏各配置的密钥，再截断；长密钥优先，避免前缀被短密钥遮掉。
+      const safeText = this.redactKeys.reduce((value, key) => value.split(key).join('[凭证已隐藏]'), text);
       const brief = safeText.length > 300 ? `${safeText.slice(0, 300)}…` : safeText;
       const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
       throw retryable
@@ -224,5 +227,5 @@ export default definePlugin({
   name: 'anthropic',
   kind: 'provider',
   matches: (baseUrl: string) => baseUrl.includes('/anthropic'),
-  create: (config: Config) => new AnthropicProvider(config.baseUrl, config.apiKey, config.model),
+  create: (config: Config) => new AnthropicProvider(config.baseUrl, config.apiKey, config.model, (config.modelProfiles ?? []).map((profile) => profile.apiKey)),
 });

@@ -2,7 +2,7 @@
 // 刻意不写死任何默认端点/模型——本地优先工具，用户自己决定请求发去哪。
 // 协议选择不走这里：protocol 只有显式配置时才非空，自动识别由 provider 插件的 matches 做。
 import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, realpathSync, statSync, unlinkSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import type { Protocol } from './types.ts';
@@ -13,6 +13,16 @@ export interface WebPreferences {
   enterToSend: boolean;
 }
 const defaultPreferences: WebPreferences = { theme: 'system', fontSize: 16, enterToSend: true };
+
+export interface ModelProfile {
+  id: string;
+  name: string;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  protocol?: Protocol;
+  contextLimit: number;
+}
 
 export interface Config {
   apiKey: string;
@@ -41,6 +51,8 @@ export interface Config {
   /** 归档仅隐藏导航，项目文件与历史仍保留。 */
   archivedProjects?: string[];
   preferences?: WebPreferences;
+  modelProfiles?: ModelProfile[];
+  activeModelProfileId?: string | null;
   configError?: string;
 }
 
@@ -56,6 +68,8 @@ interface FileConfig {
   projects?: string[];
   archivedProjects?: string[];
   preferences?: WebPreferences;
+  modelProfiles?: ModelProfile[];
+  activeModelProfileId?: string | null;
 }
 
 function readJsonConfig(tcodeDir: string): FileConfig {
@@ -77,6 +91,18 @@ function readJsonConfig(tcodeDir: string): FileConfig {
       if (dirs !== undefined && (!Array.isArray(dirs) || dirs.some((dir) => typeof dir !== 'string' || !path.isAbsolute(dir)))) throw new Error();
     }
     if (fields.preferences !== undefined) validatePreferences(fields.preferences);
+    if (fields.modelProfiles !== undefined) {
+      if (!Array.isArray(fields.modelProfiles)) throw new Error();
+      const ids = new Set<string>();
+      for (const profile of fields.modelProfiles as ModelProfile[]) {
+        if (!profile || typeof profile.id !== 'string' || !profile.id.trim() || typeof profile.name !== 'string' || !profile.name.trim() || ids.has(profile.id)) throw new Error();
+        if (typeof profile.apiKey !== 'string' || !profile.apiKey || typeof profile.baseUrl !== 'string' || !profile.baseUrl || typeof profile.model !== 'string' || !profile.model || !Number.isSafeInteger(profile.contextLimit)) throw new Error();
+        if (profile.protocol !== undefined && !['openai', 'anthropic'].includes(profile.protocol)) throw new Error();
+        modelFields(profile, profile as unknown as Record<string, unknown>);
+        ids.add(profile.id);
+      }
+    }
+    if (fields.activeModelProfileId !== undefined && fields.activeModelProfileId !== null && (typeof fields.activeModelProfileId !== 'string' || !(fields.modelProfiles as ModelProfile[] | undefined)?.some((profile) => profile.id === fields.activeModelProfileId))) throw new Error();
     return value as FileConfig;
   } catch {
     throw new Error('config.json 的格式或字段无效，请在模型设置中重新保存');
@@ -140,7 +166,10 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
         `任何 OpenAI 兼容端点都可以（本地中转、云 API 均可）。`
     );
   }
-  return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, contextLimit, tcodeDir,
+  const selected = file.modelProfiles?.find((profile) => profile.id === file.activeModelProfileId);
+  const activeModelProfileId = selected && selected.apiKey === apiKey && selected.baseUrl === baseUrl && selected.model === model
+    && selected.protocol === protocol && selected.contextLimit === contextLimit ? selected.id : null;
+  return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, contextLimit, tcodeDir, modelProfiles: file.modelProfiles ?? [], activeModelProfileId,
     ...(options.allowIncomplete ? { workspace: file.workspace || (options.desktop ? '' : process.cwd()), projects: file.projects ?? [], archivedProjects: file.archivedProjects ?? [], preferences: file.preferences ?? { ...defaultPreferences }, configError } : {}),
   };
 }
@@ -205,10 +234,16 @@ function recentProjects(current: Config, workspace: string): string[] {
   return [...new Set([workspace, current.workspace ?? process.cwd(), ...(current.projects ?? [])].filter(Boolean))];
 }
 
-export function saveWebConfig(current: Config, input: Record<string, unknown>): Config {
+type ModelFields = Pick<Config, 'apiKey' | 'baseUrl' | 'model' | 'protocol' | 'contextLimit'>;
+
+function modelFields(current: ModelFields, input: Record<string, unknown>): ModelFields {
   const string = (key: string) => typeof input[key] === 'string' ? (input[key] as string).trim() : '';
+  for (const key of ['apiKey', 'baseUrl', 'model', 'protocol']) {
+    if (input[key] !== undefined && typeof input[key] !== 'string') throw new ConfigInputError('模型配置字段须为文本');
+  }
   const apiKey = string('apiKey') || current.apiKey;
   const baseUrl = (input.baseUrl === undefined ? current.baseUrl : string('baseUrl')).replace(/\/+$/, '');
+  if (baseUrl !== current.baseUrl.replace(/\/+$/, '') && !string('apiKey')) throw new ConfigInputError('更换模型端点须重新填写 API Key');
   const model = input.model === undefined ? current.model : string('model');
   const rawProtocol = input.protocol === undefined ? current.protocol ?? 'auto' : string('protocol') || 'auto';
   const contextLimit = Number(input.contextLimit ?? current.contextLimit);
@@ -221,6 +256,11 @@ export function saveWebConfig(current: Config, input: Record<string, unknown>): 
   }
   if (!['auto', 'openai', 'anthropic'].includes(rawProtocol)) throw new ConfigInputError('协议须为 auto、openai 或 anthropic');
   if (!Number.isSafeInteger(contextLimit) || contextLimit <= 0) throw new ConfigInputError('上下文上限须为正整数');
+  return { apiKey, baseUrl, model, protocol: rawProtocol === 'auto' ? undefined : rawProtocol as Protocol, contextLimit };
+}
+
+export function saveWebConfig(current: Config, input: Record<string, unknown>, validate?: (next: Config) => void): Config {
+  const { apiKey, baseUrl, model, protocol, contextLimit } = modelFields(current, input);
   const workspace = input.workspace === undefined ? current.workspace ?? process.cwd() : workspaceDirectory(input.workspace);
   const projects = recentProjects(current, workspace);
   const approval = input.approval ?? current.approval ?? 'normal';
@@ -230,8 +270,49 @@ export function saveWebConfig(current: Config, input: Record<string, unknown>): 
     if (!Array.isArray(input.allowWriteDirs)) throw new ConfigInputError('免审批目录须为目录列表');
     allowWriteDirs = [...new Set(input.allowWriteDirs.map(workspaceDirectory))];
   }
-  const protocol = rawProtocol === 'auto' ? undefined : rawProtocol as Protocol;
   const archivedProjects = (current.archivedProjects ?? []).filter((directory) => directory !== workspace);
-  persistConfig(current, { apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs });
-  return { ...current, apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, configError: undefined };
+  const modelUpdate = ['apiKey', 'baseUrl', 'model', 'protocol', 'contextLimit'].some((key) => input[key] !== undefined);
+  const modelProfiles = modelUpdate ? current.modelProfiles?.map((profile) => profile.id === current.activeModelProfileId
+    ? { ...profile, apiKey, baseUrl, model, protocol, contextLimit } : profile) : current.modelProfiles;
+  const next: Config = { ...current, apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, modelProfiles, configError: undefined };
+  validate?.(next);
+  persistConfig(current, { apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, modelProfiles });
+  return next;
+}
+
+/** 保存即激活；凭证沿用必须属于同一配置与同一端点。 */
+export function saveModelProfile(current: Config, input: Record<string, unknown>, validate?: (next: Config) => void): Config {
+  const profiles = current.modelProfiles ?? [];
+  const previous = input.id === undefined ? undefined : profiles.find((profile) => profile.id === input.id);
+  if (input.id !== undefined && !previous) throw new ConfigInputError('模型配置不存在');
+  if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 80) throw new ConfigInputError('配置名称须为 1 至 80 个字符');
+  if (input.useActiveKey !== undefined && typeof input.useActiveKey !== 'boolean') throw new ConfigInputError('沿用当前凭证须为布尔值');
+  if (input.useActiveKey && input.sourceModelProfileId !== (current.activeModelProfileId ?? null)) {
+    throw new ConfigInputError('活动配置已改变，请重新填写密钥');
+  }
+  const normalizedUrl = typeof input.baseUrl === 'string' ? input.baseUrl.trim().replace(/\/+$/, '') : '';
+  if (input.apiKey !== undefined && typeof input.apiKey !== 'string') throw new ConfigInputError('API Key 须为文本');
+  const explicitKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
+  if (input.useActiveKey && (!current.apiKey || normalizedUrl !== current.baseUrl)) throw new ConfigInputError('只有相同端点可以明确沿用当前凭证');
+  const key = explicitKey || (input.useActiveKey ? current.apiKey : '');
+  const values = modelFields(previous ?? { apiKey: '', baseUrl: '', model: '', contextLimit: current.contextLimit }, { ...input, apiKey: key });
+  const profile: ModelProfile = { id: previous?.id ?? randomUUID(), name: input.name.trim(), ...values };
+  const modelProfiles = previous ? profiles.map((entry) => entry.id === previous.id ? profile : entry) : [...profiles, profile];
+  const next = { ...current, ...values, modelProfiles, activeModelProfileId: profile.id,
+    configError: current.configError?.includes('项目目录不可用') ? current.configError : undefined };
+  validate?.(next);
+  persistConfig(current, { ...values, modelProfiles, activeModelProfileId: profile.id });
+  return next;
+}
+
+export function selectModelProfile(current: Config, id: unknown, validate?: (next: Config) => void): Config {
+  const profile = typeof id === 'string' && current.modelProfiles?.find((entry) => entry.id === id);
+  if (!profile) throw new ConfigInputError('模型配置不存在');
+  const { apiKey, baseUrl, model, protocol, contextLimit } = profile;
+  const values = { apiKey, baseUrl, model, protocol, contextLimit };
+  const next = { ...current, ...values, activeModelProfileId: profile.id,
+    configError: current.configError?.includes('项目目录不可用') ? current.configError : undefined };
+  validate?.(next);
+  persistConfig(current, { ...values, activeModelProfileId: profile.id });
+  return next;
 }

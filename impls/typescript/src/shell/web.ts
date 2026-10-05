@@ -10,7 +10,7 @@ import { createPermissionGate, type PermissionDecision } from '../core/permissio
 import { runUserTurn } from '../core/turn.ts';
 import type { AgentEvent } from '../kernel/types.ts';
 import { VERSION, selectProvider, type App } from '../kernel/app.ts';
-import { saveWebConfig, saveWorkspace, saveProjectArchive, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
+import { saveWebConfig, saveModelProfile, selectModelProfile, saveWorkspace, saveProjectArchive, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
 import { SessionStore } from '../core/session.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
@@ -40,7 +40,12 @@ export async function startWeb(app: App): Promise<void> {
   let usage = { prompt_tokens: 0, completion_tokens: 0 };
   let storageError: string | undefined;
   let pickerOpen = false;
-  const safeError = (message: string) => app.config.apiKey ? message.split(app.config.apiKey).join('[凭证已隐藏]') : message;
+  const safeError = (message: string, config = app.config) => [config.apiKey, ...(config.modelProfiles ?? []).map((profile) => profile.apiKey)]
+    .filter(Boolean).sort((a, b) => b.length - a.length).reduce((text, key) => text.split(key).join('[凭证已隐藏]'), message);
+  const modelProvider = (config: typeof app.config) => {
+    try { return selectProvider(config, app.registry); }
+    catch (error) { throw new Error(safeError((error as Error).message, config)); }
+  };
   const sendEvent = (ev: Record<string, unknown>) => {
     const packet = { ...ev, seq: ++seq, sessionId: store.currentId };
     if (!['state', 'error', 'aborted'].includes(String(ev.type))) {
@@ -228,6 +233,8 @@ export async function startWeb(app: App): Promise<void> {
     return { ready: !!(apiKey && baseUrl && model && cwd && !configError), projects: projectList.filter((project) => !archived.has(project.path)),
       archivedProjects: projectList.filter((project) => archived.has(project.path)),
       version: VERSION, dataDir: app.config.tcodeDir,
+      modelProfiles: (app.config.modelProfiles ?? []).map(({ id, name, baseUrl, model, protocol, contextLimit, apiKey }) => ({ id, name, baseUrl, model, protocol: protocol ?? 'auto', contextLimit, hasApiKey: !!apiKey })),
+      activeModelProfileId: app.config.activeModelProfileId ?? null,
       preferences: app.config.preferences ?? { theme: 'system', fontSize: 16, enterToSend: true },
       capabilities: {
         commands: app.registry.commands().map((command) => ({ name: command.name, usage: command.usage, description: command.summary })),
@@ -446,10 +453,24 @@ export async function startWeb(app: App): Promise<void> {
       }
       return;
     }
+    if (req.method === 'POST' && path === '/model-profiles/select') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能切换模型配置' }); return; }
+      let provider = app.provider;
+      const next = selectModelProfile(app.config, body.id, (candidate) => { provider = modelProvider(candidate); });
+      Object.assign(app.config, next); app.provider = provider;
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/model-profiles/save') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改模型配置' }); return; }
+      let provider = app.provider;
+      const next = saveModelProfile(app.config, body, (candidate) => { provider = modelProvider(candidate); });
+      Object.assign(app.config, next); app.provider = provider;
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
     if (req.method === 'POST' && path === '/config') {
       if (busy) { json(res, 409, { error: '任务运行期间不能修改配置' }); return; }
-      const next = saveWebConfig(app.config, body);
-      const provider = selectProvider(next, app.registry);
+      let provider = app.provider;
+      const next = saveWebConfig(app.config, body, (candidate) => { provider = modelProvider(candidate); });
       switchWorkspace(next); app.provider = provider;
       if (body.approval !== undefined) app.yolo.value = next.approval === 'never';
       json(res, 200, { ok: true, state: snapshot() });
