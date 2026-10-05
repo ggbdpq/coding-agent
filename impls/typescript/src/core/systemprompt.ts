@@ -67,7 +67,7 @@ export function buildSystemPrompt(cwd: string, homeDir?: string, dataDir?: strin
     '工作原则：',
     '- 动手改代码前先 read 相关文件，弄清上下文再动手。',
     '- 修改文件用 edit 做精确替换，old_string 必须带足够上下文保证唯一；新文件才用 write。',
-    '- 跨文件多处一致的修改用 apply_patch 原子补丁（先全部预验再写入）。',
+    '- 跨文件多处一致的修改用 apply_patch 批量补丁（每个规范路径一条编辑，先全部预验再逐文件写入；写入失败不保证回滚）。',
     '- 修改后用 bash 运行相关测试或命令验证，如实报告结果，绝不谎报通过。',
     '- 找不到文件时先用 glob/grep 定位，不要瞎猜路径。',
     '- 回答用简体中文，简洁直接。',

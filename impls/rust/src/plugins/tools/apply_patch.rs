@@ -1,7 +1,7 @@
-// apply_patch 工具：多文件原子编辑——先对全部编辑做预验（每条 old_string 必须在其
+// apply_patch 工具：多文件预验后批量编辑——先对全部编辑做预验（每条 old_string 必须在其
 // 文件中存在且唯一/显式 replace_all），任一失败则整体不应用并逐条报告；全部通过后才写入。
-// 原子性说明：预验与写入之间无并发写者（工具循环串行），因此"全预验→全写入"
-// 即实际原子；安全边界：needs_permission 逐次确认（不设白名单豁免），preview 列出全部目标文件。
+// 预验失败保证零写入；通过后逐文件写入，写入阶段失败不保证回滚。
+// 安全边界：needs_permission 逐次确认（不设白名单豁免），preview 列出全部目标文件。
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -25,7 +25,7 @@ fn field_str<'a>(e: &'a Value, key: &str) -> &'a str {
 pub fn apply_patch_plugin() -> Plugin {
     Plugin::Tool(Rc::new(ToolDef {
         name: "apply_patch",
-        description: "对多个文件一次应用多处精确替换（原子操作：全部预验通过才写入，任一失败整体放弃）。适合跨文件的重命名/批量调整；单文件小改动仍优先用 edit。",
+        description: "对多个文件一次应用多处精确替换（每个规范路径只允许一条编辑；预验失败零写入；写入失败不保证回滚）。适合跨文件的重命名/批量调整；单文件小改动仍优先用 edit。",
         parameters: serde_json::json!({
             "type": "object",
             "properties": {
@@ -59,7 +59,7 @@ pub fn apply_patch_plugin() -> Plugin {
                 }
             }
             let rows: Vec<String> = files.iter().map(|f| format!("  · {}", f)).collect();
-            format!("原子补丁：{} 处编辑，涉及 {} 个文件\n{}", list.len(), files.len(), rows.join("\n"))
+            format!("批量补丁：{} 处编辑，涉及 {} 个文件\n{}", list.len(), files.len(), rows.join("\n"))
         }),
         run: Rc::new(|args: &Value| run_apply_patch(args)),
         skip_permission: None,
@@ -75,7 +75,7 @@ fn run_apply_patch(args: &Value) -> String {
     }
 
     // 第一阶段：全量预验，不改任何磁盘内容
-    let mut cache: HashMap<String, String> = HashMap::new();
+    let mut cache: HashMap<std::path::PathBuf, String> = HashMap::new();
     let mut prepared: Vec<PreparedEdit> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
     for (i, e) in list.iter().enumerate() {
@@ -87,13 +87,17 @@ fn run_apply_patch(args: &Value) -> String {
             errors.push(format!("#{}：缺少 file_path 或 old_string", i));
             continue;
         }
-        let original = if let Some(o) = cache.get(&file) {
+        let abs = resolve_path(&file).abs;
+        if cache.contains_key(&abs) {
+            errors.push(format!("#{}：同一文件不能包含多条编辑：{}", i, file));
+            continue;
+        }
+        let original = if let Some(o) = cache.get(&abs) {
             o.clone()
         } else {
-            let abs = resolve_path(&file).abs;
             match std::fs::read_to_string(&abs) {
                 Ok(t) => {
-                    cache.insert(file.clone(), t.clone());
+                    cache.insert(abs.clone(), t.clone());
                     t
                 }
                 Err(_) => {
@@ -114,13 +118,12 @@ fn run_apply_patch(args: &Value) -> String {
             ));
             continue;
         }
-        // 同文件多条编辑时各 next 都基于同一份缓存原文，后写覆盖前写（与 tcode 一致）
         let next = if replace_all && count > 1 {
             original.replace(&old_string, &new_string)
         } else {
             original.replacen(&old_string, &new_string, 1)
         };
-        prepared.push(PreparedEdit { abs: resolve_path(&file).abs, display: file, next });
+        prepared.push(PreparedEdit { abs, display: file, next });
     }
     if !errors.is_empty() {
         let rows: Vec<String> = errors.iter().map(|s| format!("- {}", s)).collect();
@@ -201,6 +204,26 @@ mod tests {
         assert!(result.contains("预验未通过"), "实际：{}", result);
         assert!(result.contains("未找到 old_string"), "实际：{}", result);
         assert_eq!(std::fs::read_to_string(&a).unwrap(), "alpha\nbeta\n", "失败时 a 不应被改动");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "hello\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 越过根目录的路径别名_重复目标整批零写入() {
+        let dir = temp_dir("root-alias");
+        let a = dir.join("a.txt");
+        let b = dir.join("b.txt");
+        std::fs::write(&a, "alpha\nbeta\n").unwrap();
+        std::fs::write(&b, "hello\n").unwrap();
+        let alias = format!("/..{}", a.display());
+        let result = plugin_run(json!({"edits": [
+            {"file_path": b.to_string_lossy(), "old_string": "hello", "new_string": "HELLO"},
+            {"file_path": a.to_string_lossy(), "old_string": "alpha", "new_string": "ALPHA"},
+            {"file_path": alias, "old_string": "beta", "new_string": "BETA"}
+        ]}));
+        assert!(result.starts_with("错误：预验未通过，未写入任何文件。"), "实际：{}", result);
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "alpha\nbeta\n");
         assert_eq!(std::fs::read_to_string(&b).unwrap(), "hello\n");
         let _ = std::fs::remove_dir_all(&dir);
     }

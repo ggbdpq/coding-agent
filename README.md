@@ -12,7 +12,7 @@
   Provider / Event / Session 七篇行为规范，每篇含本质约束、语言中立规则与反例清单。
 - `impls/` 是同一规范的五种语言表达：TypeScript / Python / Go / Rust / C#，
   全部对齐 v0.5.0 能力线（九工具、权限三态闸门、40 轮熔断、双协议、Plan Mode、
-  apply_patch 原子补丁、统一事件模型）。
+  apply_patch 预验后批量补丁、统一事件模型）。
 - `conformance/` 是规范的机器执行面：同一 scenario 驱动五个 runtime，归一化后跨版比对，
   输出 PASS / ALLOW_DIFF / DRIFT。
 
@@ -41,14 +41,15 @@ Executable Conformance (conformance/)
 
 ## Conformance Evidence
 
-三条 Agent 生命周期边界，每条一个 frozen 场景，五 runtime 全绿（CI 自动验证）：
+以下场景验证三条 Agent 生命周期边界；SC-001、SC-002A/B/C/D 已 frozen，SC-004-A 尚待红操演练：
 
 | Scenario | 边界 | 断言要点 |
 | --- | --- | --- |
 | SC-004 | **Input Boundary** | exec 缺 `--yolo` → 拒绝执行、零模型调用、stderr 指认旗标 |
 | SC-001 | **Decision Boundary** | Plan Mode 下写类工具在执行/询问/事件之前被拒；拒写文案逐字一致（规范锁定）；产物零变更 |
 | SC-002A | **Mutation Boundary** | 审批确认前不落盘；确认后多文件补丁字节级精确应用 |
-| SC-002B | **Mutation Boundary** | 任一编辑预验失败 → 整体零写入（无半修改状态）+ 错误折叠回流 |
+| SC-002B | **Mutation Boundary** | 任一编辑预验失败 → 整体零写入 + 错误折叠回流 |
+| SC-002C/D | **Mutation Boundary**（frozen） | 五版拒绝相同目标及 `.` / `..` 别名且保留原字节；移除保护的反例准确转红 |
 
 可验证执行链：每次运行输出构建新鲜度门（sha256 + 时间戳，防"单测绿/冒烟红"的陈旧产物
 假象，见 [docs/conformance-lessons.md](docs/conformance-lessons.md) L1）；diff 采用
@@ -76,6 +77,8 @@ node impls/typescript/bin/tcode.js          # 或 python -m pcode / go run ./cmd
 不依赖任何真实模型。
 
 ## Limitations
+
+- `apply_patch` 的零写入保证仅适用于预验失败；通过后按文件写入，磁盘失败、取消或崩溃不保证回滚，不提供多文件事务。路径判重基于绝对词法路径，不合并符号链接或硬链接。
 
 - 不是生产 IDE 集成（无编辑器插件、无 LSP）；
 - 不是自主部署方案（无沙箱隔离、无云端执行）；

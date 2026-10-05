@@ -17,8 +17,8 @@ fn normalize(path: &Path) -> PathBuf {
         match comp {
             Component::CurDir => {}
             Component::ParentDir => {
-                // 根前/前缀后的 ".." 无法再上跳时保留原样
-                if !out.pop() {
+                // 绝对路径到达根后不再上跳；仅无根路径保留无法消解的 ".."。
+                if !out.pop() && !out.has_root() {
                     out.push(comp.as_os_str());
                 }
             }

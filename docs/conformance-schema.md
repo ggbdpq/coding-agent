@@ -98,8 +98,8 @@
 
 ```yaml
 id: SC-002
-title: apply_patch 原子性——任一文件操作失败则零写入
-purpose: 验证补丁语义的原子性与失败折叠为可恢复错误
+title: apply_patch 预验——任一编辑预验失败则零写入
+purpose: 验证补丁预验零写入与失败折叠为可恢复错误
 related_specs: [tool-protocol.md#R3]
 maturity: draft          # 五版首跑通过后升 frozen
 coverage: all
@@ -146,9 +146,10 @@ expect:
   不询问）；verdict ok。
 - 验证的行为：拒写判定先于一切执行面；拒写文本回流供模型改出计划。
 
-### SC-002 apply_patch 原子性
+### SC-002 apply_patch 预验边界
 
-见 §3.5 完整示例。验证：任一文件操作失败 → 全补丁零写入 + 失败折叠回流（tool-protocol R3）。
+见 §3.5 完整示例。验证：任一编辑预验失败 → 全补丁零写入 + 失败折叠回流（tool-protocol R3/R8）。
+新增 SC-002C/D 覆盖相同目标及 `.` / `..` 路径别名。通过预验后的磁盘写入不提供多文件事务或自动回滚。
 
 ### SC-003 Tool Error 折叠（可恢复错误语义）
 

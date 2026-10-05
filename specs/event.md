@@ -92,8 +92,7 @@
 
 ## 低置信区
 
-- ccode 本机无 .NET SDK：Types.cs 注释修正未编译复跑（纯注释改动，风险面 = 0）；
-  EventTests 既有断言未随本轮复跑（源码行为未动）。
+- ccode 的 SDK 验证欠账已于 2026-10-04 关闭：Types.cs 编译与既有 EventTests 随全套 63/63 通过，见 [R8 补验记录](tool-protocol.md#r8-裁决与验证2026-10-03)。
 - permission 事件仅 tcode web 壳有生产者，web 壳无五版对照面。
 - turn_start.id 唯一性口径：rust 为「毫秒时间戳+进程内序号」，跨进程理论上可重复；
   当前无消费方依赖全局唯一，暂不裁决。

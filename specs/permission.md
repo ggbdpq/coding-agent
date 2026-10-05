@@ -89,7 +89,7 @@
 - rust 分隔符修复的 POSIX 行为本机不可验证（Windows 上与旧实现同值）。
 - py 真实路径解析在 symlink 场景与其余四版的判定分歧未构造实测用例（登记为允许加严）。
 - `--approval` / `/approval` 的互补缺口属能力面，收敛需走路线图（3.3 搁置机制）。
-- ccode 本机无 .NET SDK，ApprovalTests 未随本轮复跑（本主题未改 csharp 源码）。
+- ccode 既有 ApprovalTests 已于 2026-10-04 随整套测试/冒烟 63/63 通过，见 [R8 补验记录](tool-protocol.md#r8-裁决与验证2026-10-03)。
 - 行号为 2026-09-27 快照，会随代码漂移。
 
 ## 验证记录（2026-09-27）

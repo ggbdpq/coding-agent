@@ -91,8 +91,7 @@
 
 ## 低置信区
 
-- ccode 新增绿锁单测未运行：本机无 .NET SDK（dotnet 不在 PATH 与常见安装位置），
-  `impls/csharp/tests/TrimTests.cs` 新 case 未编译执行；本次未改 csharp 源码，风险面 = 测试本身。
+- ccode 的 SDK 验证欠账已于 2026-10-04 关闭：隔离 SDK 下既有 TrimTests 与整套测试/冒烟 63/63；运行环境和跨版验收见 [R8 补验记录](tool-protocol.md#r8-裁决与验证2026-10-03)。
 - 冒烟场景（A/B/C/D/F/H）不直接覆盖 token 口径与 trim 边界；行为断言靠五版单测，
   gcode 另有冒烟 G（/compact 记忆保持）覆盖 compact 主路径。
 - rust 摘要 20s 超时（SUMMARY_TIMEOUT）是五版唯一显式超时常量，其余版本依赖平台中止；

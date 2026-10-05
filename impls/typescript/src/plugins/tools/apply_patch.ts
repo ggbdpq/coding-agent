@@ -1,7 +1,7 @@
-// apply_patch 工具：多文件原子编辑——先对全部编辑做预验（每条 old_string 必须在其
+// apply_patch 工具：多文件预验后批量编辑——先对全部编辑做预验（每条 old_string 必须在其
 // 文件中唯一存在），任一失败则整体不应用并逐条报告；全部通过后才写入。
-// 原子性说明：预验与写入之间无并发写者（tcode 工具循环串行），因此"全预验→全写入"
-// 即实际原子；安全边界：逐次确认，preview 列出全部目标文件。
+// 预验失败保证零写入；通过后逐文件写入，写入阶段失败不保证回滚。
+// 安全边界：逐次确认，preview 列出全部目标文件。
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { definePlugin } from '../../kernel/plugin.ts';
@@ -17,7 +17,6 @@ export interface PatchEdit {
 interface PreparedEdit {
   abs: string;
   display: string;
-  original: string;
   next: string;
 }
 
@@ -27,7 +26,7 @@ export default definePlugin({
   name: 'apply_patch',
   kind: 'tool',
   description:
-    '对多个文件一次应用多处精确替换（原子操作：全部预验通过才写入，任一失败整体放弃）。' +
+    '对多个文件一次应用多处精确替换（每个规范路径只允许一条编辑；预验失败零写入；写入失败不保证回滚）。' +
     '适合跨文件的重命名/批量调整；单文件小改动仍优先用 edit。',
   parameters: {
     type: 'object',
@@ -53,7 +52,7 @@ export default definePlugin({
   preview: (a) => {
     const edits = Array.isArray(a.edits) ? (a.edits as PatchEdit[]) : [];
     const files = [...new Set(edits.map((e) => String(e.file_path)))];
-    return `原子补丁：${edits.length} 处编辑，涉及 ${files.length} 个文件\n${files
+    return `批量补丁：${edits.length} 处编辑，涉及 ${files.length} 个文件\n${files
       .map((f) => `  · ${f}`)
       .join('\n')}`;
   },
@@ -74,15 +73,20 @@ export default definePlugin({
         errors.push(`#${i}：缺少 file_path 或 old_string`);
         continue;
       }
-      let original = cache.get(file);
+      const abs = resolvePath(file).abs;
+      if (cache.has(abs)) {
+        errors.push(`#${i}：同一文件不能包含多条编辑：${file}`);
+        continue;
+      }
+      let original = cache.get(abs);
       if (original === undefined) {
         try {
-          original = await readFile(resolvePath(file).abs, 'utf8');
+          original = await readFile(abs, 'utf8');
         } catch {
           errors.push(`#${i}：无法读取 ${file}`);
           continue;
         }
-        cache.set(file, original);
+        cache.set(abs, original);
       }
       const count = original.split(oldString).length - 1;
       if (count === 0) {
@@ -95,7 +99,7 @@ export default definePlugin({
         e.replace_all && count > 1
           ? original.split(oldString).join(newString)
           : original.replace(oldString, newString);
-      prepared.push({ abs: resolvePath(file).abs, display: file, original, next });
+      prepared.push({ abs, display: file, next });
     }
     if (errors.length > 0) {
       return `错误：预验未通过，未写入任何文件。\n${errors.map((s) => `- ${s}`).join('\n')}`;
