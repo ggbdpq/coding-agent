@@ -237,7 +237,8 @@
   <form id="settings-form">
     <label>配置名称<input id="config-profile-name" maxlength="80" autocomplete="off" placeholder="填写名称可保存到模型列表"></label>
     <label>API 端点<input id="config-base-url" name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
-    <label>模型<input id="config-model" name="model" required autocomplete="off"></label>
+    <label>模型<input id="config-model" name="model" required autocomplete="off" list="model-options"></label>
+    <div class="bar"><button type="button" id="model-discover" title="使用已保存的配置请求端点的模型列表（10 秒超时）">获取模型列表</button><datalist id="model-options"></datalist></div>
     <label>API Key<input id="config-api-key" name="apiKey" type="password" autocomplete="new-password" placeholder="填写密钥；已保存时留空保留"></label>
     <p id="model-key-hint" class="settings-description"></p>
     <label>协议<select id="config-protocol" name="protocol"><option value="auto">自动识别</option><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></label>
@@ -437,6 +438,7 @@
     $('config-api-key').value = ''; $('config-protocol').value = config.protocol || 'auto';
     $('config-context-limit').value = config.contextLimit || 100000;
     $('config-error').textContent = view.configError || '';
+    $('model-options').replaceChildren();
     modelKeyHint(); renderModelProfiles();
   }
   function modelKeyHint() {
@@ -464,6 +466,19 @@
   };
   $('model-profile-cancel').onclick = () => { if (!navigationBlocked()) { fillModelForm(); settingsFeedback(''); } };
   $('settings-form').oninput = () => { modelDraftDirty = true; modelKeyHint(); renderModelProfiles(); };
+  $('model-discover').onclick = async () => {
+    if (!connected || view?.busy || saving || changing) return;
+    const button = $('model-discover');
+    button.disabled = true; settingsFeedback('');
+    try {
+      const result = await api('/model/discover');
+      $('model-options').replaceChildren(...result.models.map((name) => {
+        const option = document.createElement('option'); option.value = name; return option;
+      }));
+      settingsFeedback(result.models.length ? `发现 ${result.models.length} 个模型，模型输入框可下拉选择` : '端点未返回任何模型');
+    } catch (error) { settingsFeedback(error.message, true); }
+    finally { button.disabled = !connected || !!view?.busy || saving || changing; }
+  };
   function renderProjectManagement() {
     const fragment = document.createDocumentFragment();
     for (const [projects, archived] of [[view?.projects || [], false], [view?.archivedProjects || [], true]]) {
@@ -731,7 +746,7 @@
   }
   function applyState(state) {
     if (view && state.currentSessionId === view.currentSessionId && state.config?.workspace === view.config?.workspace && Number(state.seq) < lastSeq) return;
-    if (view && (view.activeModelProfileId !== state.activeModelProfileId || ['baseUrl', 'model', 'protocol', 'contextLimit'].some((field) => view.config?.[field] !== state.config?.[field]))) connectionResult('');
+    if (view && (view.activeModelProfileId !== state.activeModelProfileId || ['baseUrl', 'model', 'protocol', 'contextLimit'].some((field) => view.config?.[field] !== state.config?.[field]))) { connectionResult(''); $('model-options').replaceChildren(); }
     const workspaceChanged = view && view.config?.workspace !== state.config?.workspace;
     const refreshDiff = view && ((view.busy && !state.busy) || workspaceChanged);
     view = state; lastSeq = Number(state.seq) || 0;

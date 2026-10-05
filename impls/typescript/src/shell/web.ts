@@ -17,6 +17,7 @@ import { definePlugin } from '../kernel/plugin.ts';
 import { appendJournal, journalError, loadJournal, resetJournal, saveJournal, setFileJournalSink } from '../plugins/tools/filejournal.ts';
 import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type ChangesResult } from './webgit.ts';
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
+import { listModels } from '../providers/models.ts';
 import { pickWorkspace } from './workspacepicker.ts';
 
 const BODY_LIMIT = 1024 * 1024;
@@ -489,6 +490,28 @@ export async function startWeb(app: App): Promise<void> {
       if (busy) { json(res, 409, { error: '任务运行期间不能修改设置' }); return; }
       Object.assign(app.config, saveWebPreferences(app.config, body));
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'GET' && path === '/model/discover') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能获取模型列表' }); return; }
+      if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
+        throw new ConfigInputError('请先保存有效的模型配置');
+      }
+      // 协议与 selectProvider 同源：显式 protocol 优先，否则按 URL 自动识别（anthropic 匹配 /anthropic）
+      const auto = app.registry.providers().find((entry) => entry.matches(app.config.baseUrl))?.name === 'anthropic' ? 'anthropic' : 'openai';
+      const protocol = app.config.protocol === 'anthropic' || app.config.protocol === 'openai' ? app.config.protocol : auto;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const models = await listModels(app.config.baseUrl, app.config.apiKey, protocol, controller.signal);
+        json(res, 200, { models });
+      } catch (error) {
+        if (controller.signal.aborted) { json(res, 504, { error: '获取模型列表超时（10 秒）' }); return; }
+        // 先遮蔽凭证再截断；半截密钥不能出现在错误里
+        json(res, 502, { error: safeError((error as Error).message).slice(0, 400) });
+      } finally {
+        clearTimeout(timer);
+      }
+      return;
     }
     if (req.method === 'POST' && path === '/model/test') {
       if (busy) { json(res, 409, { error: '任务运行期间不能测试模型连接' }); return; }

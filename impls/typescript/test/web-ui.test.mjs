@@ -1120,3 +1120,16 @@ test('模型设置列出已保存配置并可删除非活动项，活动配置�
     assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).locator('option').count(), 2, '下拉只剩占位与活动配置');
   });
 });
+
+test('模型设置可获取已保存配置的模型列表，模型输入保持自由填写', async () => {
+  const state = initialState();
+  await withPage(state, { '/model/discover': () => ({ models: ['m-a', 'm-b'] }) }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByRole('button', { name: '获取模型列表', exact: true }).click();
+    await page.getByText('发现 2 个模型，模型输入框可下拉选择', { exact: true }).waitFor();
+    const options = await page.locator('#model-options option').evaluateAll((nodes) => nodes.map((node) => node.value));
+    assert.deepEqual(options, ['m-a', 'm-b']);
+    await page.getByLabel('模型', { exact: true }).fill('custom-model');
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'custom-model', '候选列表不能锁死输入框');
+  });
+});

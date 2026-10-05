@@ -15,11 +15,21 @@ async function until(check) {
   throw new Error('等待本地测试服务超时');
 }
 
-async function fixture(t, { protocol = 'openai', mode = 'ok', configured = true, missingWorkspace = false, apiKey = 'connection-fixture-key' } = {}) {
+async function fixture(t, { protocol = 'openai', mode = 'ok', configured = true, missingWorkspace = false, workspace = false, apiKey = 'connection-fixture-key' } = {}) {
   const directory = mkdtempSync(path.join(tmpdir(), 'tcode-model-check-'));
   const data = path.join(directory, 'data'); mkdirSync(data);
+  if (workspace) mkdirSync(path.join(directory, 'project'));
   const requests = [];
   const provider = createServer(async (req, res) => {
+    const modelsPath = protocol === 'openai' ? '/v1/models' : '/anthropic/v1/models';
+    if (req.method === 'GET') {
+      if (req.url !== modelsPath) { res.writeHead(404).end(); return; }
+      requests.push({ headers: req.headers });
+      if (mode === 'error') { res.writeHead(401).end('invalid key ' + apiKey); return; }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [{ id: 'saved-model' }, { id: 'other-model' }, { id: 'saved-model' }] }));
+      return;
+    }
     if (req.method !== 'POST' || req.url !== (protocol === 'openai' ? '/v1/chat/completions' : '/anthropic/v1/messages')) {
       res.writeHead(400).end('unexpected protocol route'); return;
     }
@@ -48,7 +58,7 @@ async function fixture(t, { protocol = 'openai', mode = 'ok', configured = true,
   const configFile = path.join(data, 'config.json');
   writeFileSync(configFile, JSON.stringify(configured ? {
     apiKey, baseUrl: `http://127.0.0.1:${provider.address().port}/${protocol === 'openai' ? 'v1' : 'anthropic'}`,
-    model: 'saved-model', protocol, workspace: missingWorkspace ? path.join(directory, 'missing') : '',
+    model: 'saved-model', protocol, workspace: workspace ? path.join(directory, 'project') : missingWorkspace ? path.join(directory, 'missing') : '',
   } : {}));
   const env = { ...process.env, TCODE_DATA_DIR: data, TCODE_APPROVAL: 'normal', TCODE_ALLOW_WRITE: '' };
   for (const key of ['TCODE_API_KEY', 'TCODE_BASE_URL', 'TCODE_MODEL', 'TCODE_PROTOCOL', 'TCODE_CONTEXT_LIMIT']) delete env[key];
@@ -69,6 +79,7 @@ async function fixture(t, { protocol = 'openai', mode = 'ok', configured = true,
   return { requests, configFile,
     state: async () => (await fetch(url + 'state')).json(),
     post: (route, body = {}) => fetch(url + route, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    discover: async () => { const response = await fetch(url + 'model/discover'); return { status: response.status, body: await response.json().catch(() => ({})) }; },
   };
 }
 
@@ -192,4 +203,44 @@ test('上次项目目录已删除仍可独立测试模型连接', async (t) => {
   const h = await fixture(t, { missingWorkspace: true });
   assert.match((await h.state()).configError, /项目目录不可用/);
   assert.equal((await h.post('model/test')).status, 200);
+});
+
+test('模型发现走已保存配置：OpenAI 拉 /models，Anthropic 拉 /v1/models，凭证与版本头分别正确', async (t) => {
+  for (const protocol of ['openai', 'anthropic']) await t.test(protocol, async (t) => {
+    const h = await fixture(t, { protocol });
+    const response = await h.discover();
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.models, ['other-model', 'saved-model'], '去重并按名称排序');
+    const request = h.requests[0];
+    if (protocol === 'openai') assert.equal(request.headers.authorization, 'Bearer connection-fixture-key');
+    else {
+      assert.equal(request.headers['x-api-key'], 'connection-fixture-key');
+      assert.equal(request.headers['anthropic-version'], '2023-06-01');
+    }
+  });
+});
+
+test('模型发现失败隐藏服务商回显的凭证', async (t) => {
+  const h = await fixture(t, { mode: 'error' });
+  const response = await h.discover();
+  assert.equal(response.status, 502);
+  assert.match(response.body.error, /HTTP 401/);
+  assert.equal(response.body.error.includes('connection-fixture-key'), false);
+});
+
+test('缺少保存的模型配置时不做模型发现', async (t) => {
+  const h = await fixture(t, { configured: false });
+  const response = await h.discover();
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /先保存/);
+  assert.equal(h.requests.length, 0);
+});
+
+test('任务运行期间模型发现被拒绝', async (t) => {
+  const h = await fixture(t, { mode: 'hang', workspace: true });
+  await h.post('send', { text: '挂起的任务' });
+  await until(async () => (await h.state()).busy);
+  assert.equal((await h.discover()).status, 409);
+  assert.equal((await h.post('abort')).status, 200);
+  await until(async () => !(await h.state()).busy);
 });
