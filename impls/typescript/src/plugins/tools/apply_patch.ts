@@ -5,6 +5,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { definePlugin } from '../../kernel/plugin.ts';
+import { preSnapshot, recordWrite } from './filejournal.ts';
 import { resolvePath } from './pathguard.ts';
 
 export interface PatchEdit {
@@ -105,8 +106,9 @@ export default definePlugin({
       return `错误：预验未通过，未写入任何文件。\n${errors.map((s) => `- ${s}`).join('\n')}`;
     }
 
-    // 第二阶段：全部通过，逐文件写入
+    // 第二阶段：全部通过，逐文件写入（快照以预验读到的原文为准）
     for (const p of prepared) {
+      recordWrite(p.abs, preSnapshot(true, cache.get(p.abs) ?? null), p.next);
       await writeFile(p.abs, p.next, 'utf8');
     }
     return `已应用补丁：${prepared.length} 处编辑，涉及 ${new Set(prepared.map((p) => p.display)).size} 个文件`;

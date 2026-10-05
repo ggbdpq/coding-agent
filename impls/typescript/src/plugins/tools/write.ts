@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { definePlugin } from '../../kernel/plugin.ts';
 import { ellipsis } from '../../kernel/ui.ts';
+import { readPreSnapshot, recordWrite } from './filejournal.ts';
 import { resolvePath, isWriteTrusted } from './pathguard.ts';
 
 export default definePlugin({
@@ -32,9 +33,12 @@ export default definePlugin({
     if (!file) return '错误：缺少 file_path';
     if (args.content === undefined) return '错误：缺少 content';
     const { abs } = resolvePath(file);
+    const pre = await readPreSnapshot(abs);
+    const content = String(args.content);
     await mkdir(path.dirname(abs), { recursive: true });
-    await writeFile(abs, String(args.content), 'utf8');
-    const lines = String(args.content).split('\n').length;
-    return `已写入 ${file}（${String(args.content).length} 字符 / ${lines} 行）`;
+    await writeFile(abs, content, 'utf8');
+    recordWrite(abs, pre, content);
+    const lines = content.split('\n').length;
+    return `已写入 ${file}（${content.length} 字符 / ${lines} 行）`;
   },
 });

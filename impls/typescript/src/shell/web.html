@@ -46,8 +46,15 @@
   .diff-note { color: var(--muted); font-size: 11px; padding: 12px 16px; }
   #diff-content { flex: 1; overflow: auto; padding: 0 14px 18px; }
   .diff-file { border: 1px solid var(--border); border-radius: 8px; margin: 10px 0; }
-  .diff-file summary { padding: 10px; cursor: pointer; overflow-wrap: anywhere; font-size: 12px; }
+  .diff-file summary { padding: 10px; cursor: pointer; overflow-wrap: anywhere; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  .diff-file summary > span:nth-child(2) { flex: 1; min-width: 0; }
+  .diff-file summary .bar { flex-shrink: 0; }
+  .diff-file summary .bar button { font-size: 11px; padding: 3px 8px; }
   .diff-file pre { margin: 0; padding: 10px; overflow-x: auto; white-space: pre; border-top: 1px solid var(--border); }
+  .diff-chip { display: inline-block; flex-shrink: 0; margin-right: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 6px; font-size: 11px; color: var(--muted); }
+  .commit-form { border-top: 1px solid var(--border); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .commit-form textarea { width: 100%; box-sizing: border-box; resize: vertical; background: var(--panel); color: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 8px; font: inherit; }
+  .commit-form .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .diff-line { display: block; min-height: 1.65em; }
   .diff-add { color: #a4deb2; background: #1f3428; }
   .diff-remove { color: #efacac; background: #39252b; }
@@ -199,8 +206,12 @@
 </main>
 <aside id="diff-panel" class="diff-panel" aria-label="Git 变更" hidden>
   <div class="diff-heading"><h2>Git 变更</h2><div class="bar"><button id="diff-refresh">刷新</button><button id="diff-close" aria-label="关闭变更">关闭</button></div></div>
-  <div class="diff-note">当前工作区相对 HEAD 的变更 · 只读</div>
+  <div class="diff-note">当前项目相对 HEAD 的逐文件变更 · “撤销”恢复到 Agent 本轮修改前；命令与超大文件不在快照范围</div>
   <div id="diff-content" aria-live="polite"></div>
+  <form id="commit-form" class="commit-form">
+    <textarea id="commit-message" rows="2" maxlength="2000" placeholder="提交说明（只提交已暂存的文件）" aria-label="提交说明"></textarea>
+    <div class="bar"><span id="commit-status" class="hint" role="status" aria-live="polite"></span><button type="submit" class="primary" id="commit-submit" disabled>提交已暂存</button></div>
+  </form>
 </aside>
 <section id="settings-page" class="settings-layout" aria-label="设置中心" hidden>
   <aside class="settings-sidebar">
@@ -365,6 +376,7 @@
     $('yolo').checked = !!view?.yolo;
     $('stop').disabled = !connected || !view?.busy;
     $('diff-toggle').disabled = !connected || !view?.ready;
+    updateCommitBar();
     const usage = view?.usage || { prompt_tokens: 0, completion_tokens: 0 };
     const format = (value) => Number(value || 0).toLocaleString('zh-CN');
     $('usage').textContent = `输入 ${format(usage.prompt_tokens)} · 输出 ${format(usage.completion_tokens)} · 共 ${format(usage.prompt_tokens + usage.completion_tokens)} Tokens`;
@@ -527,44 +539,97 @@
     catch (error) { showError(error); }
     finally { changing = false; controls(); }
   }
-  async function loadDiff() {
+  let changes = null, gitMutating = false;
+  function diffLocked() { return !connected || !view?.ready || !!view?.busy || sending || saving || changing || gitMutating; }
+  function appendDiffBlock(parent, block) {
+    const pre = document.createElement('pre');
+    for (const line of block.replace(/\n$/, '').split('\n')) {
+      const span = document.createElement('span'); span.className = 'diff-line'; span.textContent = line;
+      if (line.startsWith('+') && !line.startsWith('+++')) span.classList.add('diff-add');
+      else if (line.startsWith('-') && !line.startsWith('---')) span.classList.add('diff-remove');
+      else if (line.startsWith('@@')) span.classList.add('diff-hunk');
+      pre.append(span);
+    }
+    parent.append(pre);
+  }
+  function updateCommitBar() {
+    const staged = !!changes?.files?.some((file) => file.staged);
+    $('commit-submit').disabled = !staged || diffLocked() || !$('commit-message').value.trim();
+  }
+  async function changeAction(route, body) {
+    if (gitMutating || diffLocked()) return;
+    gitMutating = true; updateCommitBar(); clearError();
+    try {
+      const result = await api(route, body);
+      changes = result.changes ?? null; renderChanges();
+      return result;
+    } catch (error) { showError(error); }
+    finally { gitMutating = false; updateCommitBar(); }
+  }
+  function renderChanges() {
+    const fragment = document.createDocumentFragment();
+    if (changes?.error) row('error', changes.error, fragment);
+    if (changes?.journalError) row('dim', changes.journalError, fragment);
+    if (changes?.truncated) row('dim', '变更较多，仅展示前 200 个文件或前 2MB 差异；完整内容请在终端查看', fragment);
+    for (const file of changes?.files ?? []) {
+      const details = document.createElement('details'); details.className = 'diff-file';
+      const summary = document.createElement('summary');
+      const chips = [file.staged ? '已暂存' : '', file.untracked ? '新文件' : '', file.deleted ? '已删除' : ''].filter(Boolean);
+      const chip = document.createElement('span'); chip.className = 'diff-chip'; chip.textContent = chips.join('·') || '已修改';
+      const name = document.createElement('span'); name.textContent = file.path;
+      summary.append(chip, name);
+      const bar = document.createElement('span'); bar.className = 'bar';
+      if (file.revertable) {
+        const revert = document.createElement('button'); revert.textContent = '撤销';
+        revert.setAttribute('aria-label', '撤销 ' + file.path + ' 的本轮修改');
+        revert.disabled = diffLocked();
+        revert.onclick = (event) => { event.preventDefault(); void changeAction('/changes/revert', { path: file.path }); };
+        bar.append(revert);
+      }
+      const stage = document.createElement('button'); stage.textContent = file.staged ? '取消暂存' : '暂存';
+      stage.setAttribute('aria-label', (file.staged ? '取消暂存 ' : '暂存 ') + file.path);
+      stage.disabled = diffLocked();
+      stage.onclick = (event) => { event.preventDefault(); void changeAction('/changes/stage', { paths: [file.path], staged: !file.staged }); };
+      bar.append(stage);
+      summary.append(bar);
+      details.append(summary);
+      if (file.diff) appendDiffBlock(details, file.diff);
+      else row('dim', file.diff === null ? '差异未展示（文件较多或较大），完整内容请在终端查看' : '（无正文差异）', details);
+      fragment.append(details);
+    }
+    if (!fragment.childNodes.length) row('dim', '没有 Git 变更', fragment);
+    $('diff-content').replaceChildren(fragment);
+    updateCommitBar();
+  }
+  async function loadChanges() {
     const requestId = ++diffRequest;
     $('diff-refresh').disabled = true;
     $('diff-content').textContent = '正在读取 Git 变更…';
     try {
-      const response = await fetch(base + '/diff', { cache: 'no-store' });
-      const { diff, error } = await response.json();
-      if (!response.ok) throw new Error(error || `读取 Git 变更失败 (${response.status})`);
+      const response = await fetch(base + '/changes', { cache: 'no-store' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `读取 Git 变更失败 (${response.status})`);
       if (requestId !== diffRequest) return;
-      const fragment = document.createDocumentFragment();
-      if (error) row('error', error, fragment);
-      for (const block of (diff || '').split(/(?=^diff --git )/m).filter((part) => part.trim())) {
-        const file = block.match(/^\+\+\+ b\/(.+)$/m)?.[1] || block.match(/^--- a\/(.+)$/m)?.[1] || block.split('\n')[0];
-        const details = document.createElement('details'); details.className = 'diff-file';
-        const summary = document.createElement('summary'); summary.textContent = file;
-        const pre = document.createElement('pre');
-        for (const line of block.replace(/\n$/, '').split('\n')) {
-          const span = document.createElement('span'); span.className = 'diff-line'; span.textContent = line;
-          if (line.startsWith('+') && !line.startsWith('+++')) span.classList.add('diff-add');
-          else if (line.startsWith('-') && !line.startsWith('---')) span.classList.add('diff-remove');
-          else if (line.startsWith('@@')) span.classList.add('diff-hunk');
-          pre.append(span);
-        }
-        details.append(summary, pre); fragment.append(details);
-      }
-      if (!fragment.childNodes.length) row('dim', '没有 Git 变更', fragment);
-      $('diff-content').replaceChildren(fragment);
-    } catch (error) { if (requestId === diffRequest) $('diff-content').textContent = error.message; }
+      changes = body; renderChanges();
+    } catch (error) { if (requestId === diffRequest) { changes = null; $('diff-content').textContent = error.message; updateCommitBar(); } }
     finally { if (requestId === diffRequest) $('diff-refresh').disabled = false; }
   }
   function toggleDiff(open) {
     $('diff-panel').hidden = !open; $('diff-toggle').setAttribute('aria-expanded', String(open));
     $('diff-toggle').textContent = open ? '收起变更' : '查看变更';
-    if (open) void loadDiff();
+    if (open) void loadChanges();
   }
   $('diff-toggle').onclick = () => toggleDiff($('diff-panel').hidden);
   $('diff-close').onclick = () => { toggleDiff(false); $('diff-toggle').focus(); };
-  $('diff-refresh').onclick = loadDiff;
+  $('diff-refresh').onclick = loadChanges;
+  $('commit-message').oninput = updateCommitBar;
+  $('commit-form').onsubmit = async (event) => {
+    event.preventDefault();
+    if (diffLocked() || !$('commit-message').value.trim()) return;
+    $('commit-status').textContent = '';
+    const done = await changeAction('/changes/commit', { message: $('commit-message').value });
+    if (done) { $('commit-message').value = ''; $('commit-status').textContent = '已提交'; }
+  };
   function permissionCard(ev, parent) {
     const card = row('perm', undefined, parent); card.dataset.permissionId = ev.id;
     row('title', `${ev.tool} 请求执行`, card);
@@ -649,7 +714,7 @@
     applyPreferences();
     controls(); renderLog();
     if (workspaceChanged) void searchSessions();
-    if (refreshDiff && !$('diff-panel').hidden) void loadDiff();
+    if (refreshDiff && !$('diff-panel').hidden) void loadChanges();
     if (!state.ready && !setupOpened) { setupOpened = true; openSettings('model'); }
   }
   function settingsFeedback(message, error = false) {

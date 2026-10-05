@@ -4,6 +4,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { definePlugin } from '../../kernel/plugin.ts';
 import { previewDiff } from '../../kernel/ui.ts';
+import { preSnapshot, recordWrite } from './filejournal.ts';
 import { resolvePath, isWriteTrusted } from './pathguard.ts';
 
 export interface EditResult {
@@ -79,6 +80,7 @@ export default definePlugin({
     const next = replaceAll
       ? content.split(oldString).join(newString)
       : content.replace(oldString, newString);
+    recordWrite(abs, preSnapshot(true, content), next);
     await writeFile(abs, next, 'utf8');
     const count = replaceAll ? content.split(oldString).length - 1 : 1;
     return `已替换 ${file} 中 ${count} 处内容`;

@@ -414,26 +414,6 @@ test('重启后恢复最近项目会话，原消息文件不被继续写入', as
   assert.deepEqual(readFileSync(originalFile), bytes);
 });
 
-test('Git diff 展示已跟踪修改与新文件，不改变暂存区', async (t) => {
-  const h = await harness(t);
-  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' });
-  git('init', '--quiet');
-  writeFileSync(path.join(h.workspace, 'tracked.txt'), 'before\n');
-  git('add', 'tracked.txt');
-  git('-c', 'user.name=Tcode Test', '-c', 'user.email=tcode@example.test', 'commit', '--quiet', '-m', 'fixture');
-  writeFileSync(path.join(h.workspace, 'tracked.txt'), 'after\n');
-  writeFileSync(path.join(h.workspace, 'new.txt'), 'new content\n');
-  writeFileSync(path.join(h.workspace, '中文.txt'), '中文新内容\n');
-  const staged = git('diff', '--cached');
-  const response = await fetch(h.url + 'diff');
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  assert.match(body.diff, /-before\n\+after/);
-  assert.match(body.diff, /\+new content/);
-  assert.match(body.diff, /^\+\+\+ b\/中文.txt$/m, '变更面板须能读取中文文件名');
-  assert.equal(git('diff', '--cached'), staged);
-});
-
 test('并发慢请求只启动一轮，停止仍能结束实际正在跑的任务', async (t) => {
   const h = await harness(t);
   const requests = ['slow A', 'slow B'].map((text) => {

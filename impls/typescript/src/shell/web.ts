@@ -14,7 +14,8 @@ import { saveWebConfig, saveModelProfile, selectModelProfile, saveWorkspace, sav
 import { SessionStore } from '../core/session.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
-import { workspaceDiff } from './webdiff.ts';
+import { appendJournal, journalError, loadJournal, resetJournal, saveJournal, setFileJournalSink } from '../plugins/tools/filejournal.ts';
+import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type ChangesResult } from './webgit.ts';
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
 import { pickWorkspace } from './workspacepicker.ts';
 
@@ -100,6 +101,20 @@ export async function startWeb(app: App): Promise<void> {
 
   let busy = false;
   let abort: AbortController | null = null;
+
+  // 写前快照日志：记录本轮 agent 通过 edit/write/apply_patch 修改的文件原文，支撑"撤销本轮修改"。
+  // bash 写入无法归因，不在快照范围；日志按会话落盘，重启后仍可撤销上一轮。
+  setFileJournalSink({
+    append: (entry) => appendJournal(app.config.tcodeDir, store.currentId ?? 'unknown', entry),
+  });
+  const journalEntries = () => loadJournal(app.config.tcodeDir, store.currentId ?? 'unknown');
+  const changesSnapshot = async (): Promise<ChangesResult> => {
+    const result = await workspaceChanges(app.config.workspace ?? process.cwd(),
+      new Map(journalEntries().map((entry) => [entry.path, entry])));
+    const failure = journalError();
+    if (failure) result.journalError = failure;
+    return result;
+  };
 
   function fromMessages(messages: ChatMessage[]): Record<string, unknown>[] {
     return messages.flatMap((message) => {
@@ -318,6 +333,7 @@ export async function startWeb(app: App): Promise<void> {
   async function runTurnAsync(text: string): Promise<void> {
     busy = true;
     abort = new AbortController();
+    resetJournal(app.config.tcodeDir, store.currentId ?? 'unknown');
     try {
       await runUserTurn(app, text, {
         check: gate,
@@ -393,8 +409,47 @@ export async function startWeb(app: App): Promise<void> {
       refreshSystemPrompt();
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
-    if (req.method === 'GET' && path === '/diff') {
-      json(res, 200, await workspaceDiff(app.config.workspace ?? process.cwd())); return;
+    if (req.method === 'GET' && path === '/changes') {
+      json(res, 200, await changesSnapshot()); return;
+    }
+    if (req.method === 'POST' && path === '/changes/revert') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能撤销修改' }); return; }
+      if (typeof body.path !== 'string' || !body.path) throw new ConfigInputError('请提供要撤销的文件路径');
+      const absolute = nodePath.resolve(app.config.workspace ?? process.cwd(), body.path);
+      const entries = journalEntries().filter((entry) => entry.path === absolute);
+      if (!entries.length) { json(res, 404, { error: '该文件没有本轮修改快照；只有 Agent 本轮通过编辑/写入工具改动的文件可撤销' }); return; }
+      if (await revertToEntry(entries) === 'conflict') {
+        json(res, 409, { error: '文件在快照之后又被修改（可能是你手动编辑的），为保护你的改动未执行撤销；可用 Git 对比后自行处理' });
+        return;
+      }
+      saveJournal(app.config.tcodeDir, store.currentId ?? 'unknown', journalEntries().filter((entry) => entry.path !== absolute));
+      json(res, 200, { ok: true, changes: await changesSnapshot() }); return;
+    }
+    if (req.method === 'POST' && path === '/changes/stage') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改暂存区' }); return; }
+      const paths = body.paths;
+      if (!Array.isArray(paths) || !paths.length || paths.length > 50 || paths.some((item) => typeof item !== 'string' || !item)) {
+        throw new ConfigInputError('paths 须为 1–50 个变更文件路径');
+      }
+      if (typeof body.staged !== 'boolean') throw new ConfigInputError('staged 须为布尔值');
+      try { await stagePaths(app.config.workspace ?? process.cwd(), paths as string[], body.staged); }
+      catch (error) {
+        if (error instanceof RangeError) throw new ConfigInputError(error.message);
+        throw error;
+      }
+      json(res, 200, { ok: true, changes: await changesSnapshot() }); return;
+    }
+    if (req.method === 'POST' && path === '/changes/commit') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能提交' }); return; }
+      const message = typeof body.message === 'string' ? body.message.trim() : '';
+      if (!message || message.length > 2000) throw new ConfigInputError('提交说明须为 1–2000 个字符');
+      try { await commitStaged(app.config.workspace ?? process.cwd(), message); }
+      catch (error) {
+        if (error instanceof RangeError) { json(res, 409, { error: error.message }); return; }
+        // git 失败（如未配置提交身份、hook 拒绝）原样转述，便于用户在终端处理
+        throw new Error(`提交失败：${(error as Error).message}`);
+      }
+      json(res, 200, { ok: true, changes: await changesSnapshot() }); return;
     }
     if (req.method === 'POST' && path === '/workspace') {
       if (busy) { json(res, 409, { error: '任务运行期间不能切换项目' }); return; }

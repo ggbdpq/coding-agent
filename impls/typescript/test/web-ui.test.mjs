@@ -34,7 +34,7 @@ async function withPage(state, routes, verify, { initScript } = {}) {
       req.on('close', () => streams.delete(res)); return;
     }
     if (endpoint === '/state') { reply(res, state); return; }
-    if (endpoint === '/diff' && !routes[endpoint]) { reply(res, { diff: '' }); return; }
+    if (endpoint === '/changes' && !routes[endpoint]) { reply(res, { files: [] }); return; }
     if (routes[endpoint]) {
       let raw = ''; req.on('data', (chunk) => { raw += chunk; });
       req.on('end', async () => {
@@ -972,9 +972,15 @@ test('回答支持 Markdown 和代码块，模型输出不能注入 HTML 或脚�
   });
 });
 
-test('会话用量可见，Git 变更以只读逐文件 diff 展示', async () => {
+test('Git 变更逐文件展示，可暂存并提交，diff 转义为纯文本', async () => {
   const diff = 'diff --git a/src/demo.ts b/src/demo.ts\nindex 123..456 100644\n--- a/src/demo.ts\n+++ b/src/demo.ts\n@@ -1 +1 @@\n-before\n+after <img src=x>\n';
-  await withPage(initialState({ usage: { prompt_tokens: 120, completion_tokens: 30 } }), { '/diff': () => ({ diff }) }, async (page) => {
+  const calls = [];
+  let files = [{ path: 'src/demo.ts', staged: false, untracked: false, deleted: false, revertable: false, diff }];
+  await withPage(initialState({ usage: { prompt_tokens: 120, completion_tokens: 30 } }), {
+    '/changes': () => ({ files }),
+    '/changes/stage': (body) => { calls.push(['stage', body]); files = files.map((file) => ({ ...file, staged: true })); return { ok: true, changes: { files } }; },
+    '/changes/commit': (body) => { calls.push(['commit', body]); files = []; return { ok: true, changes: { files } }; },
+  }, async (page) => {
     await page.getByText('输入 120 · 输出 30 · 共 150 Tokens', { exact: true }).waitFor({ timeout: 2000 });
     await page.getByRole('button', { name: '查看变更', exact: true }).click();
     const panel = page.getByRole('complementary', { name: 'Git 变更' });
@@ -982,8 +988,15 @@ test('会话用量可见，Git 变更以只读逐文件 diff 展示', async () =
     await panel.getByText('src/demo.ts', { exact: true }).click();
     assert.equal(await panel.getByText('+after <img src=x>', { exact: true }).isVisible(), true);
     assert.equal(await panel.getByText('-before', { exact: true }).isVisible(), true);
-    assert.equal(await panel.getByRole('textbox').count(), 0);
-    assert.equal(await panel.locator('img').count(), 0);
+    assert.equal(await panel.locator('img').count(), 0, 'diff 内容必须是纯文本，不能出现 HTML 元素');
+    await panel.getByRole('button', { name: '暂存 src/demo.ts', exact: true }).click();
+    await panel.getByText('已暂存', { exact: true }).waitFor({ timeout: 2000 });
+    assert.deepEqual(calls.at(0), ['stage', { paths: ['src/demo.ts'], staged: true }]);
+    await panel.getByRole('textbox', { name: '提交说明', exact: true }).fill('提交说明');
+    await page.getByRole('button', { name: '提交已暂存', exact: true }).click();
+    await panel.getByText('已提交', { exact: true }).waitFor({ timeout: 2000 });
+    assert.deepEqual(calls.at(1), ['commit', { message: '提交说明' }]);
+    await panel.getByText('没有 Git 变更', { exact: true }).waitFor({ timeout: 2000 });
     await page.getByRole('button', { name: '关闭变更', exact: true }).click();
     assert.equal(await panel.isVisible(), false);
   });
@@ -1040,12 +1053,12 @@ test('连接中断时保留任务状态，重连后恢复待审批而不重复�
   });
 });
 
-test('保存失败与 diff 截断警告可见，仍能审阅已经读取的变更', async () => {
+test('保存失败与 diff 读取错误提示可见，仍能审阅已经读取的变更', async () => {
   const state = initialState({ storageError: '本地会话保存失败，请检查数据目录的空间和权限' });
-  await withPage(state, { '/diff': () => ({ diff: 'diff --git a/demo.txt b/demo.txt\n--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-old\n+new\n', error: '差异超过限制，以下仅展示前段' }) }, async (page) => {
+  await withPage(state, { '/changes': () => ({ files: [{ path: 'demo.txt', staged: false, untracked: false, deleted: false, revertable: false, diff: 'diff --git a/demo.txt b/demo.txt\n--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-old\n+new\n' }], error: '差异超过限制，仅展示前段' }) }, async (page) => {
     await page.getByText('本地会话保存失败，请检查数据目录的空间和权限', { exact: true }).waitFor({ timeout: 2000 });
     await page.getByRole('button', { name: '查看变更', exact: true }).click();
-    await page.getByText('差异超过限制，以下仅展示前段', { exact: true }).waitFor();
+    await page.getByText('差异超过限制，仅展示前段', { exact: true }).waitFor();
     await page.getByText('demo.txt', { exact: true }).click();
     assert.equal(await page.getByText('+new', { exact: true }).isVisible(), true);
   });
