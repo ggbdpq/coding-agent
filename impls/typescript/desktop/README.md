@@ -8,9 +8,21 @@ Tauri 2 窗口复用 `tcode web`。首次打开在界面里选择项目目录和
 
 ```sh
 npm run dev
-npm run build -- --bundles app,dmg  # macOS
-npm run build -- --bundles nsis     # Windows
+npm run build -- --bundles app          # macOS .app
+npm run build:dmg                        # macOS 无签名 DMG（见下）
+npm run build -- --bundles nsis          # Windows（需在 Windows 上执行并验收）
 ```
+
+## macOS 安装（DMG，未签名）
+
+`npm run build:dmg` 产出 `src-tauri/target/release/bundle/dmg/tcode_<版本>_aarch64.dmg`（Apple Silicon；Intel 为 x64）。构建说明：tauri 内置 DMG 步骤依赖 Finder AppleScript 摆放图标，在无 Finder 自动化授权的环境必失败（osascript -10006），脚本改用原生 `hdiutil` 直接打包，省略纯装饰性的图标布局。
+
+安装步骤与未签名说明：
+
+1. 双击 DMG，把 `tcode.app` 拖入 `Applications`。
+2. 首次打开可能被 Gatekeeper 拦截（应用为 ad-hoc 签名，无开发者证书）。在“系统设置 → 隐私与安全性”里点“仍要打开”，或对安装后的应用执行 `xattr -dr com.apple.quarantine /Applications/tcode.app`。
+3. 运行需要本机 Node 24（见上文查找顺序），没有内置运行时。
+4. 签名与公证需要 Apple 开发者账号，完成前 DMG 仅供本机及可信用户使用，不适合直接分发。
 
 开发还需要 Rust 和对应平台的 Tauri 编译环境。打包把 `../bin/`、`../src/`、`../package.json` 放入应用的 `backend/` 资源目录；发行版不依赖原始源码位置，也不打包 `node_modules`。开发模式允许直接使用源码目录。
 
@@ -35,4 +47,4 @@ rustc --edition=2021 --test src-tauri/src/backend.rs -o /tmp/tcode-desktop-backe
 
 这些检查覆盖超时清理、关窗对应的进程回收、缺 Node、非本地地址拒绝、凭证不回显、认证路径保留、启动后日志持续读取，以及应用资源与源码位置分离；另通过真正的 Tauri IPC/ACL 验证目录选择的成功、取消、无效目录和未授权来源。IPC 测试仅替换操作系统对话框的返回值。
 
-2026-10-05 本地验收：基础版本的原生目录对话框可打开并完成项目切换，取消后保留原项目。本轮从独立的 `develop` 提交快照重新构建 macOS `.app`，包内 89 个后端资源逐文件核对一致；浏览器已验收项目归档／恢复、跨项目搜索及多模型配置切换。DMG、Windows 安装包及 Windows/Linux 原生对话框尚未实机验收。
+2026-10-05 本地验收：原生目录对话框可打开并完成项目切换，取消后保留原项目。本轮 macOS `.app` 与无签名 DMG 从当前 `develop` 工作区重新构建，包内 88 个后端资源与源码逐文件核对一致，DMG 挂载后同样核验；浏览器已验收项目归档／恢复、跨项目搜索、多模型配置切换及配置删除。Windows 安装包及 Windows/Linux 原生对话框尚未实机验收。
