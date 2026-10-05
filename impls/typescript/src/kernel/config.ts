@@ -72,6 +72,8 @@ export interface McpServerConfig {
   args?: string[];
   env?: Record<string, string>;
   enabled: boolean;
+  /** 信任此服务器：其工具免逐次审批直接执行（白名单语义，蓝图 R4） */
+  trusted?: boolean;
 }
 
 interface FileConfig {
@@ -144,6 +146,7 @@ function readJsonConfig(tcodeDir: string): FileConfig {
         if (!server.command && !hasUrl) throw new Error();
         if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some((arg) => typeof arg !== 'string'))) throw new Error();
         if (server.env !== undefined && (typeof server.env !== 'object' || server.env === null || Object.values(server.env).some((value) => typeof value !== 'string'))) throw new Error();
+        if (server.trusted !== undefined && server.trusted !== true && server.trusted !== false) throw new Error();
         ids.add(server.id);
       }
     }
@@ -472,8 +475,9 @@ export function saveMcpServer(current: Config, input: Record<string, unknown>): 
     env = input.env as Record<string, string>;
   }
   const enabled = input.enabled === true;
+  const trusted = input.trusted === true;
   const index = servers.findIndex((server) => server.id === id);
-  const server: McpServerConfig = { id, name, command, ...(url ? { url } : {}), ...(args ? { args } : {}), ...(env ? { env } : {}), enabled };
+  const server: McpServerConfig = { id, name, command, ...(url ? { url } : {}), ...(args ? { args } : {}), ...(env ? { env } : {}), enabled, ...(trusted ? { trusted: true } : {}) };
   if (index >= 0) servers[index] = server; else servers.push(server);
   persistConfig(current, { mcpServers: servers });
   return { ...current, mcpServers: servers };

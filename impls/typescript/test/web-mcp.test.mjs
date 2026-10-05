@@ -34,7 +34,7 @@ process.stdin.on('data', (chunk) => {
 process.stdin.resume();
 `;
 
-async function fixture(t, { enabled = true, transport = 'stdio' } = {}) {
+async function fixture(t, { enabled = true, transport = 'stdio', trusted = false } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tcode-mcp-')));
   const data = path.join(root, 'data'), workspace = path.join(root, 'project');
   for (const directory of [data, workspace]) mkdirSync(directory);
@@ -73,8 +73,8 @@ async function fixture(t, { enabled = true, transport = 'stdio' } = {}) {
     apiKey: 'mcp-key', baseUrl: `http://127.0.0.1:${provider.address().port}/v1`, model: 'mcp-model',
     protocol: 'openai', contextLimit: 40000, workspace, approval: 'normal', allowWriteDirs: [workspace],
     ...(enabled ? { mcpServers: [transport === 'http'
-      ? { id: 'srv-http', name: 'httponly', url: `http://127.0.0.1:${provider.address().port}/mcp`, enabled: true }
-      : { id: 'srv-demo', name: 'demo', command: process.execPath, args: [fakeServerPath], enabled: true }] } : {}),
+      ? { id: 'srv-http', name: 'httponly', url: `http://127.0.0.1:${provider.address().port}/mcp`, enabled: true, ...(trusted ? { trusted: true } : {}) }
+      : { id: 'srv-demo', name: 'demo', command: process.execPath, args: [fakeServerPath], enabled: true, ...(trusted ? { trusted: true } : {}) }] } : {}),
   }));
   const env = { ...process.env, TCODE_DATA_DIR: data };
   for (const key of ['TCODE_API_KEY', 'TCODE_BASE_URL', 'TCODE_MODEL', 'TCODE_PROTOCOL', 'TCODE_APPROVAL']) delete env[key];
@@ -163,6 +163,27 @@ test('MCP 配置 CRUD：非法输入拒绝，删除后连接测试 404', async (
   const after = await h.state();
   assert.equal(after.capabilities.tools.some((tool) => tool.name.startsWith('mcp__demo__')), false, '删除后工具不再桥接');
   assert.equal((await h.post('mcp/test', { id: 'srv-demo' })).status, 404);
+});
+
+test('trusted 服务器的工具免审批直接执行：无审批等待、结果照常回传、持久化', async (t) => {
+  const h = await fixture(t, { transport: 'http', trusted: true });
+  const mark = Date.now();
+  await h.post('send', { text: '用 httponly 的 echo 工具' });
+  const deadline = mark + 5000;
+  while (Date.now() < deadline) {
+    const state = await h.state();
+    assert.deepEqual(state.pending, [], 'trusted 服务器的工具不能出现审批等待');
+    if (state.status === 'completed' && !state.busy) {
+      assert.match(state.messages.at(-1).content, /echo:hi/, '免审批工具的真实返回照常回传');
+      const persisted = JSON.parse(readFileSync(h.configFile, 'utf8'));
+      assert.equal(persisted.mcpServers[0].trusted, true, '信任标记持久化');
+      await h.restart();
+      assert.equal((await h.state()).capabilities.mcpServers[0].trusted, true, '重启后信任仍在');
+      return;
+    }
+    await delay(20);
+  }
+  throw new Error('免审批工具轮未在时限内完成');
 });
 
 test('HTTP Streamable 传输：连接测试列出工具、桥接调用经审批回传', async (t) => {

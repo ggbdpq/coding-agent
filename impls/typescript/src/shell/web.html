@@ -285,6 +285,7 @@
           <label>启动命令<input id="mcp-command" required placeholder="node" autocomplete="off"></label>
           <label>启动参数（JSON 数组，可选）<input id="mcp-args" placeholder='["server.mjs","--port","3000"]' autocomplete="off"></label>
           <label class="inline-check"><input id="mcp-enabled" type="checkbox" checked> 启用（工具加入会话）</label>
+          <label class="inline-check"><input id="mcp-trusted" type="checkbox"> 免审批（信任此服务器，其工具不再逐次确认）</label>
           <div class="bar"><button type="button" id="mcp-cancel" hidden>取消</button><button type="button" class="primary" id="mcp-save">保存</button></div>
         </form></div></section>
   </main>
@@ -929,7 +930,7 @@
     const fragment = document.createDocumentFragment();
     for (const server of view.capabilities?.mcpServers || []) {
       const entry = row('capability-entry', undefined, fragment), bar = row('bar', undefined, entry);
-      const name = document.createElement('code'); name.textContent = server.name + (server.enabled ? '' : '（已停用）');
+      const name = document.createElement('code'); name.textContent = server.name;
       const test = document.createElement('button'); test.textContent = '测试连接'; test.setAttribute('aria-label', '测试 MCP 服务器 ' + server.name);
       test.onclick = async () => {
         mcpFeedback(''); test.disabled = true;
@@ -951,7 +952,10 @@
         try { const result = await api('/mcp/servers/delete', { id: server.id }); applyState(result.state); renderMcpServers(); }
         catch (error) { mcpFeedback(error.message, true); }
       };
-      bar.append(name, test, edit, toggle, remove);
+      bar.append(name);
+      if (!server.enabled) { const off = document.createElement('span'); off.className = 'diff-chip'; off.textContent = '已停用'; bar.append(off); }
+      if (server.trusted) { const trusted = document.createElement('span'); trusted.className = 'diff-chip'; trusted.textContent = '免审批'; bar.append(trusted); }
+      bar.append(test, edit, toggle, remove);
       row('settings-path', [server.command, ...(server.args || [])].join(' '), entry);
     }
     if (!fragment.childNodes.length) row('dim', '尚未添加 MCP 服务器；添加后其工具会在会话中可用', fragment);
@@ -966,6 +970,7 @@
     $('mcp-name').value = server?.name || ''; $('mcp-command').value = server?.command || '';
     $('mcp-args').value = server?.args ? JSON.stringify(server.args) : '';
     $('mcp-enabled').checked = server?.enabled ?? true;
+    $('mcp-trusted').checked = server?.trusted ?? false;
     $('mcp-form').hidden = false; $('mcp-cancel').hidden = false; $('mcp-error').textContent = '';
   }
   $('mcp-new').onclick = () => { if (!connected || view?.busy || saving || changing) return; fillMcpForm(null); };
@@ -981,7 +986,7 @@
       const result = await api('/mcp/servers', {
         ...(editingMcpId ? { id: editingMcpId } : {}),
         name: $('mcp-name').value.trim(), command: $('mcp-command').value.trim(),
-        ...(args ? { args } : {}), enabled: $('mcp-enabled').checked,
+        ...(args ? { args } : {}), enabled: $('mcp-enabled').checked, trusted: $('mcp-trusted').checked,
       });
       applyState(result.state); editingMcpId = null;
       $('mcp-form').hidden = true; $('mcp-cancel').hidden = true;
