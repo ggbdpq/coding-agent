@@ -48,7 +48,7 @@ export class SessionStore {
   }
 
   /** 开新会话文件并写入元信息行 */
-  start(meta: Record<string, unknown> = {}, initial: SessionInitialData = {}): void {
+  start(meta: Record<string, unknown> = {}, initial: SessionInitialData = {}, commitWorkspace?: () => void): void {
     // Windows 文件名禁 :，把 ISO 时间的冒号一并换掉
     const name = `${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random()
       .toString(36)
@@ -63,12 +63,16 @@ export class SessionStore {
       ...(initial.activity ?? []).map((event) => ({ type: 'activity', event }))];
     const temporary = file + `.${randomBytes(8).toString('hex')}.tmp`;
     let created = false;
+    let published = false;
     try {
       writeFileSync(temporary, records.map((record) => JSON.stringify(record)).join('\n') + '\n', { flag: 'wx', mode: 0o600 });
       created = true;
       renameSync(temporary, file);
+      published = true;
+      // 新日志完整发布后才提交工作目录/配置；提交失败撤销新日志，保持原活动文件。
+      commitWorkspace?.();
     } catch (error) {
-      if (created) { try { unlinkSync(temporary); } catch {} }
+      if (created) { try { unlinkSync(published ? file : temporary); } catch {} }
       throw error;
     }
     this.filePath = file;
@@ -166,9 +170,36 @@ export class SessionStore {
           usage.completion_tokens += Number(record.event.completion_tokens) || 0;
         }
       }
-      latest.set(key, { id, file, mtime, title: titles[id] || label || '新会话', label, cwd: project, usage });
+      latest.set(key, { id, file, mtime, title: titles[key] || titles[id] || label || '新会话', label, cwd: project, usage });
     }
     return [...latest.values()].sort((a, b) => b.mtime - a.mtime || b.file.localeCompare(a.file));
+  }
+
+  /** ponytail: 本地 JSONL 顺序扫描；确有大量历史造成延迟时再加搜索索引。 */
+  search(query: string) {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return { sessions: [], truncated: false };
+    const sessions = [];
+    for (const session of this.listWorkspace()) {
+      if (!path.isAbsolute(session.cwd)) continue;
+      const texts = [session.title];
+      let assistant = '';
+      const flush = () => { if (assistant) texts.push(assistant); assistant = ''; };
+      for (const record of this.records(session.file)) {
+        if (record.type === 'message' && ['user', 'assistant'].includes(String(record.message?.role)) && typeof record.message?.content === 'string') texts.push(record.message.content);
+        if (record.type !== 'activity') continue;
+        if (record.event?.type === 'text' && typeof record.event.delta === 'string') assistant += record.event.delta;
+        else { flush(); if (record.event?.type === 'user' && typeof record.event.text === 'string') texts.push(record.event.text); }
+      }
+      flush();
+      const text = texts.find((text) => text.toLowerCase().includes(needle));
+      if (text === undefined) continue;
+      if (sessions.length === 50) return { sessions, truncated: true };
+      const position = text.toLowerCase().indexOf(needle);
+      sessions.push({ id: session.id, title: session.title, cwd: session.cwd, mtime: session.mtime,
+        excerpt: text.slice(Math.max(0, position - 50), position + 150).replace(/\s+/g, ' ') });
+    }
+    return { sessions, truncated: false };
   }
 
   history(id: string, cwd: string) {
@@ -189,20 +220,20 @@ export class SessionStore {
     if (!this.listWorkspace(cwd).some((session) => session.id === id)) throw new Error('当前项目中没有这个会话');
     // ponytail: 标题是呈现元数据；一个小索引即可，不修改历史消息或增加数据库。
     const file = path.join(this.root, 'titles.json');
-    writeFileSync(file + '.tmp', JSON.stringify({ ...this.readTitles(), [id]: title.trim() }), { mode: 0o600 });
+    writeFileSync(file + '.tmp', JSON.stringify({ ...this.readTitles(), [cwd + '\0' + id]: title.trim() }), { mode: 0o600 });
     renameSync(file + '.tmp', file);
   }
 
   private readTitles(): Record<string, string> {
     try {
       const record = jsonObject(JSON.parse(readFileSync(path.join(this.root, 'titles.json'), 'utf8')));
-      const titles: Record<string, string> = {};
+      const titles: Record<string, string> = Object.create(null);
       for (const [id, value] of Object.entries(record ?? {})) {
         if (typeof value === 'string' && value.trim() && value.length <= 100) titles[id] = value;
       }
       return titles;
     }
-    catch { return {}; }
+    catch { return Object.create(null) as Record<string, string>; }
   }
 
   private readLabel(file: string): string {

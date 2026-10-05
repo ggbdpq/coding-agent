@@ -14,7 +14,7 @@ export interface SessionInitialData {
 
 /** core/session.SessionStore 满足此结构（kernel 不直接依赖 core） */
 export interface SessionStoreLike {
-  start(meta?: Record<string, unknown>, initial?: SessionInitialData): void;
+  start(meta?: Record<string, unknown>, initial?: SessionInitialData, commitWorkspace?: () => void): void;
   append(message: ChatMessage): void;
   /** 持久化压缩后的上下文；写失败须抛出，非持久化 store 可省略。 */
   checkpoint?(messages: ChatMessage[]): void;
@@ -40,7 +40,7 @@ export interface App {
   /** 当前会话消息；命令/壳直接读写这个数组 */
   messages: ChatMessage[];
   /** 开新会话文件（/new、/resume 都换文件，永不追加旧文件） */
-  startSession(extra?: Record<string, unknown>, initial?: SessionInitialData): void;
+  startSession(extra?: Record<string, unknown>, initial?: SessionInitialData, commitWorkspace?: () => void): void;
   /** messages 换成全新 system 数组 */
   resetMessages(): void;
 }
@@ -57,14 +57,14 @@ export function createApp(config: Config, registry: Registry, opts: AppOptions):
     yolo,
     planMode,
     messages: [],
-    startSession(extra: Record<string, unknown> = {}, initial?: SessionInitialData) {
+    startSession(extra: Record<string, unknown> = {}, initial?: SessionInitialData, commitWorkspace?: () => void) {
       opts.store.start({
         version: VERSION,
         model: config.model,
         cwd: process.cwd(),
         yolo: yolo.value,
         ...extra,
-      }, initial);
+      }, initial, commitWorkspace);
     },
     resetMessages() {
       app.messages = opts.freshMessages();

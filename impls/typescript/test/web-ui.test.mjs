@@ -13,6 +13,7 @@ const initialState = (override = {}) => ({
   ready: true,
   config: { baseUrl: 'http://127.0.0.1:8080/v1', model: 'test-model', protocol: 'auto', contextLimit: 100000, workspace: '/tmp/ui-project', hasApiKey: true, approval: 'normal', allowWriteDirs: [] },
   projects: [{ path: '/tmp/ui-project', name: 'ui-project', available: true, sessionCount: 0 }],
+  archivedProjects: [],
   preferences: { theme: 'dark', fontSize: 16, enterToSend: true },
   capabilities: { commands: [], skills: [], tools: [] }, version: '0.5.0', dataDir: '/tmp/ui-data',
   currentSessionId: 's1', title: '新会话', sessions: [], messages: [], activity: [],
@@ -98,7 +99,7 @@ test('项目导航可切换已打开项目，同时展示该项目会话并提�
     assert.equal(await page.getByRole('button', { name: '打开项目 missing-project', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: '新任务', exact: true }).isVisible(), true);
     assert.equal(await page.getByRole('button', { name: '设置', exact: true }).isVisible(), true);
-    assert.equal(await page.getByText('/tmp/another-project', { exact: true }).isVisible(), false, '长路径只在设置详情中展示');
+    assert.equal(await page.getByText('/tmp/another-project', { exact: true }).filter({ visible: true }).count(), 0, '长路径只在设置详情中展示');
   });
 });
 
@@ -122,6 +123,193 @@ test('设置中心独立于工作区，七组可导航且模型保存后能返�
     await page.getByRole('button', { name: '返回工作区', exact: true }).click();
     assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isVisible(), true);
     assert.equal(await page.getByText('updated-model · 自动识别协议', { exact: true }).isVisible(), true);
+  });
+});
+
+test('常规设置可归档非当前项目，刷新后可恢复导航且项目会话保留', async () => {
+  const other = { path: '/tmp/another-project', name: 'another-project', available: true, sessionCount: 1 };
+  const state = initialState({ projects: [initialState().projects[0], other] });
+  await withPage(state, {
+    '/projects/archive': ({ workspace, archived }) => {
+      assert.equal(workspace, other.path);
+      if (archived) { state.projects = state.projects.filter((project) => project.path !== workspace); state.archivedProjects.push(other); }
+      else { state.archivedProjects = []; state.projects.push(other); }
+      state.seq++; return { ok: true, state };
+    },
+    '/workspace': ({ workspace }) => {
+      state.config.workspace = workspace; state.seq++; state.title = '保留下来的历史任务';
+      state.sessions = [{ id: 'preserved', title: '保留下来的历史任务', cwd: workspace, mtime: 1 }];
+      return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    assert.equal(await page.getByRole('button', { name: '归档项目 ui-project', exact: true }).count(), 0, '当前项目不能归档');
+    await page.getByRole('button', { name: '归档项目 another-project', exact: true }).click();
+    await page.getByText('项目已归档，历史会话保留', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '打开项目 another-project', exact: true }).count(), 0);
+    await page.reload();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('button', { name: '恢复项目 another-project', exact: true }).click();
+    await page.getByText('项目已恢复到导航', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    await page.getByRole('button', { name: '打开项目 another-project', exact: true }).click();
+    await page.getByRole('button', { name: '打开会话 保留下来的历史任务', exact: true }).waitFor();
+  });
+});
+
+test('所有项目搜索展示项目归属与正文摘录，可打开归档会话且不可用目录不能打开', async () => {
+  const state = initialState({ seq: 9, sessions: [{ id: 's1', title: '当前项目关键词', cwd: '/tmp/ui-project', mtime: 1 }] });
+  let searches = 0, selected;
+  const matches = [
+    { id: 's1', title: '跨项目任务', cwd: '/tmp/archived-project', mtime: 2, excerpt: '关键词 <img src=x onerror="alert(1)">', archived: true, available: true },
+    { id: 'missing', title: '不可用任务', cwd: '/tmp/missing-project', mtime: 1, excerpt: '关键词 <script>alert(1)</script>', archived: false, available: false },
+  ];
+  await withPage(state, {
+    '/sessions/search': ({ query }) => { assert.equal(query, '关键词'); searches++; return { sessions: matches, truncated: false }; },
+    '/session/select': (body) => {
+      selected = body; state.config.workspace = body.workspace; state.title = '跨项目任务'; state.seq = 1;
+      state.activity = [{ type: 'text', delta: '其他项目历史回答', seq: state.seq }];
+      return { ok: true, state };
+    },
+  }, async (page) => {
+    const search = page.getByRole('textbox', { name: '搜索会话', exact: true });
+    await search.fill('关键词');
+    assert.equal(searches, 0, '默认当前项目只做本地标题搜索');
+    assert.equal(await page.getByRole('button', { name: '打开会话 当前项目关键词', exact: true }).isVisible(), true);
+    await page.getByRole('combobox', { name: '搜索范围', exact: true }).selectOption('all');
+    await page.getByText('archived-project · 已归档', { exact: true }).waitFor();
+    assert.equal(await page.getByText('关键词 <img src=x onerror="alert(1)">', { exact: true }).isVisible(), true);
+    assert.equal(await page.locator('#sessions img, #sessions script').count(), 0, '正文摘录只作为文本');
+    assert.equal(await page.getByRole('button', { name: '打开会话 不可用任务', exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: '打开会话 跨项目任务', exact: true }).click();
+    await page.getByText('其他项目历史回答', { exact: true }).waitFor();
+    assert.deepEqual(selected, { id: 's1', workspace: '/tmp/archived-project' }, '跨项目选择携带工作区，即使会话 id 与当前相同');
+    assert.equal(await search.inputValue(), '关键词');
+  });
+});
+
+test('归档与恢复后，已有所有项目搜索会更新归档标记', async () => {
+  const other = { path: '/tmp/another-project', name: 'another-project', available: true, sessionCount: 1 };
+  const state = initialState({ projects: [initialState().projects[0], other] });
+  await withPage(state, {
+    '/sessions/search': () => ({ sessions: [{ id: 'another', title: '历史任务', cwd: other.path, mtime: 1, excerpt: '搜索关键词', available: true, archived: !!state.archivedProjects.length }], truncated: false }),
+    '/projects/archive': ({ archived }) => {
+      state.projects = archived ? [state.projects[0]] : [state.projects[0], other]; state.archivedProjects = archived ? [other] : [];
+      state.seq++; return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('textbox', { name: '搜索会话', exact: true }).fill('关键词');
+    await page.getByRole('combobox', { name: '搜索范围', exact: true }).selectOption('all');
+    await page.getByRole('navigation', { name: '会话列表', exact: true }).getByText('another-project', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('button', { name: '归档项目 another-project', exact: true }).click();
+    await page.getByText('项目已归档，历史会话保留', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    await page.getByText('another-project · 已归档', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('button', { name: '恢复项目 another-project', exact: true }).click();
+    await page.getByText('项目已恢复到导航', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    await page.getByRole('navigation', { name: '会话列表', exact: true }).getByText('another-project', { exact: true }).waitFor();
+    assert.equal(await page.getByText('another-project · 已归档', { exact: true }).count(), 0);
+  });
+});
+
+test('所有项目搜索忽略旧响应，清空与切回当前项目不会被未完成的搜索覆盖', async () => {
+  const state = initialState({ sessions: [{ id: 'local', title: '本地会话', cwd: '/tmp/ui-project', mtime: 1 }] });
+  const arrivals = new Map(), replies = new Map();
+  await withPage(state, { '/sessions/search': ({ query }) => new Promise((resolve) => {
+    replies.set(query, resolve); arrivals.get(query)();
+  }) }, async (page) => {
+    const search = page.getByRole('textbox', { name: '搜索会话', exact: true }), scope = page.getByRole('combobox', { name: '搜索范围', exact: true });
+    await scope.selectOption('all');
+    const arrived = new Promise((resolve) => arrivals.set('旧词', resolve));
+    await search.fill('旧词'); await arrived;
+    const oldResponse = page.waitForResponse((response) => response.request().postDataJSON()?.query === '旧词');
+    const newerArrived = new Promise((resolve) => arrivals.set('新词', resolve));
+    await search.fill('新词'); await newerArrived;
+    replies.get('新词')({ sessions: [{ id: 'new', title: '新结果', cwd: '/tmp/ui-project', available: true, excerpt: '新词' }] });
+    await page.getByRole('button', { name: '打开会话 新结果', exact: true }).waitFor();
+    replies.get('旧词')({ sessions: [{ id: 'old', title: '旧结果', cwd: '/tmp/ui-project', available: true }] });
+    await (await oldResponse).finished();
+    assert.equal(await page.getByRole('button', { name: '打开会话 旧结果', exact: true }).count(), 0);
+
+    const clearArrived = new Promise((resolve) => arrivals.set('清空前', resolve));
+    await search.fill('清空前'); await clearArrived;
+    const clearedResponse = page.waitForResponse((response) => response.request().postDataJSON()?.query === '清空前');
+    await search.fill('');
+    replies.get('清空前')({ sessions: [{ id: 'old', title: '旧结果', cwd: '/tmp/ui-project', available: true }] });
+    await (await clearedResponse).finished();
+    await page.getByText('输入关键词搜索所有项目的标题和正文', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '打开会话 旧结果', exact: true }).count(), 0);
+
+    const scopeArrived = new Promise((resolve) => arrivals.set('本地', resolve));
+    await search.fill('本地'); await scopeArrived;
+    const scopedResponse = page.waitForResponse((response) => response.request().postDataJSON()?.query === '本地');
+    await scope.selectOption('current');
+    replies.get('本地')({ sessions: [{ id: 'old', title: '旧结果', cwd: '/tmp/ui-project', available: true }] });
+    await (await scopedResponse).finished();
+    assert.equal(await page.getByRole('button', { name: '打开会话 本地会话', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: '打开会话 旧结果', exact: true }).count(), 0);
+  });
+});
+
+test('搜索为只读操作，审批等待与失联时结果可见但不可打开，截断提示明确', async () => {
+  const state = initialState({ busy: true, status: 'waiting_approval' }); let selects = 0;
+  await withPage(state, {
+    '/sessions/search': () => ({ sessions: [{ id: 'history', title: '历史命中', cwd: '/tmp/ui-project', available: true, excerpt: '关键词' }], truncated: true }),
+    '/session/select': () => { selects++; return { state }; },
+  }, async (page, { streams }) => {
+    await page.getByRole('textbox', { name: '搜索会话', exact: true }).fill('关键词');
+    await page.getByRole('combobox', { name: '搜索范围', exact: true }).selectOption('all');
+    await page.getByText('仅展示前 50 个匹配会话，请缩小搜索范围', { exact: true }).waitFor();
+    const match = page.getByRole('button', { name: '打开会话 历史命中', exact: true });
+    assert.equal(await match.isDisabled(), true);
+    for (const stream of streams) stream.end();
+    await page.getByText('连接断开，正在重连', { exact: true }).waitFor({ timeout: 2000 });
+    assert.equal(await match.isVisible(), true);
+    assert.equal(await match.isDisabled(), true);
+    assert.equal(selects, 0);
+  });
+});
+
+test('归档保存失败可见，操作未完成时禁止再次修改且失败后仍能使用原项目', async () => {
+  const other = { path: '/tmp/another-project', name: 'another-project', available: true, sessionCount: 1 };
+  const state = initialState({ projects: [initialState().projects[0], other] }); let fail;
+  await withPage(state, { '/projects/archive': async () => {
+    await new Promise((resolve) => { fail = resolve; }); throw new Error('项目配置保存失败');
+  } }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    const archive = page.getByRole('button', { name: '归档项目 another-project', exact: true });
+    await archive.click();
+    assert.equal(await archive.isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '返回工作区', exact: true }).isDisabled(), true);
+    fail(); await page.getByText('项目配置保存失败', { exact: true }).waitFor();
+    assert.equal(await archive.isEnabled(), true);
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '打开项目 another-project', exact: true }).isEnabled(), true);
+  });
+});
+
+test('连接测试尚未同步后端 busy 时，已有搜索结果与项目归档立即禁用', async () => {
+  const other = { path: '/tmp/another-project', name: 'another-project', available: true, sessionCount: 1 };
+  const state = initialState({ projects: [initialState().projects[0], other] }); let finish;
+  await withPage(state, {
+    '/sessions/search': () => ({ sessions: [{ id: 'other', title: '其他项目任务', cwd: other.path, available: true, excerpt: '关键词' }], truncated: false }),
+    '/model/test': async () => { await new Promise((resolve) => { finish = resolve; }); return { ok: true, elapsedMs: 5, usage: {} }; },
+  }, async (page) => {
+    await page.getByRole('textbox', { name: '搜索会话', exact: true }).fill('关键词');
+    await page.getByRole('combobox', { name: '搜索范围', exact: true }).selectOption('all');
+    await page.getByRole('button', { name: '打开会话 其他项目任务', exact: true }).waitFor();
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    await page.getByRole('button', { name: '测试已保存的连接', exact: true }).click();
+    await page.getByText('正在测试已保存的连接…', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '打开会话 其他项目任务', exact: true, includeHidden: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '打开项目 another-project', exact: true, includeHidden: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '归档项目 another-project', exact: true, includeHidden: true }).isDisabled(), true);
+    finish(); await page.getByText('连接成功 · 5 ms · 输入 0 · 输出 0 Tokens', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '打开会话 其他项目任务', exact: true, includeHidden: true }).isEnabled(), true);
   });
 });
 

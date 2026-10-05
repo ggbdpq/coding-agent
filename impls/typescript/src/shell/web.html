@@ -20,7 +20,7 @@
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 20px; padding: 0 8px; }
   .brand span { font: 17px ui-monospace, monospace; color: var(--link); }
   #workspace-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #search { width: 100%; padding: 10px; color: inherit; background: var(--field); border: 1px solid var(--border); border-radius: 8px; }
+  #search, #search-scope { width: 100%; padding: 10px; color: inherit; background: var(--field); border: 1px solid var(--border); border-radius: 8px; }
   .session-section { color: var(--muted); font-size: 11px; letter-spacing: .05em; padding: 0 8px; }
   #sessions { flex: 1; overflow: auto; min-height: 0; }
   .session-entry { display: flex; margin-bottom: 4px; border-radius: 8px; }
@@ -28,6 +28,9 @@
   .session-entry button { border: 0; background: transparent; text-align: left; }
   .session-open { flex: 1; overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
   .session-rename { color: var(--muted); font-size: 13px; padding: 8px; }
+  .session-open.search-result { white-space: normal; overflow-wrap: anywhere; }
+  .session-meta, .session-excerpt { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; }
+  .session-excerpt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .sidebar-bottom { border-top: 1px solid var(--border); padding: 14px 2px 0; display: flex; align-items: center; gap: 10px; }
   .local-avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: #303640; color: #b6c7e2; font-size: 12px; }
   .local-profile { flex: 1; font-size: 13px; font-weight: 600; }
@@ -155,7 +158,7 @@
   @media (max-width: 560px) { .settings-layout { flex-direction: column; min-height: 0; } .settings-sidebar { width: 100%; padding: 10px; border-right: 0; border-bottom: 1px solid var(--border); } .settings-sidebar h2 { display: none; } .settings-sidebar nav { margin-top: 10px; display: flex; overflow-x: auto; } .settings-sidebar nav button { white-space: nowrap; padding: 8px 12px; } .settings-main { padding: 22px 16px; } .settings-main h1 { font-size: 24px; } .settings-facts { grid-template-columns: 90px 1fr; } }
   @media (max-width: 850px) { .sidebar { width: 210px; } header { flex-wrap: wrap; padding: 12px 16px; gap: 8px; } .heading { flex-basis: 55%; } #log { padding: 20px 16px; } .composer { padding: 12px 16px; } }
   @media (max-width: 1150px) { .diff-panel { position: fixed; z-index: 2; top: 0; right: 0; height: 100%; width: min(420px, calc(100% - 24px)); box-shadow: -16px 0 40px #0007; } }
-  @media (max-width: 560px) { .workbench { flex-direction: column; } .sidebar { width: 100%; max-height: 205px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-right: 0; border-bottom: 1px solid var(--border); } .brand, .session-section { display: none; } .sidebar-bottom { grid-column: 2; grid-row: 2; border: 0; padding: 0; justify-content: flex-end; } .sidebar-bottom .local-avatar, .sidebar-bottom .local-profile { display: none; } #workspace-pick { grid-column: 1; grid-row: 2; } #projects { grid-column: span 2; } #sessions { grid-column: span 2; min-height: 40px; } #search { grid-column: span 2; } .chat { height: auto; min-height: 0; } }
+  @media (max-width: 560px) { .workbench { flex-direction: column; } .sidebar { width: 100%; max-height: 245px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-right: 0; border-bottom: 1px solid var(--border); } .brand, .session-section { display: none; } .sidebar-bottom { grid-column: 2; grid-row: 2; border: 0; padding: 0; justify-content: flex-end; } .sidebar-bottom .local-avatar, .sidebar-bottom .local-profile { display: none; } #workspace-pick { grid-column: 1; grid-row: 2; } #projects { grid-column: span 2; } #sessions { grid-column: span 2; min-height: 40px; } #search, #search-scope { min-width: 0; } .chat { height: auto; min-height: 0; } }
 </style>
 </head>
 <body>
@@ -165,6 +168,7 @@
   <button id="new" class="nav-button" aria-label="新任务" aria-keyshortcuts="Meta+N Control+N" title="新任务 · ⌘/Ctrl+N">＋ 新任务</button>
   <button id="search-open" class="nav-button" aria-label="搜索" aria-keyshortcuts="Meta+K Control+K" title="搜索 · ⌘/Ctrl+K">⌕ 搜索</button>
   <input id="search" type="text" aria-label="搜索会话" placeholder="搜索会话" autocomplete="off">
+  <select id="search-scope" aria-label="搜索范围"><option value="current">当前项目</option><option value="all">所有项目</option></select>
   <div class="session-section">项目</div>
   <nav id="projects" aria-label="项目列表"></nav>
   <button id="workspace-pick" aria-label="选择项目目录" class="nav-button">＋ 打开项目</button>
@@ -210,6 +214,7 @@
     <section id="settings-general" data-settings="general">
       <h1>常规</h1><p class="settings-description">项目、消息输入和本地数据。</p>
       <div class="settings-card"><h2>当前项目</h2><p>选择本机上的项目目录。切换项目会恢复该项目的会话。</p><div id="config-workspace" class="settings-path"></div><button id="general-workspace-pick">选择目录</button></div>
+      <div class="settings-card"><h2>项目管理</h2><p>归档会将项目移出导航，保留历史会话；恢复后可继续使用。当前项目需先切换到其他项目才能归档。</p><div id="project-management"></div></div>
       <form id="general-form" class="settings-card"><h2>消息输入</h2><label class="inline-check"><input id="enter-to-send" type="checkbox">Enter 发送消息</label><p>开启时 Shift+Enter 换行。关闭时 Enter 换行，⌘/Ctrl+Enter 发送。</p><div class="settings-actions"><button type="submit" class="primary">保存常规设置</button></div></form>
       <div class="settings-card"><h2>本地数据</h2><dl class="settings-facts"><dt>版本</dt><dd id="app-version"></dd><dt>数据目录</dt><dd id="data-dir"></dd></dl></div>
     </section>
@@ -269,6 +274,7 @@
   let skillRequest = 0, editingSkill = false;
   let testingConnection = false, cancellingConnection = false, connectionCancelRequested = false;
   let sidebarCollapsed = false;
+  let searchRequest = 0, searchResult = null, searchLoading = false, searchError = '';
   const systemTheme = matchMedia('(prefers-color-scheme: dark)');
   const permissionRequests = new Set();
 
@@ -360,7 +366,34 @@
     const labels = { idle: '就绪', running: '正在执行', waiting_approval: '等待审批', completed: '已完成', aborted: '已停止', error: '执行失败' };
     $('status').textContent = !connected ? '连接断开，正在重连' : !view?.ready ? '需要配置模型' : labels[view.status] || '就绪';
     $('status').dataset.status = view?.status || 'idle';
-    renderProjects(); renderSessions(); if (settingsSection === 'commands') renderCommands(); if (settingsSection === 'skills') renderSkills();
+    renderProjects(); renderProjectManagement(); renderSessions(); if (settingsSection === 'commands') renderCommands(); if (settingsSection === 'skills') renderSkills();
+  }
+  function navigationBlocked() { return !connected || !view || view.busy || sending || saving || changing || testingConnection || cancellingConnection; }
+  function renderProjectManagement() {
+    const fragment = document.createDocumentFragment();
+    for (const [projects, archived] of [[view?.projects || [], false], [view?.archivedProjects || [], true]]) {
+      for (const project of projects) {
+        const current = project.path === view.config?.workspace;
+        const entry = row('capability-entry', undefined, fragment), bar = row('bar', undefined, entry);
+        row('', project.name, bar);
+        if (!current) {
+          const button = document.createElement('button'); button.textContent = archived ? '恢复项目' : '归档项目';
+          button.setAttribute('aria-label', button.textContent + ' ' + project.name); button.disabled = navigationBlocked();
+          button.onclick = () => archiveProject(project.path, !archived); bar.append(button);
+        }
+        row('settings-path', project.path, entry);
+        row('dim', [current ? '当前项目，先切换项目后归档' : archived ? '已归档' : '已打开', project.available ? `${project.sessionCount || 0} 个会话` : '目录不可用'].join(' · '), entry);
+      }
+    }
+    if (!fragment.childNodes.length) row('dim', '尚无项目', fragment);
+    $('project-management').replaceChildren(fragment);
+  }
+  async function archiveProject(workspace, archived) {
+    if (navigationBlocked() || workspace === view.config?.workspace) return;
+    changing = true; controls(); settingsFeedback('');
+    try { const result = await api('/projects/archive', { workspace, archived }); applyState(result.state); void searchSessions(); settingsFeedback(archived ? '项目已归档，历史会话保留' : '项目已恢复到导航'); }
+    catch (error) { settingsFeedback(error.message, true); }
+    finally { changing = false; controls(); }
   }
   function renderProjects() {
     const fragment = document.createDocumentFragment();
@@ -368,7 +401,7 @@
       const button = document.createElement('button'); button.className = 'project-entry';
       button.setAttribute('aria-label', '打开项目 ' + project.name); button.title = project.path;
       if (project.path === view.config?.workspace) button.setAttribute('aria-current', 'page');
-      button.disabled = !project.available || !connected || !!view.busy || changing || saving;
+      button.disabled = !project.available || navigationBlocked();
       const icon = document.createElement('b'); icon.textContent = '▱'; icon.setAttribute('aria-hidden', 'true');
       const name = document.createElement('span'); name.textContent = project.name;
       const count = document.createElement('small'); count.textContent = project.available ? project.sessionCount || '' : '不可用';
@@ -380,30 +413,55 @@
   function renderSessions() {
     const fragment = document.createDocumentFragment();
     const query = $('search').value.trim().toLocaleLowerCase();
-    for (const session of view?.sessions || []) {
+    const all = $('search-scope').value === 'all';
+    if (all && (!query || searchLoading || searchError)) {
+      row(searchError ? 'error' : 'dim', searchError || (searchLoading ? '正在搜索所有项目…' : '输入关键词搜索所有项目的标题和正文'), fragment);
+      $('sessions').replaceChildren(fragment); return;
+    }
+    for (const session of all ? searchResult?.sessions || [] : view?.sessions || []) {
       const title = session.title || session.label || '新会话';
-      if (query && !`${title} ${session.label || ''}`.toLocaleLowerCase().includes(query)) continue;
+      if (!all && query && !`${title} ${session.label || ''}`.toLocaleLowerCase().includes(query)) continue;
       const entry = row('session-entry', undefined, fragment);
-      if (session.id === view.currentSessionId) entry.classList.add('current');
+      const current = session.id === view.currentSessionId && (!all || session.cwd === view.config?.workspace);
+      if (current) entry.classList.add('current');
       const open = document.createElement('button'); open.className = 'session-open'; open.textContent = title;
       open.setAttribute('aria-label', '打开会话 ' + title); open.title = title;
-      if (session.id === view.currentSessionId) open.setAttribute('aria-current', 'page');
+      if (current) open.setAttribute('aria-current', 'page');
+      open.disabled = navigationBlocked() || session.available === false;
+      open.onclick = () => selectSession(session.id, all ? session.cwd : undefined);
+      entry.append(open);
+      if (all) {
+        open.classList.add('search-result'); open.title = session.cwd;
+        const project = session.cwd.split(/[\\/]/).filter(Boolean).at(-1) || session.cwd;
+        row('session-meta', [project, session.archived ? '已归档' : '', session.available === false ? '目录不可用' : ''].filter(Boolean).join(' · '), open);
+        if (session.excerpt) row('session-excerpt', session.excerpt, open);
+        continue;
+      }
       const rename = document.createElement('button'); rename.className = 'session-rename'; rename.textContent = '···'; rename.setAttribute('aria-label', '重命名 ' + title);
-      open.disabled = rename.disabled = !connected || !!view.busy || sending || changing;
-      open.onclick = () => selectSession(session.id);
+      rename.disabled = navigationBlocked();
       rename.onclick = () => {
-        if (view.busy || changing) return;
+        if (navigationBlocked()) return;
         renamingId = session.id; $('rename-input').value = title; $('rename-error').textContent = ''; $('rename-dialog').showModal();
       };
-      entry.append(open, rename);
+      entry.append(rename);
     }
     if (!fragment.childNodes.length) row('dim', query ? '没有匹配的会话' : '尚无会话', fragment);
+    if (all && searchResult?.truncated) row('dim', '仅展示前 50 个匹配会话，请缩小搜索范围', fragment);
     $('sessions').replaceChildren(fragment);
   }
-  async function selectSession(id) {
-    if (view.busy || changing || id === view.currentSessionId) return;
+  async function searchSessions() {
+    const request = ++searchRequest, query = $('search').value.trim();
+    searchResult = null; searchLoading = false; searchError = '';
+    if ($('search-scope').value !== 'all' || !query) { renderSessions(); return; }
+    searchLoading = true; renderSessions();
+    try { const result = await api('/sessions/search', { query }); if (request === searchRequest) searchResult = result; }
+    catch (error) { if (request === searchRequest) searchError = error.message; }
+    finally { if (request === searchRequest) { searchLoading = false; renderSessions(); } }
+  }
+  async function selectSession(id, workspace) {
+    if (navigationBlocked() || (id === view.currentSessionId && (!workspace || workspace === view.config?.workspace))) return;
     changing = true; controls(); clearError();
-    try { const result = await api('/session/select', { id }); applyState(result.state); input.value = ''; log.scrollTop = log.scrollHeight; }
+    try { const result = await api('/session/select', workspace ? { id, workspace } : { id }); applyState(result.state); input.value = ''; log.scrollTop = log.scrollHeight; }
     catch (error) { showError(error); }
     finally { changing = false; controls(); }
   }
@@ -513,8 +571,9 @@
     log.scrollTop = bottom ? log.scrollHeight : previousScroll;
   }
   function applyState(state) {
-    if (view && state.currentSessionId === view.currentSessionId && Number(state.seq) < lastSeq) return;
-    const refreshDiff = view && ((view.busy && !state.busy) || view.config?.workspace !== state.config?.workspace);
+    if (view && state.currentSessionId === view.currentSessionId && state.config?.workspace === view.config?.workspace && Number(state.seq) < lastSeq) return;
+    const workspaceChanged = view && view.config?.workspace !== state.config?.workspace;
+    const refreshDiff = view && ((view.busy && !state.busy) || workspaceChanged);
     view = state; lastSeq = Number(state.seq) || 0;
     $('title').textContent = state.title || 'tcode';
     $('model').textContent = `${state.config?.model || '模型未配置'} · ${state.config?.protocol === 'auto' ? '自动识别协议' : state.config?.protocol || ''}`;
@@ -525,6 +584,7 @@
     $('app-version').textContent = state.version || '—'; $('data-dir').textContent = state.dataDir || '—';
     applyPreferences();
     controls(); renderLog();
+    if (workspaceChanged) void searchSessions();
     if (refreshDiff && !$('diff-panel').hidden) void loadDiff();
     if (!state.ready && !setupOpened) { setupOpened = true; openSettings('model'); }
   }
@@ -685,9 +745,9 @@
   $('settings-home').onclick = () => { if (!settingsSection) openSettings(); };
   for (const button of document.querySelectorAll('[data-section]')) button.onclick = () => { if (!saving && !changing) openSettings(button.dataset.section); };
   async function changeWorkspace(workspace) {
-    if (!view || view.busy || changing || workspace === view.config.workspace) return;
+    if (navigationBlocked() || workspace === view.config.workspace) return;
     changing = true; controls(); clearError();
-    try { const result = await api('/workspace', { workspace }); $('search').value = ''; applyState(result.state); input.value = ''; }
+    try { const result = await api('/workspace', { workspace }); $('search').value = ''; applyState(result.state); input.value = ''; void searchSessions(); }
     catch (error) { showError(error); }
     finally { changing = false; controls(); }
   }
@@ -706,7 +766,8 @@
     if ($('search-open').disabled || (settingsSection && $('settings-close').disabled)) return;
     if (settingsSection) closeSettings(); setSidebar(false); $('search').focus(); $('search').select();
   };
-  $('search').oninput = renderSessions;
+  $('search').oninput = searchSessions;
+  $('search-scope').onchange = searchSessions;
   $('rename-close').onclick = () => { if (!changing) $('rename-dialog').close(); };
   $('rename-dialog').addEventListener('cancel', (event) => { if (changing) event.preventDefault(); });
   $('rename-form').onsubmit = async (event) => {
@@ -770,7 +831,7 @@
   $('new').onclick = async () => {
     if ($('new').disabled) return;
     if (settingsSection) closeSettings(); changing = true; controls();
-    try { clearError(); const result = await api('/session/new', {}); $('search').value = ''; applyState(result.state); input.value = ''; }
+    try { clearError(); const result = await api('/session/new', {}); $('search').value = ''; applyState(result.state); input.value = ''; void searchSessions(); }
     catch (error) { showError(error); }
     finally { changing = false; controls(); input.focus(); }
   };

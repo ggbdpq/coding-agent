@@ -10,7 +10,7 @@ import { createPermissionGate, type PermissionDecision } from '../core/permissio
 import { runUserTurn } from '../core/turn.ts';
 import type { AgentEvent } from '../kernel/types.ts';
 import { VERSION, selectProvider, type App } from '../kernel/app.ts';
-import { saveWebConfig, saveWorkspace, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
+import { saveWebConfig, saveWorkspace, saveProjectArchive, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
 import { SessionStore } from '../core/session.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
@@ -131,8 +131,8 @@ export async function startWeb(app: App): Promise<void> {
     }
   }
 
-  function activate(id: string) {
-    const history = store.history(id, app.config.workspace ?? process.cwd());
+  function activate(id: string, workspace = app.config.workspace ?? process.cwd(), commitWorkspace?: () => void) {
+    const history = store.history(id, workspace);
     const messages = history.messages.filter((message) => message.role !== 'system');
     const lastStart = history.activity.findLastIndex((event) => event.type === 'turn_start');
     const lastEnd = history.activity.findLastIndex((event) => event.type === 'turn_end');
@@ -170,7 +170,7 @@ export async function startWeb(app: App): Promise<void> {
       events.push({ type: 'turn_end', reason: 'aborted', error: '服务重启，上轮执行已中断', sessionId: id,
         seq: events.reduce((latest, event) => Math.max(latest, Number(event.seq) || 0), seq) + 1 });
     }
-    app.startSession({ sessionId: id, resumedFrom: history.file.split(/[\\/]/).pop(), yolo: app.config.approval === 'never' }, { messages, activity: events });
+    app.startSession({ sessionId: id, cwd: workspace, resumedFrom: history.file.split(/[\\/]/).pop(), yolo: app.config.approval === 'never' }, { messages, activity: events }, commitWorkspace);
     resetModes(); app.resetMessages(); app.messages.push(...messages);
     replaceActivity(events, false);
   }
@@ -219,12 +219,14 @@ export async function startWeb(app: App): Promise<void> {
     const sessions = cwd ? store.listWorkspace(cwd)
       .filter((session) => session.label || session.id === store.currentId)
       .map(({ file: _file, ...session }) => session) : [];
-    const projects = [...new Set([...(app.config.projects ?? []), ...(cwd ? [cwd] : [])])].map((directory) => {
+    const projectList = [...new Set([...(app.config.projects ?? []), ...(app.config.archivedProjects ?? []), ...(cwd ? [cwd] : [])])].map((directory) => {
       let available = false; try { available = statSync(directory).isDirectory(); } catch {}
       return { path: directory, name: nodePath.basename(directory) || directory, available,
         sessionCount: store.listWorkspace(directory).filter((session) => session.label).length };
     });
-    return { ready: !!(apiKey && baseUrl && model && cwd && !configError), projects,
+    const archived = new Set((app.config.archivedProjects ?? []).filter((directory) => directory !== cwd));
+    return { ready: !!(apiKey && baseUrl && model && cwd && !configError), projects: projectList.filter((project) => !archived.has(project.path)),
+      archivedProjects: projectList.filter((project) => archived.has(project.path)),
       version: VERSION, dataDir: app.config.tcodeDir,
       preferences: app.config.preferences ?? { theme: 'system', fontSize: 16, enterToSend: true },
       capabilities: {
@@ -353,6 +355,14 @@ export async function startWeb(app: App): Promise<void> {
     }
 
     if (req.method === 'GET' && path === '/state') { json(res, 200, snapshot()); return; }
+    if (req.method === 'POST' && path === '/sessions/search') {
+      if (typeof body.query !== 'string' || body.query.length > 200) throw new ConfigInputError('搜索内容须为不超过 200 个字符的文本');
+      const result = store.search(body.query);
+      json(res, 200, { ...result, sessions: result.sessions.map((session) => {
+        let available = false; try { available = statSync(session.cwd).isDirectory(); } catch {}
+        return { ...session, archived: (app.config.archivedProjects ?? []).includes(session.cwd), available };
+      }) }); return;
+    }
     if (req.method === 'GET' && path === '/usage') {
       const sessions = store.listWorkspace().filter((session) => session.label);
       const inputTokens = sessions.reduce((total, session) => total + session.usage.prompt_tokens, 0);
@@ -382,6 +392,17 @@ export async function startWeb(app: App): Promise<void> {
     if (req.method === 'POST' && path === '/workspace') {
       if (busy) { json(res, 409, { error: '任务运行期间不能切换项目' }); return; }
       switchWorkspace(saveWorkspace(app.config, body.workspace));
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/projects/archive') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能归档或恢复项目' }); return; }
+      if (typeof body.workspace !== 'string' || !nodePath.isAbsolute(body.workspace) || typeof body.archived !== 'boolean') {
+        throw new ConfigInputError('项目须为绝对路径，归档状态须为布尔值');
+      }
+      let directory = nodePath.resolve(body.workspace);
+      try { directory = realpathSync(directory); } catch {}
+      if (body.archived && directory === app.config.workspace) { json(res, 409, { error: '当前项目不能归档，请先切换项目' }); return; }
+      Object.assign(app.config, saveProjectArchive(app.config, directory, body.archived));
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/workspace/pick') {
@@ -444,7 +465,25 @@ export async function startWeb(app: App): Promise<void> {
       if (busy) { json(res, 409, { error: '任务运行期间不能切换或修改会话' }); return; }
       if (!snapshot().ready) { json(res, 409, { error: '请先配置模型与项目' }); return; }
       if (path === '/session/new') { resetModes(); app.resetMessages(); app.startSession(); replaceActivity([]); }
-      else if (path === '/session/select') activate(String(body.id ?? ''));
+      else if (path === '/session/select') {
+        if (typeof body.id !== 'string' || !body.id || (body.workspace !== undefined && (typeof body.workspace !== 'string' || !nodePath.isAbsolute(body.workspace)))) {
+          throw new ConfigInputError('请选择有效的会话标识与绝对项目目录');
+        }
+        let workspace: string;
+        try {
+          workspace = realpathSync(body.workspace === undefined ? app.config.workspace ?? process.cwd() : body.workspace as string);
+          if (!statSync(workspace).isDirectory()) throw new Error();
+          store.history(body.id, workspace);
+        } catch { throw new ConfigInputError('项目不可用或该项目中没有这个会话'); }
+        if (workspace === app.config.workspace) activate(body.id, workspace);
+        else {
+          const previousDirectory = process.cwd();
+          activate(body.id, workspace, () => {
+            try { process.chdir(workspace); Object.assign(app.config, saveWorkspace(app.config, workspace)); }
+            catch (error) { process.chdir(previousDirectory); throw error; }
+          });
+        }
+      }
       else if (path === '/session/rename') store.rename(String(body.id ?? ''), process.cwd(), String(body.title ?? ''));
       else { json(res, 404, { error: '未知会话操作' }); return; }
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;

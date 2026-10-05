@@ -38,6 +38,8 @@ export interface Config {
   workspace?: string;
   /** 用户打开过的项目；当前项目仍由 workspace 唯一决定。 */
   projects?: string[];
+  /** 归档仅隐藏导航，项目文件与历史仍保留。 */
+  archivedProjects?: string[];
   preferences?: WebPreferences;
   configError?: string;
 }
@@ -52,6 +54,7 @@ interface FileConfig {
   contextLimit?: number;
   workspace?: string;
   projects?: string[];
+  archivedProjects?: string[];
   preferences?: WebPreferences;
 }
 
@@ -69,7 +72,10 @@ function readJsonConfig(tcodeDir: string): FileConfig {
     if (fields.approval !== undefined && !['normal', 'never'].includes(String(fields.approval))) throw new Error();
     if (fields.contextLimit !== undefined && (!Number.isSafeInteger(fields.contextLimit) || Number(fields.contextLimit) <= 0)) throw new Error();
     if (fields.allowWriteDirs !== undefined && (!Array.isArray(fields.allowWriteDirs) || fields.allowWriteDirs.some((dir) => typeof dir !== 'string'))) throw new Error();
-    if (fields.projects !== undefined && (!Array.isArray(fields.projects) || fields.projects.some((dir) => typeof dir !== 'string' || !path.isAbsolute(dir)))) throw new Error();
+    for (const key of ['projects', 'archivedProjects']) {
+      const dirs = fields[key];
+      if (dirs !== undefined && (!Array.isArray(dirs) || dirs.some((dir) => typeof dir !== 'string' || !path.isAbsolute(dir)))) throw new Error();
+    }
     if (fields.preferences !== undefined) validatePreferences(fields.preferences);
     return value as FileConfig;
   } catch {
@@ -135,7 +141,7 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
     );
   }
   return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, contextLimit, tcodeDir,
-    ...(options.allowIncomplete ? { workspace: file.workspace || (options.desktop ? '' : process.cwd()), projects: file.projects ?? [], preferences: file.preferences ?? { ...defaultPreferences }, configError } : {}),
+    ...(options.allowIncomplete ? { workspace: file.workspace || (options.desktop ? '' : process.cwd()), projects: file.projects ?? [], archivedProjects: file.archivedProjects ?? [], preferences: file.preferences ?? { ...defaultPreferences }, configError } : {}),
   };
 }
 
@@ -179,9 +185,20 @@ export function saveWebPreferences(current: Config, input: Record<string, unknow
 export function saveWorkspace(current: Config, directory: unknown): Config {
   const workspace = workspaceDirectory(directory);
   const projects = recentProjects(current, workspace);
-  persistConfig(current, { workspace, projects });
-  return { ...current, workspace, projects,
+  const archivedProjects = (current.archivedProjects ?? []).filter((directory) => directory !== workspace);
+  persistConfig(current, { workspace, projects, archivedProjects });
+  return { ...current, workspace, projects, archivedProjects,
     configError: current.configError?.includes('项目目录不可用') ? undefined : current.configError };
+}
+
+export function saveProjectArchive(current: Config, directory: string, archived: boolean): Config {
+  if (![...(current.projects ?? []), ...(current.archivedProjects ?? []), current.workspace].includes(directory)) {
+    throw new ConfigInputError('项目不在本地项目列表中');
+  }
+  const projects = [...new Set([...(current.projects ?? []), directory])];
+  const archivedProjects = [...new Set((current.archivedProjects ?? []).filter((project) => project !== directory).concat(archived ? [directory] : []))];
+  persistConfig(current, { projects, archivedProjects });
+  return { ...current, projects, archivedProjects };
 }
 
 function recentProjects(current: Config, workspace: string): string[] {
@@ -214,6 +231,7 @@ export function saveWebConfig(current: Config, input: Record<string, unknown>): 
     allowWriteDirs = [...new Set(input.allowWriteDirs.map(workspaceDirectory))];
   }
   const protocol = rawProtocol === 'auto' ? undefined : rawProtocol as Protocol;
-  persistConfig(current, { apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, approval, allowWriteDirs });
-  return { ...current, apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, approval, allowWriteDirs, configError: undefined };
+  const archivedProjects = (current.archivedProjects ?? []).filter((directory) => directory !== workspace);
+  persistConfig(current, { apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs });
+  return { ...current, apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, configError: undefined };
 }
