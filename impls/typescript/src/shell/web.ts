@@ -20,7 +20,7 @@ import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type Changes
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
 import { AutomationRunner } from '../core/automation.ts';
 import { McpManager } from '../core/mcp.ts';
-import { MCP_CATALOG } from '../core/mcp_catalog.ts';
+import { mergedCatalog } from '../core/mcp_catalog.ts';
 import { fetchBalance, listModels } from '../providers/models.ts';
 import { pickWorkspace } from './workspacepicker.ts';
 
@@ -566,7 +566,8 @@ export async function startWeb(app: App): Promise<void> {
       return;
     }
     if (req.method === 'GET' && path === '/mcp/catalog') {
-      json(res, 200, { catalog: MCP_CATALOG });
+      const merged = mergedCatalog(app.config.tcodeDir);
+      json(res, 200, { catalog: merged.catalog, userCount: merged.userCount, ...(merged.catalogError ? { catalogError: merged.catalogError } : {}) });
       return;
     }
     if (req.method === 'POST' && path === '/mcp/servers') {

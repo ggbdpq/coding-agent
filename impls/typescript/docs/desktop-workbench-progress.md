@@ -22,6 +22,7 @@
 - 上一轮：定时调度——周期任务可选 5–525600 分钟间隔，完成推进 nextRunAt 并持久化；调度器每 30 秒推进（unref 不阻塞退出），到期后台执行、运行中不重复触发、暂停任务冻结并顺延；自动化页展示间隔与下次触发时间，可暂停/恢复调度。
 - 上一轮：MCP HTTP Streamable 传输——配置支持 url 端点（url/command 至少其一），无状态 POST 兼容 JSON 与 SSE 响应、透传 Mcp-Session-Id、DELETE 回收会话；修复 /mcp/test 端点 finally 漏恢复 busy 导致后续发送全部 409 的真 bug；自动化任务终态通知与删除清理（76d75ff）；账户用量行文档修正。
 - 本轮：MCP 权限粒度——服务器配置新增 trusted 标记（UI 勾选"免审批"），信任服务器的工具复用 skipPermission 白名单机制免逐次审批；未信任默认逐次审批不变。
+- 上一轮：MCP 目录用户扩展文件——`<数据目录>/mcp-catalog.json` 与内置目录合并（同名覆盖、追加在后），格式坏回退内置且 catalogError 可见；beforeTurn 轮开始钩子（2864341）与进度文档行尾清整（9bb7d8d）。
 - 上一轮：账户用量行文档修正（余额查询已于 42dadf4 实现并真实验收）；自动化任务终态通知与删除清理（76d75ff）。
 - 本轮：MCP HTTP Streamable 传输——配置支持 url 端点（url/command 至少其一），无状态 POST 兼容 JSON 与 SSE 响应、透传 Mcp-Session-Id、DELETE 回收会话；修复 /mcp/test 端点 finally 漏恢复 busy 导致后续发送全部 409 的真 bug。
 - 上一轮：账户用量行文档修正（余额查询已于 42dadf4 实现并真实验收）。
@@ -110,7 +111,7 @@
 | 2 | [ ] 多项目日常管理与视觉完善 | 最近项目、归档／恢复、项目移除（只删导航记录，历史保留，重开目录可恢复）、当前／所有项目搜索、侧栏折叠和四组常用快捷键已完成；更多快捷键及视觉细节尚未实现或完整验收。 |
 | 2 | [ ] 模型配置维护 | 多组本地配置、命名、编辑、快捷切换、连接测试、非活动配置删除、模型发现与导入／导出均已完成。导出为脱敏 JSON（结构上不含密钥，仅 hasApiKey 标记）；导入忽略传入密钥、逐条校验并跳过重复端点与非法条目、不激活不改动活动配置；持久化 profile 允许空密钥（使用前须在原端点填写，错误可见）。 |
 | 3 | [x] 自动化任务 | 第一条本地任务闭环、定时调度与通知/清理已完成：设置 → 自动化创建（当前项目、以免审批的隔离会话运行），任务持久化在数据目录 `automations/`，运行中可停止、重启后标记中断可继续、结果与会话过程可回查；周期任务可选 5–525600 分钟间隔，调度每 30 秒推进、可暂停/恢复；任务终态在工作区顶部通知；已结束任务可删除（任务记录与会话目录一并清理），运行中拒绝删除。尚未做：非当前项目（依赖全局 cwd 状态所有权重构）。 |
-| 3 | [ ] 插件管理／市场与 MCP | MCP 服务器已完成 stdio 与 HTTP Streamable 两种传输的最小闭环：配置持久化（`config.json` 的 mcpServers，url 或 command 至少其一）、连接测试（initialize + tools/list）、启停与工具桥接（`mcp__名称__工具` 进工具列表，调用走逐次审批；按服务器信任免审批或按工具白名单（`trustedTools`）细粒度免审批，复用蓝图 R4 白名单机制）、删除回收进程；HTTP 透传 `Mcp-Session-Id`、兼容 JSON 与 SSE 响应；资源与提示词已桥接（连接时拉取清单，按服务器桥接 `read_resource`／`get_prompt` 聚合工具，描述内嵌清单供模型自主发现，调用走审批；连接测试响应含资源/提示词计数）。资源与提示词清单已注入系统提示词（`McpManager.promptSection` 经 `refreshSystemPrompt` 追加，预热完成与启停/配置变更时刷新）。安装市场最小形态已完成：内置静态目录（官方 filesystem/memory/everything/fetch 参考实现，无网络）+ "从目录添加"预填表单；真正的在线市场未做。 |
+| 3 | [ ] 插件管理／市场与 MCP | MCP 服务器已完成 stdio 与 HTTP Streamable 两种传输的最小闭环：配置持久化（`config.json` 的 mcpServers，url 或 command 至少其一）、连接测试（initialize + tools/list）、启停与工具桥接（`mcp__名称__工具` 进工具列表，调用走逐次审批；按服务器信任免审批或按工具白名单（`trustedTools`）细粒度免审批，复用蓝图 R4 白名单机制）、删除回收进程；HTTP 透传 `Mcp-Session-Id`、兼容 JSON 与 SSE 响应；资源与提示词已桥接（连接时拉取清单，按服务器桥接 `read_resource`／`get_prompt` 聚合工具，描述内嵌清单供模型自主发现，调用走审批；连接测试响应含资源/提示词计数）。资源与提示词清单已注入系统提示词（`McpManager.promptSection` 经 `refreshSystemPrompt` 追加，预热完成与启停/配置变更时刷新）。安装市场最小形态已完成：内置静态目录（官方 filesystem/memory/everything/fetch 参考实现，无网络）+ "从目录添加"预填表单，且支持用户扩展目录 `<数据目录>/mcp-catalog.json`（同名覆盖内置、格式坏回退内置且错误可见）；真正的在线市场未做。 |
 | 按需 | [ ] Worktree、多任务／子智能体 | 当前一次打开一个操作项目、串行执行一轮；没有 worktree 隔离、并发任务、输入排队及子会话编排。引入前先解决全局 cwd 与状态所有权。 |
 | 按需 | [ ] 长期记忆、Hook | 长期记忆最小闭环、编辑 UI、自动沉淀与 beforeTurn/afterTurn 双钩子已完成：`<数据目录>/memory.md` 注入系统提示词（存在即注入），`/memory` 命令查看/追加/清空，命令页编辑/清空卡片，模型经 `memory_append` 工具沉淀（只追加、≤500 字符、走逐次审批，沉淀后下轮注入）；`config.beforeTurn/afterTurn` 轮开始/结束钩子（项目目录执行、30 秒超时、TCODE_HOOK_EVENT/STATUS/CWD 环境变量、stdout/stderr 回显会话、失败可见不阻塞、权限设置页配置）。尚未做：记忆的自动整理、Hook 其他事件点。 |
 

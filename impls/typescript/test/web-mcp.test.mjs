@@ -308,3 +308,24 @@ test('MCP 目录：内置条目可查询供建表单预填', async (t) => {
   assert.equal(catalog.body.catalog.some((entry) => entry.name === 'filesystem'), true, '含官方 filesystem 参考实现');
   assert.equal(JSON.stringify(catalog.body).includes('rm -rf'), false);
 });
+
+test('MCP 目录支持用户扩展文件：同名覆盖、格式坏回退内置且错误可见', async (t) => {
+  const h = await fixture(t);
+  writeFileSync(path.join(h.data, 'mcp-catalog.json'), JSON.stringify([
+    { name: 'team-internal', description: '团队内部工具', command: 'node', args: ['team-mcp.mjs'] },
+    { name: 'filesystem', description: '自定义说明覆盖内置', command: 'node', args: ['my-fs.mjs'] },
+  ]));
+  const catalog = await h.get('mcp/catalog');
+  assert.equal(catalog.status, 200);
+  assert.equal(catalog.body.catalog.some((entry) => entry.name === 'team-internal'), true, '用户条目并入');
+  const filesystem = catalog.body.catalog.find((entry) => entry.name === 'filesystem');
+  assert.equal(filesystem.description, '自定义说明覆盖内置', '同名条目用户覆盖内置');
+  assert.equal(catalog.body.catalog.some((entry) => entry.name === 'memory'), true, '其余内置保留');
+  assert.equal(catalog.body.userCount, 2);
+
+  writeFileSync(path.join(h.data, 'mcp-catalog.json'), '{ broken');
+  const broken = await h.get('mcp/catalog');
+  assert.equal(broken.status, 200);
+  assert.equal(broken.body.catalog.length >= 4, true, '格式坏回退内置目录');
+  assert.match(broken.body.catalogError, /mcp-catalog\.json/, '格式错误可见');
+});
