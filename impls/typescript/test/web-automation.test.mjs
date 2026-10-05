@@ -115,3 +115,30 @@ test('未配置模型、空提示词、不存在的工作区都拒绝创建', as
   assert.equal((await h.post('automations', { name: 'x', prompt: '做点什么', workspace: '/nonexistent-auto-project' })).status, 400);
   assert.equal((await h.list()).body.automations.length, 0);
 });
+
+test('周期任务：创建携带执行间隔并持久化下次触发时间，间隔非法拒绝', async (t) => {
+  const h = await fixture(t);
+  const created = await h.post('automations', { name: '每小时巡检', prompt: '巡检一次', intervalMinutes: 30 });
+  assert.equal(created.status, 200);
+  await until(async () => (await h.list()).body.automations.find((task) => task.id === created.body.id)?.status === 'completed');
+  const listed = (await h.list()).body.automations.find((task) => task.id === created.body.id);
+  assert.equal(listed.intervalMinutes, 30);
+  assert.equal(listed.nextRunAt > Date.now(), true, '完成后应推进下次触发时间到未来');
+  assert.equal((await h.post('automations', { name: '太快', prompt: 'x', intervalMinutes: 4 })).status, 400);
+  assert.equal((await h.post('automations', { name: '非整数', prompt: 'x', intervalMinutes: 1.5 })).status, 400);
+  assert.equal((await h.post('automations', { name: '不是数字', prompt: 'x', intervalMinutes: 'hourly' })).status, 400);
+});
+
+test('周期任务可暂停与恢复调度', async (t) => {
+  const h = await fixture(t);
+  const created = await h.post('automations', { name: '可暂停任务', prompt: '巡检', intervalMinutes: 60 });
+  const id = created.body.id;
+  await until(async () => (await h.list()).body.automations.find((task) => task.id === id)?.status === 'completed');
+  const before = (await h.list()).body.automations.find((task) => task.id === id).nextRunAt;
+  assert.equal((await h.post('automations/schedule', { id, paused: true })).status, 200);
+  assert.equal((await h.list()).body.automations.find((task) => task.id === id).paused, true);
+  assert.equal((await h.post('automations/schedule', { id, paused: false })).status, 200);
+  const after = (await h.list()).body.automations.find((task) => task.id === id);
+  assert.equal(after.paused, false);
+  assert.equal(after.nextRunAt, before, '暂停期间 nextRunAt 不被改动');
+});

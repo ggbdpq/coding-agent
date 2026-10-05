@@ -1180,17 +1180,26 @@ test('用量页展示账户余额并可刷新，失败信息留在卡片内', as
 
 test('自动化设置可创建任务、查看状态与结果、停止与继续', async () => {
   const state = initialState();
-  let stopped = false;
+  let stopped = false, paused = true;
   await withPage(state, {
-    '/automations': () => ({ automations: [stopped ? { id: 'a1', name: '夜间检查', workspace: '/tmp/ui-project', prompt: '做点什么', status: 'stopped', createdAt: 1 } : { id: 'a1', name: '夜间检查', workspace: '/tmp/ui-project', prompt: '做点什么', status: 'running', createdAt: 1 }] }),
+    '/automations': () => ({ automations: [{
+      id: 'a1', name: '夜间检查', workspace: '/tmp/ui-project', prompt: '做点什么',
+      status: stopped ? 'stopped' : 'running', createdAt: 1,
+      intervalMinutes: 30, paused, nextRunAt: Date.now() + 30 * 60_000,
+    }] }),
     '/automations/stop': () => { stopped = true; return { ok: true }; },
     '/automations/resume': () => { stopped = false; return { ok: true }; },
+    '/automations/schedule': (body) => { paused = body.paused; return { ok: true }; },
   }, async (page) => {
     await page.getByRole('button', { name: '设置', exact: true }).click();
     const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
     await navigation.getByRole('button', { name: '自动化', exact: true }).click();
     await page.getByText('夜间检查', { exact: true }).waitFor();
     await page.getByText('运行中', { exact: true }).waitFor();
+    await page.getByText(/每 30 分钟/, { exact: false }).waitFor();
+    await page.getByText('调度已暂停', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '恢复调度', exact: true }).click();
+    await page.getByRole('button', { name: '暂停调度', exact: true }).waitFor();
     await page.getByRole('button', { name: '停止', exact: true }).click();
     await page.getByText('已停止', { exact: true }).waitFor();
     await page.getByRole('button', { name: '继续', exact: true }).click();

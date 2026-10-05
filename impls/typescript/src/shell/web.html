@@ -263,6 +263,7 @@
       <form id="automation-form" class="settings-card"><h2>新建任务</h2>
         <label>任务名称<input id="automation-name" required maxlength="80" placeholder="夜间检查" autocomplete="off"></label>
         <label>任务提示词<textarea id="automation-prompt" required rows="4" placeholder="要自动完成的事，例如：检查未使用的依赖并把报告写入 report.md"></textarea></label>
+        <label>重复间隔（分钟，留空只运行一次；5–525600）<input id="automation-interval" type="number" min="5" max="525600" step="1" placeholder="不重复"></label>
         <div id="automation-error" role="alert"></div>
         <div class="settings-actions"><button type="submit" class="primary">运行任务</button></div>
       </form>
@@ -944,25 +945,33 @@
         const statusLabels = { running: '运行中', completed: '已完成', stopped: '已停止', error: '失败', interrupted: '已中断' };
         const chip = document.createElement('span'); chip.className = 'diff-chip'; chip.textContent = statusLabels[task.status] || task.status;
         bar.append(name, chip);
+        if (task.paused) { const pausedChip = document.createElement('span'); pausedChip.className = 'diff-chip'; pausedChip.textContent = '调度已暂停'; bar.append(pausedChip); }
         const action = document.createElement('button');
         if (task.status === 'running') { action.textContent = '停止'; action.onclick = () => void taskAction('/automations/stop', task.id); }
         else if (task.status !== 'completed') { action.textContent = '继续'; action.onclick = () => void taskAction('/automations/resume', task.id); }
         else { action.textContent = '已完成'; action.disabled = true; }
         action.disabled ||= navigationBlocked();
         bar.append(action);
+        if (task.intervalMinutes) {
+          const schedule = document.createElement('button');
+          schedule.textContent = task.paused ? '恢复调度' : '暂停调度';
+          schedule.disabled = navigationBlocked();
+          schedule.onclick = () => void taskAction('/automations/schedule', task.id, !task.paused);
+          bar.append(schedule);
+        }
         if (task.resultText) row('session-excerpt', task.resultText, entry);
         if (task.error) row('error', task.error, entry);
-        row('dim', new Date(task.createdAt).toLocaleString(), entry);
+        row('dim', [task.intervalMinutes ? `每 ${task.intervalMinutes} 分钟` : '', task.nextRunAt && !task.paused ? `下次 ${new Date(task.nextRunAt).toLocaleTimeString()}` : '', new Date(task.createdAt).toLocaleString()].filter(Boolean).join(' · '), entry);
       }
       if (!fragment.childNodes.length) row('dim', '尚无任务；填写上方表单即可在当前项目后台运行一条自动化任务', fragment);
       $('automation-list').replaceChildren(fragment);
     } catch (error) { if (request === automationRequest) { $('automation-list').replaceChildren(); row('error', error.message, $('automation-list')); } }
     finally { if (request === automationRequest) $('automation-refresh').disabled = false; }
   }
-  async function taskAction(route, id) {
+  async function taskAction(route, id, extra) {
     if (navigationBlocked()) return;
     $('automation-error').textContent = '';
-    try { await api(route, { id }); await renderAutomations(); }
+    try { await api(route, extra === undefined ? { id } : { id, paused: extra }); await renderAutomations(); }
     catch (error) { $('automation-error').textContent = error.message; }
   }
   $('automation-refresh').onclick = () => void renderAutomations();
@@ -972,8 +981,12 @@
     $('automation-error').textContent = '';
     saving = true; controls();
     try {
-      await api('/automations', { name: $('automation-name').value, prompt: $('automation-prompt').value, workspace: view.config?.workspace });
-      $('automation-name').value = ''; $('automation-prompt').value = '';
+      const interval = $('automation-interval').value.trim();
+      await api('/automations', {
+        name: $('automation-name').value, prompt: $('automation-prompt').value, workspace: view.config?.workspace,
+        ...(interval ? { intervalMinutes: Number(interval) } : {}),
+      });
+      $('automation-name').value = ''; $('automation-prompt').value = ''; $('automation-interval').value = '';
       await renderAutomations();
     } catch (error) { $('automation-error').textContent = error.message; }
     finally { saving = false; controls(); }

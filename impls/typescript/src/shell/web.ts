@@ -531,12 +531,23 @@ export async function startWeb(app: App): Promise<void> {
       if (body.workspace !== undefined && body.workspace !== app.config.workspace) {
         throw new ConfigInputError('自动化任务当前仅支持在当前项目运行');
       }
-      const task = automations.create({ name, prompt, workspace: app.config.workspace ?? process.cwd() });
+      const intervalMinutes = body.intervalMinutes === undefined ? undefined : Number(body.intervalMinutes);
+      if (intervalMinutes !== undefined && (!Number.isSafeInteger(intervalMinutes) || intervalMinutes < 5 || intervalMinutes > 525600)) {
+        throw new ConfigInputError('重复执行间隔须为 5–525600 分钟的整数');
+      }
+      const task = automations.create({ name, prompt, workspace: app.config.workspace ?? process.cwd(), intervalMinutes });
       void automations.execute(app, task.id).then(() => {
         const line = `data: ${JSON.stringify({ type: 'automation', id: task.id, status: automations.get(task.id)?.status, seq: ++seq })}\n\n`;
         for (const res of sseClients) res.write(line);
       }).catch(() => {});
       json(res, 200, { ok: true, id: task.id }); return;
+    }
+    if (req.method === 'POST' && path === '/automations/schedule') {
+      const id = String(body.id ?? '');
+      if (!automations.get(id)) { json(res, 404, { error: '没有这个自动化任务' }); return; }
+      if (typeof body.paused !== 'boolean') throw new ConfigInputError('paused 须为布尔值');
+      automations.setSchedule(id, { paused: body.paused });
+      json(res, 200, { ok: true }); return;
     }
     if (req.method === 'POST' && path === '/automations/stop') {
       if (!automations.stop(String(body.id ?? ''))) { json(res, 404, { error: '没有正在运行的自动化任务' }); return; }
@@ -806,6 +817,14 @@ export async function startWeb(app: App): Promise<void> {
     for (const res of sseClients) res.write(': ping\n\n');
   }, 25_000);
   ping.unref();
+  // 周期任务调度推进；到期时后台执行并广播状态
+  const scheduler = setInterval(() => {
+    void automations.tick(app).then(() => {
+      const line = `data: ${JSON.stringify({ type: 'automation', seq: ++seq })}\n\n`;
+      for (const res of sseClients) res.write(line);
+    }).catch(() => {});
+  }, 30_000);
+  scheduler.unref();
 }
 
 export default definePlugin({ name: 'web', kind: 'shell', start: startWeb });

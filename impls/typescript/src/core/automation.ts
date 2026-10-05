@@ -26,6 +26,12 @@ export interface AutomationTask {
   error?: string;
   promptTokens?: number;
   completionTokens?: number;
+  /** 重复执行间隔（分钟）；缺省为一次性任务 */
+  intervalMinutes?: number;
+  /** 下次调度触发时间（epoch ms）；仅周期任务有 */
+  nextRunAt?: number;
+  /** 暂停调度：到期不执行、nextRunAt 持续顺延 */
+  paused?: boolean;
 }
 
 interface RunningState {
@@ -38,9 +44,11 @@ export class AutomationRunner {
   // Node 类型剥离不支持构造函数参数属性，字段必须显式声明（同 openai.ts）
   private readonly tcodeDir: string;
   private readonly dir: string;
+  private readonly now: () => number;
   private readonly running = new Map<string, RunningState>();
 
-  constructor(tcodeDir: string) {
+  constructor(tcodeDir: string, now: () => number = () => Date.now()) {
+    this.now = now;
     this.tcodeDir = tcodeDir;
     this.dir = path.join(tcodeDir, 'automations');
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
@@ -65,13 +73,44 @@ export class AutomationRunner {
     return this.list().find((task) => task.id === id);
   }
 
-  create(input: { name: string; prompt: string; workspace: string }): AutomationTask {
+  create(input: { name: string; prompt: string; workspace: string; intervalMinutes?: number }): AutomationTask {
     const task: AutomationTask = {
       id: randomUUID(), name: input.name, workspace: input.workspace, prompt: input.prompt,
-      status: 'running', createdAt: Date.now(),
+      status: 'running', createdAt: this.now(), ...(input.intervalMinutes ? { intervalMinutes: input.intervalMinutes } : {}),
     };
     this.save(task);
     return task;
+  }
+
+  /** 调度字段更新（间隔 / 下次触发 / 暂停）；字段缺省保持不变 */
+  setSchedule(id: string, patch: { intervalMinutes?: number; nextRunAt?: number; paused?: boolean }): AutomationTask {
+    const task = this.get(id);
+    if (!task) throw new Error('没有这个自动化任务');
+    const next: AutomationTask = { ...task };
+    if (patch.intervalMinutes !== undefined) next.intervalMinutes = patch.intervalMinutes;
+    if (patch.nextRunAt !== undefined) next.nextRunAt = patch.nextRunAt;
+    if (patch.paused !== undefined) next.paused = patch.paused;
+    this.save(next);
+    return next;
+  }
+
+  /** 调度推进：到期且未暂停的周期任务后台执行；暂停任务冻结并顺延 nextRunAt */
+  async tick(app: App): Promise<void> {
+    const due: AutomationTask[] = [];
+    for (const task of this.list()) {
+      if (!task.intervalMinutes || this.isRunning(task.id)) continue;
+      if ((task.nextRunAt ?? 0) > this.now()) continue;
+      if (task.paused) {
+        this.save({ ...task, nextRunAt: this.now() + task.intervalMinutes * 60_000 });
+        continue;
+      }
+      due.push(task);
+    }
+    for (const task of due) {
+      // 先推进再执行，避免执行期间被再次调度
+      this.save({ ...task, nextRunAt: this.now() + task.intervalMinutes! * 60_000 });
+      await this.execute(app, task.id).catch(() => {});
+    }
   }
 
   stop(id: string): boolean {
@@ -128,7 +167,10 @@ export class AutomationRunner {
   private finish(id: string, patch: Partial<AutomationTask>): void {
     const task = this.get(id);
     if (!task) return;
-    this.save({ ...task, ...patch, status: patch.status ?? task.status, finishedAt: Date.now() });
+    const next: AutomationTask = { ...task, ...patch, status: patch.status ?? task.status, finishedAt: this.now() };
+    // 周期任务完成后按间隔推进下次触发；一次性任务不进入调度
+    if (task.intervalMinutes) next.nextRunAt = this.now() + task.intervalMinutes * 60_000;
+    this.save(next);
   }
 
   private save(task: AutomationTask): void {
