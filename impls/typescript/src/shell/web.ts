@@ -10,7 +10,7 @@ import { createPermissionGate, type PermissionDecision } from '../core/permissio
 import { runUserTurn } from '../core/turn.ts';
 import type { AgentEvent } from '../kernel/types.ts';
 import { VERSION, selectProvider, type App } from '../kernel/app.ts';
-import { saveWebConfig, saveModelProfile, selectModelProfile, saveWorkspace, saveProjectArchive, removeProject, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
+import { saveWebConfig, saveModelProfile, selectModelProfile, deleteModelProfile, saveWorkspace, saveProjectArchive, removeProject, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
 import { SessionStore } from '../core/session.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
@@ -524,6 +524,11 @@ export async function startWeb(app: App): Promise<void> {
       let provider = app.provider;
       const next = selectModelProfile(app.config, body.id, (candidate) => { provider = modelProvider(candidate); });
       Object.assign(app.config, next); app.provider = provider;
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/model-profiles/delete') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能删除模型配置' }); return; }
+      Object.assign(app.config, deleteModelProfile(app.config, body.id));
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/model-profiles/save') {

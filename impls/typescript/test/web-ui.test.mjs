@@ -1098,3 +1098,25 @@ test('斜杠命令结果随会话同步，刷新后仍可查看且不重复', as
     assert.equal(await page.getByText('/help 可用命令：/new /resume /yolo', { exact: true }).count(), 1);
   });
 });
+
+test('模型设置列出已保存配置并可删除非活动项，活动配置禁用删除', async () => {
+  const active = { id: 'p-active', name: '活动配置', ...initialState().config };
+  const spare = { id: 'p-spare', name: '备用配置', baseUrl: 'https://b.example/anthropic', model: 'm2', protocol: 'anthropic', contextLimit: 80000 };
+  const state = initialState({ modelProfiles: [active, spare], activeModelProfileId: 'p-active' });
+  await withPage(state, { '/model-profiles/delete': ({ id }) => {
+    assert.equal(id, 'p-spare');
+    state.modelProfiles = state.modelProfiles.filter((profile) => profile.id !== id);
+    state.seq++; return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    const removeActive = page.getByRole('button', { name: '删除配置 活动配置', exact: true });
+    const removeSpare = page.getByRole('button', { name: '删除配置 备用配置', exact: true });
+    await removeActive.waitFor();
+    assert.equal(await removeActive.isDisabled(), true, '正在使用的配置不能删除');
+    assert.equal(await removeSpare.isDisabled(), false);
+    await removeSpare.click();
+    await page.getByText('已删除配置 备用配置', { exact: true }).waitFor();
+    assert.equal(await removeSpare.count(), 0, '删除后列表行消失');
+    assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).locator('option').count(), 2, '下拉只剩占位与活动配置');
+  });
+});

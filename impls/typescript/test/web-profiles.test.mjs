@@ -399,3 +399,28 @@ test('沿用当前凭证须匹配活动来源，迟到、缺失或非法来源�
   assert.equal((await h.post('model/test')).status, 200); assert.equal(h.requests.at(-1).headers.authorization, 'Bearer profile-anthropic-key');
   noKeys(copied.body); noKeys(h.events);
 });
+
+// Slice 6：删除非活动配置持久化，活动配置与未知配置拒绝删除。
+test('删除非活动模型配置持久化且不影响活动配置，活动与未知配置拒绝删除', async (t) => {
+  const h = await fixture(t);
+  const first = await h.post('model-profiles/save', currentProfile(h));
+  const firstId = first.body.state.activeModelProfileId;
+  const second = await h.post('model-profiles/save', secondProfile(h));
+  const secondId = second.body.state.activeModelProfileId;
+  assert.notEqual(firstId, secondId);
+  const deleted = await h.post('model-profiles/delete', { id: firstId });
+  assert.equal(deleted.status, 200);
+  const state = deleted.body.state;
+  assert.equal(state.modelProfiles.some((profile) => profile.id === firstId), false);
+  assert.equal(state.activeModelProfileId, secondId, '删除非活动配置不影响活动配置');
+  assert.equal(state.config.model, 'anthropic-model');
+  assert.equal(JSON.parse(readFileSync(h.configFile, 'utf8')).modelProfiles.some((profile) => profile.id === firstId), false, '删除必须持久化');
+  assert.equal((await h.state()).modelProfiles.length, 1);
+  const refuse = await h.post('model-profiles/delete', { id: secondId });
+  assert.equal(refuse.status, 400);
+  assert.match(refuse.body.error, /正在使用/);
+  assert.equal((await h.post('model-profiles/delete', { id: 'no-such-id' })).status, 400);
+  assert.equal((await h.post('model-profiles/delete', { id: null })).status, 400);
+  await h.restart();
+  assert.equal((await h.state()).modelProfiles.length, 1, '重启后删除仍生效');
+});

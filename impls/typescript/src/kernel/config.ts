@@ -327,3 +327,14 @@ export function selectModelProfile(current: Config, id: unknown, validate?: (nex
   persistConfig(current, { ...values, activeModelProfileId: profile.id });
   return next;
 }
+
+/** 删除模型配置只允许非活动项；凭证随配置一起删除，活动配置不受影响。 */
+export function deleteModelProfile(current: Config, id: unknown): Config {
+  const profiles = current.modelProfiles ?? [];
+  const profile = typeof id === 'string' ? profiles.find((entry) => entry.id === id) : undefined;
+  if (!profile) throw new ConfigInputError('模型配置不存在');
+  if (profile.id === current.activeModelProfileId) throw new ConfigInputError('正在使用的模型配置不能删除，请先切换到其他配置');
+  const modelProfiles = profiles.filter((entry) => entry.id !== profile.id);
+  persistConfig(current, { modelProfiles });
+  return { ...current, modelProfiles };
+}

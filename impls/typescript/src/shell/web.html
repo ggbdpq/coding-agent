@@ -233,7 +233,7 @@
     <section id="settings-model" data-settings="model" hidden>
   <h1>模型</h1>
   <p class="settings-description">请求发送到你配置的 API 端点。API Key 仅用于保存，不读回页面。</p>
-  <div class="settings-card"><h2>已保存的模型</h2><label>已保存模型配置<select id="settings-model-profile" aria-label="已保存模型配置"><option value="">当前模型 · 未命名配置</option></select></label><p id="model-profile-status" aria-live="polite"></p><div class="bar"><button id="model-profile-new">新建模型配置</button><button id="model-profile-cancel" hidden>取消新建</button></div></div>
+  <div class="settings-card"><h2>已保存的模型</h2><label>已保存模型配置<select id="settings-model-profile" aria-label="已保存模型配置"><option value="">当前模型 · 未命名配置</option></select></label><p id="model-profile-status" aria-live="polite"></p><div class="bar"><button id="model-profile-new">新建模型配置</button><button id="model-profile-cancel" hidden>取消新建</button></div><div id="model-profile-list" aria-label="已保存配置列表"></div></div>
   <form id="settings-form">
     <label>配置名称<input id="config-profile-name" maxlength="80" autocomplete="off" placeholder="填写名称可保存到模型列表"></label>
     <label>API 端点<input id="config-base-url" name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
@@ -405,6 +405,27 @@
     else if (!editingModelProfileId && originalActiveModelProfileId !== (view?.activeModelProfileId || null)) label = '正在编辑未命名配置；当前使用' + (active?.name || '未命名配置');
     $('model-profile-status').textContent = newModelProfile ? '新配置 · 尚未保存' : label + (modelDraftDirty ? ' · 未保存的修改' : '');
     $('model-profile-new').disabled = navigationBlocked(); $('model-profile-cancel').disabled = navigationBlocked(); $('model-profile-cancel').hidden = !newModelProfile;
+    const list = document.createDocumentFragment();
+    for (const profile of view?.modelProfiles || []) {
+      const entry = row('capability-entry', undefined, list), bar = row('bar', undefined, entry);
+      const name = document.createElement('code'); name.textContent = profile.name + (profile.id === view?.activeModelProfileId ? '（使用中）' : '');
+      bar.append(name);
+      const button = document.createElement('button'); button.textContent = '删除';
+      button.setAttribute('aria-label', '删除配置 ' + profile.name);
+      button.title = profile.id === view?.activeModelProfileId ? '正在使用的配置不能删除' : '删除这份已保存配置';
+      button.disabled = navigationBlocked() || profile.id === view?.activeModelProfileId;
+      button.onclick = () => deleteModelProfileRecord(profile);
+      bar.append(button);
+    }
+    if (!list.childNodes.length) row('dim', '尚无命名配置；填写配置名称保存后可在此管理', list);
+    $('model-profile-list').replaceChildren(list);
+  }
+  async function deleteModelProfileRecord(profile) {
+    if (navigationBlocked() || profile.id === view?.activeModelProfileId) return;
+    changing = true; controls(); settingsFeedback('');
+    try { const result = await api('/model-profiles/delete', { id: profile.id }); applyState(result.state); fillModelForm(); settingsFeedback(`已删除配置 ${profile.name}`); }
+    catch (error) { settingsFeedback(error.message, true); }
+    finally { changing = false; controls(); }
   }
   function fillModelForm() {
     const config = view.config, profile = view.modelProfiles?.find((item) => item.id === view.activeModelProfileId);
