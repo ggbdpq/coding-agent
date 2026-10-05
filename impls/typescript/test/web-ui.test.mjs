@@ -1158,3 +1158,22 @@ test('模型设置可导出脱敏 JSON 并导入配置文件，跳过原因可�
     await page.getByRole('button', { name: '删除配置 朋友分享的配置', exact: true }).waitFor();
   });
 });
+
+test('用量页展示账户余额并可刷新，失败信息留在卡片内', async () => {
+  const state = initialState();
+  let calls = 0;
+  await withPage(state, {
+    '/usage/balance': () => {
+      calls++;
+      if (calls === 1) return { balance: { isAvailable: true, currency: 'CNY', totalBalance: '82.39', grantedBalance: '0.00', toppedUpBalance: '82.39' }, checkedAt: '2026-10-06T00:00:00Z' };
+      return { error: 'HTTP 401：invalid key' };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('button', { name: '用量', exact: true }).click();
+    await page.getByText('82.39 CNY', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '查询余额', exact: true }).click();
+    await page.getByText('查询失败', { exact: true }).waitFor();
+    await page.getByText('HTTP 401：invalid key', { exact: true }).waitFor();
+  });
+});

@@ -17,7 +17,7 @@ import { definePlugin } from '../kernel/plugin.ts';
 import { appendJournal, journalError, loadJournal, resetJournal, saveJournal, setFileJournalSink } from '../plugins/tools/filejournal.ts';
 import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type ChangesResult } from './webgit.ts';
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
-import { listModels } from '../providers/models.ts';
+import { fetchBalance, listModels } from '../providers/models.ts';
 import { pickWorkspace } from './workspacepicker.ts';
 
 const BODY_LIMIT = 1024 * 1024;
@@ -506,6 +506,28 @@ export async function startWeb(app: App): Promise<void> {
         json(res, 200, { models });
       } catch (error) {
         if (controller.signal.aborted) { json(res, 504, { error: '获取模型列表超时（10 秒）' }); return; }
+        // 先遮蔽凭证再截断；半截密钥不能出现在错误里
+        json(res, 502, { error: safeError((error as Error).message).slice(0, 400) });
+      } finally {
+        clearTimeout(timer);
+      }
+      return;
+    }
+    if (req.method === 'GET' && path === '/usage/balance') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能查询账户余额' }); return; }
+      if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
+        throw new ConfigInputError('请先保存有效的模型配置');
+      }
+      if (app.config.protocol === 'anthropic' || app.registry.providers().find((entry) => entry.matches(app.config.baseUrl))?.name === 'anthropic') {
+        throw new ConfigInputError('当前端点为 Anthropic 协议，服务商未提供余额查询接口');
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const balance = await fetchBalance(app.config.baseUrl, app.config.apiKey, controller.signal);
+        json(res, 200, { balance, checkedAt: new Date().toISOString() });
+      } catch (error) {
+        if (controller.signal.aborted) { json(res, 504, { error: '查询账户余额超时（10 秒）' }); return; }
         // 先遮蔽凭证再截断；半截密钥不能出现在错误里
         json(res, 502, { error: safeError((error as Error).message).slice(0, 400) });
       } finally {

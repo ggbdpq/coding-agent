@@ -257,7 +257,7 @@
       </form>
     </section>
     <section data-settings="appearance" hidden><h1>外观</h1><p class="settings-description">外观偏好保存在本地，适用于所有项目。</p><form id="appearance-form"><label>主题<select id="theme" aria-label="主题"><option value="system">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></label><label>消息字号<select id="font-size" aria-label="消息字号"><option value="14">小 · 14 px</option><option value="16">默认 · 16 px</option><option value="18">大 · 18 px</option></select></label><div class="settings-actions"><button class="primary" type="submit">保存外观设置</button></div></form></section>
-    <section data-settings="usage" hidden><h1>用量</h1><p class="settings-description">本地已记录的会话用量。仅包含模型返回并写入会话的 Token 统计，不等同于账户剩余额度或云端账单。</p><div class="settings-card"><h2>已记录的会话用量</h2><div id="usage-total" class="usage-total">—</div><div class="usage-split"><span id="usage-input"></span><span id="usage-output"></span></div><p id="usage-scope"></p><button id="usage-refresh" aria-label="刷新用量">刷新</button></div></section>
+    <section data-settings="usage" hidden><h1>用量</h1><p class="settings-description">本地已记录的会话用量。仅包含模型返回并写入会话的 Token 统计，不等同于账户剩余额度或云端账单。</p><div class="settings-card"><h2>账户余额</h2><p>从当前已保存配置的端点查询账户余额；仅 OpenAI 兼容端点支持，不影响本地统计，也不是账单。</p><div id="balance-info" class="usage-total">—</div><p id="balance-meta" class="settings-description"></p><div class="bar"><button id="balance-refresh">查询余额</button></div></div><div class="settings-card"><h2>已记录的会话用量</h2><div id="usage-total" class="usage-total">—</div><div class="usage-split"><span id="usage-input"></span><span id="usage-output"></span></div><p id="usage-scope"></p><button id="usage-refresh" aria-label="刷新用量">刷新</button></div></section>
     <section data-settings="skills" hidden>
       <h1>技能</h1><p class="settings-description">技能以 Markdown 文件保存。全局技能适用于所有项目，项目技能保存在当前项目的 .tcode/skills/。</p>
       <div class="settings-card"><div class="bar"><h2>可用技能</h2><button id="skill-new">新建技能</button></div><div id="skill-list"></div></div>
@@ -287,7 +287,7 @@
   let settingsSection = null, setupOpened = false;
   let editingModelProfileId = null, originalActiveModelProfileId = null, newModelProfile = false, modelDraftDirty = false, originalModelBase = '', originalModelHasKey = false;
   let extraWriteDirs = [];
-  let usageRequest = 0;
+  let usageRequest = 0, balanceRequest = 0;
   let skillRequest = 0, editingSkill = false;
   let testingConnection = false, cancellingConnection = false, connectionCancelRequested = false;
   let sidebarCollapsed = false;
@@ -813,7 +813,7 @@
     $('approval').value = config.approval || 'normal'; extraWriteDirs = [...(config.allowWriteDirs || [])]; renderWriteDirs();
     const preferences = view.preferences || { theme: 'system', fontSize: 16, enterToSend: true };
     $('theme').value = preferences.theme; $('font-size').value = String(preferences.fontSize); $('enter-to-send').checked = preferences.enterToSend;
-    if (section === 'usage') void loadUsage();
+    if (section === 'usage') { void loadUsage(); void loadBalance(); }
     if (section === 'commands') renderCommands();
     if (section === 'skills') { skillRequest++; $('skill-form').hidden = true; renderSkills(); }
   }
@@ -901,6 +901,24 @@
     finally { if (request === usageRequest) $('usage-refresh').disabled = false; }
   }
   $('usage-refresh').onclick = loadUsage;
+  async function loadBalance() {
+    const request = ++balanceRequest;
+    $('balance-refresh').disabled = true;
+    $('balance-info').textContent = '正在查询…'; $('balance-meta').textContent = '';
+    try {
+      const result = await api('/usage/balance');
+      if (request !== balanceRequest) return;
+      const balance = result.balance;
+      $('balance-info').textContent = `${balance.totalBalance} ${balance.currency}${balance.isAvailable ? '' : '（账户不可用）'}`;
+      $('balance-meta').textContent = `赠送 ${balance.grantedBalance ?? '—'} · 充值 ${balance.toppedUpBalance ?? '—'} · 查询于 ${new Date(result.checkedAt).toLocaleTimeString()}`;
+    } catch (error) {
+      if (request !== balanceRequest) return;
+      $('balance-info').textContent = '查询失败'; $('balance-meta').textContent = error.message;
+    } finally {
+      if (request === balanceRequest) $('balance-refresh').disabled = false;
+    }
+  }
+  $('balance-refresh').onclick = loadBalance;
   function applyPreferences() {
     const preferences = view?.preferences || { theme: 'system', fontSize: 16, enterToSend: true };
     document.documentElement.dataset.color = preferences.theme === 'system' ? (systemTheme.matches ? 'dark' : 'light') : preferences.theme;

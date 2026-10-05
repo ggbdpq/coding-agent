@@ -22,6 +22,13 @@ async function fixture(t, { protocol = 'openai', mode = 'ok', configured = true,
   const requests = [];
   const provider = createServer(async (req, res) => {
     const modelsPath = protocol === 'openai' ? '/v1/models' : '/anthropic/v1/models';
+    if (req.method === 'GET' && req.url.endsWith('/user/balance')) {
+      requests.push({ headers: req.headers });
+      if (mode === 'error') { res.writeHead(401).end('invalid key ' + apiKey); return; }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ is_available: true, balance_infos: [{ currency: 'CNY', total_balance: '82.39', granted_balance: '0.00', topped_up_balance: '82.39' }] }));
+      return;
+    }
     if (req.method === 'GET') {
       if (req.url !== modelsPath) { res.writeHead(404).end(); return; }
       requests.push({ headers: req.headers });
@@ -80,6 +87,7 @@ async function fixture(t, { protocol = 'openai', mode = 'ok', configured = true,
     state: async () => (await fetch(url + 'state')).json(),
     post: (route, body = {}) => fetch(url + route, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
     discover: async () => { const response = await fetch(url + 'model/discover'); return { status: response.status, body: await response.json().catch(() => ({})) }; },
+    balance: async () => { const response = await fetch(url + 'usage/balance'); return { status: response.status, body: await response.json().catch(() => ({})) }; },
   };
 }
 
@@ -241,6 +249,50 @@ test('任务运行期间模型发现被拒绝', async (t) => {
   await h.post('send', { text: '挂起的任务' });
   await until(async () => (await h.state()).busy);
   assert.equal((await h.discover()).status, 409);
+  assert.equal((await h.post('abort')).status, 200);
+  await until(async () => !(await h.state()).busy);
+});
+
+test('账户余额走已保存配置：Bearer 凭证请求 /user/balance 并解析 DeepSeek 形状，本地统计不变', async (t) => {
+  const h = await fixture(t);
+  const before = await h.state();
+  const response = await h.balance();
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.balance, { isAvailable: true, currency: 'CNY', totalBalance: '82.39', grantedBalance: '0.00', toppedUpBalance: '82.39' });
+  assert.ok(response.body.checkedAt);
+  assert.equal(h.requests.at(-1).headers.authorization, 'Bearer connection-fixture-key');
+  const after = await h.state();
+  assert.deepEqual(after.usage, before.usage);
+  assert.equal(readFileSync(h.configFile, 'utf8'), readFileSync(h.configFile, 'utf8'));
+});
+
+test('账户余额查询失败隐藏凭证回显且不占用服务', async (t) => {
+  const h = await fixture(t, { mode: 'error' });
+  const response = await h.balance();
+  assert.equal(response.status, 502);
+  assert.match(response.body.error, /HTTP 401/);
+  assert.equal(response.body.error.includes('connection-fixture-key'), false);
+  assert.equal((await h.state()).busy, false);
+});
+
+test('未保存配置与 Anthropic 端点不做余额查询', async (t) => {
+  const unconfigured = await fixture(t, { configured: false });
+  const missing = await unconfigured.balance();
+  assert.equal(missing.status, 400);
+  assert.match(missing.body.error, /先保存/);
+  assert.equal(unconfigured.requests.length, 0);
+  const anthropic = await fixture(t, { protocol: 'anthropic' });
+  const refused = await anthropic.balance();
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /余额/);
+  assert.equal(anthropic.requests.length, 0);
+});
+
+test('任务运行期间余额查询被拒绝', async (t) => {
+  const h = await fixture(t, { mode: 'hang', workspace: true });
+  await h.post('send', { text: '挂起的任务' });
+  await until(async () => (await h.state()).busy);
+  assert.equal((await h.balance()).status, 409);
   assert.equal((await h.post('abort')).status, 200);
   await until(async () => !(await h.state()).busy);
 });
