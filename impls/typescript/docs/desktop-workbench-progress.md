@@ -87,7 +87,7 @@
 
 | 顺序 | 待完成任务 | 完成条件／当前边界 |
 | --- | --- | --- |
-| 1 | [ ] 真实模型端到端验收 | 用实际 OpenAI 兼容和 Anthropic 端点完成“读代码→审批→修改→跑测试→恢复继续”；当前自动测试使用本地假模型，尚未验证真实账户、模型和网络失败表现。 |
+| 1 | [ ] 真实模型端到端验收 | OpenAI 兼容协议已完成全链路验收（DeepSeek `deepseek-flash`，见验证证据）；Anthropic 协议端点仍无真实账户，未验收，不用本地假模型结果代替。 |
 | 1 | [ ] 多平台桌面验收 | macOS 原生选择／取消已实测；Windows/Linux 启动、目录选择、关窗回收和发布包仍需目标系统实机验收。 |
 | 1 | [ ] 可分发版本 | 当前 `.app` 已构建；仍需 DMG／Windows 安装包验证、签名／公证与安装说明。没有内置 Node，依赖本机 Node 24.21.0–24.x。 |
 | 1 | [ ] 远程 CI 与目标平台验证 | 固定 Playwright、受管 Chromium、冻结安装和独立 UI job 已就绪，并在 macOS 干净隔离环境验证；远程 CI、Linux/Windows 浏览器仍未实跑。 |
@@ -115,6 +115,7 @@
 | 原生启动与 Tauri IPC/ACL | `npm run test:startup`（在 `desktop/`） | 13/13 本轮实跑通过；本轮未改原生源码 |
 | 核心端到端冒烟 | `npm run smoke` | 7 项通过，使用假 SSE 模型 |
 | 类型与补丁格式 | `npm run check`、`git diff --check` | 通过 |
+| 真实模型端到端（OpenAI 兼容） | 真实 CLI `bin/tcode.js web` + HTTP/SSE 驱动，DeepSeek `https://api.deepseek.com/v1` · `deepseek-flash`（推理模型），临时隔离项目，自动允许审批 | 2026-10-05 通过：read×2 → 逐次审批 → edit×2（文件实改）→ 审批 → bash `node --test` 2/2 → completed；`SIGKILL` 后端重启后恢复会话，模型完整复述历史修改并正确发现测试断言已在工作区被撤销，续跑 bash 测试通过；`GET /changes` 对真实修改标记 revertable，`changes/revert` 把 `calc.test.js` 恢复到本轮修改前。两轮真实用量约 12.8k 输入／1.1k 输出 tokens。Anthropic 协议与网络失败表现未验 |
 | macOS 构建 | `npm run build -- --bundles app`（在 `desktop/`） | 本轮通过；包内 88 个后端资源与工作区源码清单一致，新增 `webgit.ts`／`filejournal.ts` 逐字节相同，无 `webdiff.ts` 残留 |
 | macOS 实机界面 | 原生目录打开、切项目、取消 | 基础工作台通过；使用隔离测试配置。本轮未实机操作新变更面板 |
 | 变更面板浏览器界面 | 切换 OpenAI 兼容／Anthropic 配置、实际连接测试、编辑保存并清除旧测试结果，返回后历史／草稿／用量保留 | 上一轮（`7a9f98f`）通过；本轮变更面板交互由 `test:ui` 与 `web-git.test.mjs` 覆盖 |
