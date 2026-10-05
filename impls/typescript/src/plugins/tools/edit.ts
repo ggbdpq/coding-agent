@@ -2,10 +2,9 @@
 // old_string 必须在文件中唯一（否则要求补上下文或显式 replace_all），防止误伤。
 // 路径先过守卫：越出工作目录的编辑在权限确认时醒目提示。
 import { readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { definePlugin } from '../../kernel/plugin.ts';
 import { previewDiff } from '../../kernel/ui.ts';
-import { resolvePath } from './pathguard.ts';
+import { resolvePath, isWriteTrusted } from './pathguard.ts';
 
 export interface EditResult {
   ok: boolean;
@@ -53,16 +52,7 @@ export default definePlugin({
     required: ['file_path', 'old_string', 'new_string'],
   },
   needsPermission: true,
-  skipPermission: (a, app) => {
-    // 白名单免确认（与 write 同规则）：目标在 config.allowWriteDirs 内
-    const dirs = app.config.allowWriteDirs ?? [];
-    if (dirs.length === 0) return false;
-    const target = path.resolve(String(a.file_path ?? ''));
-    return dirs.some((d) => {
-      const root = path.resolve(d);
-      return target === root || target.startsWith(root + path.sep);
-    });
-  },
+  skipPermission: (a, app) => isWriteTrusted(String(a.file_path ?? ''), app.config.allowWriteDirs ?? []),
   preview: (a) => {
     const { outside } = resolvePath(String(a.file_path ?? ''));
     const flag = outside ? '\n⚠ 注意：该路径在当前工作目录之外！' : '';

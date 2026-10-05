@@ -12,7 +12,7 @@ Node 24 原生类型剥离直跑 `.ts`，没有构建步骤。
 
 ## 快速开始
 
-前置：Node ≥ 24（用了原生 TypeScript 类型剥离）。运行时零依赖，无需 `npm install`。
+前置：Node 24.21.0–24.x（用了原生 TypeScript 类型剥离）。运行时零依赖，无需 `npm install`。
 
 ```bash
 # 1. 配置模型端点（任何 OpenAI 兼容 API；本地中转、云 API 都行）
@@ -35,19 +35,31 @@ node bin/tcode.js --yolo     # 跳过写/命令的逐次确认
 优先级：环境变量 > 配置文件。代码不内置任何默认端点。
 
 **浏览器版（`tcode web`）**：同一内核换 web 壳——本地 HTTP 服务 + SSE 流式 + 单文件 UI，
-零新依赖。安全闸：只绑 127.0.0.1、URL 携带随机 token、Host/Origin 双校验（防浏览器里
-任意网页对 localhost 发请求触发命令执行）。想要独立窗体，用浏览器"安装为应用"即可。
+零新前端依赖。未配置模型也能打开；用“打开项目”的系统目录对话框选择工作区，在“设置 → 模型”填写端点、模型和 API Key。项目选择与模型配置互相独立。已有 API Key 留空保留，读接口与页面不回显凭证。
+
+工作台支持当前项目的会话列表、搜索、重命名、切换和刷新恢复；重启恢复最近会话，继续写入新 JSONL，保留原文件。中断轮会标记为已停止并补齐模型上下文中的工具配对，不自动重新执行未完成操作。一次只跑一轮任务；运行或等待审批时禁止切换会话和修改配置。模型错误只结束当前轮，停止会阻止后续工具继续执行。
+
+左侧常驻最近项目、新任务、搜索和设置入口。独立设置中心提供常规、模型、权限、外观、用量、技能和命令七组；主题、消息字号、发送快捷键和默认审批保存在本地。临时免审批和 Plan Mode 在新任务、恢复或切项目时复位；写白名单按目标真实路径判断，符号链接指向白名单外仍须审批。
+
+技能设置可创建、查看和编辑全局或当前项目 `.md` 技能，保存后更新同一来源的模型技能索引。全局指令/技能遵守 `TCODE_DATA_DIR`，默认仍为 `~/.tcode`。用量页按稳定会话去重，汇总已收到的 provider 用量；尚未记录的摘要请求不计入，此页并非账户账单。浏览器版使用 macOS 系统目录对话框、Windows FolderBrowserDialog，Linux 需系统已安装 `zenity`；桌面版复用原生目录选择器。
+
+回答支持常用 Markdown，工具卡保留完整输出，显示当前会话 Token 用量；“查看变更”只读展示 Git 已跟踪修改和新文件。Markdown 使用 DOM 文本节点，原始 HTML 按文本展示。终端模式保留原有命令，Web 中 `/resume`、`/sessions` 通过当前项目侧栏操作。
+
+安全闸：只绑 127.0.0.1、URL 携带随机 token、Host/Origin 双校验（防浏览器里任意网页对 localhost 发请求触发命令执行）。`TCODE_DATA_DIR` 可指定独立配置与会话目录，默认仍为 `~/.tcode`。
 
 **桌面版（`desktop/`，Tauri 2）**：把 web 壳包成原生窗体。启动时自动拉起
-`node bin/tcode.js web`（要求系统 PATH 里有 Node 24，模型配置走 `~/.tcode/config.json`），
-拿到地址后窗口接管，关窗即退出并清理后端进程。开发流程：
+`node bin/tcode.js web --desktop`，首次在界面配置模型和项目。发行包携带后端源码资源，使用本机 Node 24；拿到地址后窗口接管，启动失败展示错误页，超时和关窗回收后端进程。开发流程：
 
 ```bash
 cd desktop
-npm install
-npm run gen:icon && npm run icon   # 图标（已生成过可跳过）
-npx tauri build                    # 产物在 src-tauri/target/，~5MB 级（复用系统 WebView2 + 本机 Node）
+npm ci --ignore-scripts
+npm run dev
+npm run build -- --bundles app,dmg # macOS；Windows 使用 --bundles nsis
 ```
+
+Node 查找与桌面启动验证见 [desktop/README.md](desktop/README.md)。当前不内置 Node 运行时。
+
+已完成、未完成及后续开发入口见 [桌面工作台开发进度](docs/desktop-workbench-progress.md)。
 
 **协议**：默认 OpenAI 兼容（`POST {BASE_URL}/chat/completions`）；`BASE_URL` 含
 `/anthropic` 时自动切换 Anthropic Messages 协议（`POST {BASE_URL}/v1/messages`，
@@ -138,9 +150,13 @@ src/
 ```bash
 npm install          # 仅装 devDependencies（typescript/@types/node），运行时不需要
 npm run check        # tsc --noEmit 类型检查
-npm test             # 单测（edit 唯一性、上下文裁剪）
+npm test             # 核心测试 + 真实 HTTP/SSE、进程与文件边界回归
+npm run test:web     # 仅工作台公共 HTTP/SSE 回归
+npm run test:ui      # 浏览器交互（需已有 Playwright 与 Chrome）
 npm run smoke        # 端到端冒烟：本地假 SSE 服务器，无网络依赖
 ```
+
+浏览器测试默认使用 Codex 已提供的 Playwright 和 macOS Chrome，也可通过 `PLAYWRIGHT_MODULE` 指向已有 Playwright 安装、`CHROME_PATH` 指向浏览器可执行文件。测试只使用假模型端点和隔离目录，不使用真实密钥。
 
 ## 验收（真实模型端到端）
 

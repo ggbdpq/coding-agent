@@ -85,6 +85,7 @@ test('Plan Mode 开启：写类工具被拒并引导产出计划，读类工具�
   );
   assert.ok(results.length >= 2, '应有两次工具回合');
   const writeDenied = results.find((r) => r.name === 'write');
+  assert.ok(events.some((event) => event.type === 'tool_call' && event.call_id === writeDenied?.call_id), '拒绝结果仍需对应调用事件，界面与回放才能配对');
   assert.ok(
     writeDenied && writeDenied.summary.includes('Plan Mode'),
     'write 应被 Plan Mode 拒绝'

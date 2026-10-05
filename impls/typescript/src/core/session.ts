@@ -1,7 +1,7 @@
 // 会话持久化：JSONL 追加写，一行一条 JSON（meta 行 + message 行）。
 // /resume 的语义 = 读旧文件、换新文件继续写——避免追加到可能损坏的旧文件。
 // 目录边界：所有读写都限定在会话目录内，出目录一律拒绝/跳过。
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, lstatSync, writeFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import type { ChatMessage } from '../kernel/types.ts';
 
@@ -12,8 +12,23 @@ export interface SessionSummary {
   label: string;
 }
 
+interface SessionRecord {
+  type?: unknown;
+  cwd?: unknown;
+  sessionId?: unknown;
+  message?: Record<string, unknown>;
+  event?: Record<string, unknown>;
+}
+
+function jsonObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
 export class SessionStore {
   private filePath: string | null = null;
+  private sessionId: string | null = null;
   /** 归一化后的会话目录绝对路径 */
   private readonly root: string;
 
@@ -21,6 +36,8 @@ export class SessionStore {
     this.root = path.resolve(dir);
     mkdirSync(this.root, { recursive: true });
   }
+
+  get currentId(): string | null { return this.sessionId; }
 
   /** 目录边界校验：目标必须是本目录本身或本目录的直接/间接子路径 */
   private isInsideDir(target: string): boolean {
@@ -36,7 +53,8 @@ export class SessionStore {
     const file = path.resolve(this.root, name);
     if (!this.isInsideDir(file)) throw new Error('会话文件路径越界');
     this.filePath = file;
-    appendFileSync(this.filePath, `${JSON.stringify({ type: 'meta', ts: Date.now(), ...meta })}\n`);
+    this.sessionId = typeof meta.sessionId === 'string' ? meta.sessionId : name;
+    appendFileSync(this.filePath, `${JSON.stringify({ type: 'meta', ts: Date.now(), ...meta, sessionId: this.sessionId })}\n`);
   }
 
   /** 追加一条消息；落盘失败静默（记会话是锦上添花，不该打断对话） */
@@ -76,6 +94,84 @@ export class SessionStore {
       }
     }
     return messages;
+  }
+
+  /** 消息继续遵循旧 schema；桌面活动单独追加，其他 runtime 会忽略这些行。 */
+  appendActivity(event: Record<string, unknown>): void {
+    if (this.filePath) appendFileSync(this.filePath, JSON.stringify({ type: 'activity', event }) + '\n');
+  }
+
+  private records(file: string): SessionRecord[] {
+    if (!this.isInsideDir(file) || lstatSync(file).isSymbolicLink()) throw new Error('会话路径无效');
+    return readFileSync(file, 'utf8').split('\n').flatMap((line) => {
+      try {
+        const record = jsonObject(JSON.parse(line));
+        return record ? [{ ...record, message: jsonObject(record.message), event: jsonObject(record.event) }] : [];
+      }
+      catch { return []; }
+    });
+  }
+
+  /** 同一逻辑会话可有多个续写文件，侧栏只展示最后一个，恢复不改旧文件。 */
+  listWorkspace(cwd?: string) {
+    const titles = this.readTitles();
+    const latest = new Map<string, { id: string; file: string; mtime: number; title: string; label: string; cwd: string; usage: { prompt_tokens: number; completion_tokens: number } }>();
+    for (const name of readdirSync(this.root)) {
+      if (!name.endsWith('.jsonl')) continue;
+      const file = path.join(this.root, name);
+      let records;
+      try { records = this.records(file); } catch { continue; }
+      const meta = records.find((record) => record.type === 'meta');
+      if (typeof meta?.cwd !== 'string' || (cwd !== undefined && meta.cwd !== cwd)) continue;
+      const project = meta.cwd;
+      const id = typeof meta.sessionId === 'string' ? meta.sessionId : name;
+      const mtime = statSync(file).mtimeMs;
+      const key = project + '\0' + id;
+      const previous = latest.get(key);
+      if (previous && (previous.mtime > mtime || (previous.mtime === mtime && path.basename(previous.file) >= name))) continue;
+      const message = records.find((record) => record.type === 'message' && record.message?.role === 'user')?.message;
+      const event = records.find((record) => record.type === 'activity' && record.event?.type === 'user')?.event;
+      const label = (typeof message?.content === 'string' ? message.content : typeof event?.text === 'string' ? event.text : '').slice(0, 100);
+      const usage = { prompt_tokens: 0, completion_tokens: 0 };
+      for (const record of records) {
+        if (record.type === 'activity' && record.event?.type === 'usage') {
+          usage.prompt_tokens += Number(record.event.prompt_tokens) || 0;
+          usage.completion_tokens += Number(record.event.completion_tokens) || 0;
+        }
+      }
+      latest.set(key, { id, file, mtime, title: titles[id] || label || '新会话', label, cwd: project, usage });
+    }
+    return [...latest.values()].sort((a, b) => b.mtime - a.mtime || b.file.localeCompare(a.file));
+  }
+
+  history(id: string, cwd: string) {
+    const selected = this.listWorkspace(cwd).find((session) => session.id === id);
+    if (!selected) throw new Error('当前项目中没有这个会话');
+    const records = this.records(selected.file);
+    return { ...selected, messages: this.load(selected.file),
+      activity: records.flatMap((record) => record.type === 'activity' && record.event ? [record.event] : []),
+    };
+  }
+
+  rename(id: string, cwd: string, title: string): void {
+    if (!title.trim() || title.length > 100) throw new Error('标题须为 1–100 个字符');
+    if (!this.listWorkspace(cwd).some((session) => session.id === id)) throw new Error('当前项目中没有这个会话');
+    // ponytail: 标题是呈现元数据；一个小索引即可，不修改历史消息或增加数据库。
+    const file = path.join(this.root, 'titles.json');
+    writeFileSync(file + '.tmp', JSON.stringify({ ...this.readTitles(), [id]: title.trim() }), { mode: 0o600 });
+    renameSync(file + '.tmp', file);
+  }
+
+  private readTitles(): Record<string, string> {
+    try {
+      const record = jsonObject(JSON.parse(readFileSync(path.join(this.root, 'titles.json'), 'utf8')));
+      const titles: Record<string, string> = {};
+      for (const [id, value] of Object.entries(record ?? {})) {
+        if (typeof value === 'string' && value.trim() && value.length <= 100) titles[id] = value;
+      }
+      return titles;
+    }
+    catch { return {}; }
   }
 
   private readLabel(file: string): string {

@@ -28,6 +28,7 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
   const schemas = toSchemas(deps.tools);
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    deps.signal?.throwIfAborted();
     const opts: ChatOptions = {
       tools: schemas,
       signal: deps.signal,
@@ -35,10 +36,12 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
       onUsage: deps.onUsage,
     };
     const { message } = await deps.provider.chat(messages, opts);
+    deps.signal?.throwIfAborted();
     messages.push(message);
     if (!message.tool_calls?.length) return;
 
     for (const call of message.tool_calls) {
+      deps.signal?.throwIfAborted();
       let args: Record<string, unknown> = {};
       try {
         const parsed = JSON.parse(call.function.arguments || '{}');
@@ -55,6 +58,7 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
         });
         continue;
       }
+      deps.onToolCall?.(call.id, tool.name, args);
       // Plan Mode（只读规划）：写类工具拒绝执行，引导模型产出计划
       if (deps.app?.planMode.value && tool.needsPermission) {
         const denyText =
@@ -63,8 +67,6 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
         deps.onToolResult?.(call.id, tool.name, denyText, 0);
         continue;
       }
-      deps.onToolCall?.(call.id, tool.name, args);
-
       // 白名单优先（skipPermission 声明受信）→ 闸门逐次确认
       const allowed =
         tool.needsPermission && deps.check && !tool.skipPermission?.(args, deps.app as App)
@@ -81,10 +83,13 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
       }
 
       const t0 = Date.now();
+      deps.signal?.throwIfAborted();
       let result: string;
       try {
         result = await tool.run(args, deps.signal);
       } catch (e) {
+        deps.signal?.throwIfAborted();
+        if ((e as Error).name === 'AbortError') throw e;
         result = `错误：${(e as Error).message}`;
       }
       const ms = Date.now() - t0;

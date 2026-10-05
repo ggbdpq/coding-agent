@@ -56,7 +56,7 @@ const fakeTool = definePlugin({
   parameters: { type: 'object', properties: {} },
   needsPermission: false,
   preview: () => '',
-  run: async () => '工具结果',
+  run: async () => '工具结果\n第二行明细\n第三行明细',
 });
 
 function fakeApp(provider: ChatClient, store: FakeStore = fakeStore()): App {
@@ -101,6 +101,19 @@ test('规范序列：turn_start→user→tool_call→tool_result→text_delta→
   assert.equal(end.type === 'turn_end' && end.reason, 'completed');
   // 会话落盘与事件不冲突：user + assistant + tool + assistant 四条
   assert.equal(store.appended.length, 4);
+});
+
+test('工具结果事件保留完整输出，摘要仍只显示首行', async () => {
+  const events: AgentEvent[] = [];
+  await runUserTurn(fakeApp(toolThenTextClient()), '查看明细', {
+    emit: (event) => events.push(event),
+  });
+
+  const result = events.find((event) => event.type === 'tool_result');
+  assert.ok(result?.type === 'tool_result');
+  assert.equal(result.summary, '工具结果');
+  assert.ok('output' in result);
+  assert.equal(result.output, '工具结果\n第二行明细\n第三行明细');
 });
 
 test('中止：provider 抛 AbortError → turn_end(aborted) 且异常上抛', async () => {

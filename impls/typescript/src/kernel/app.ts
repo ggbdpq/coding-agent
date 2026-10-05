@@ -69,7 +69,7 @@ export function createApp(config: Config, registry: Registry, opts: AppOptions):
 }
 
 /** 显式配置的 protocol 按名选；否则按注册顺序取首个 matches 命中的 provider */
-function selectProvider(config: Config, registry: Registry): ChatClient {
+export function selectProvider(config: Config, registry: Registry): ChatClient {
   if (config.protocol) {
     const explicit = registry.providers().find((p) => p.name === config.protocol);
     if (!explicit) {

@@ -1,54 +1,29 @@
-// tcode 桌面壳：拉起 `node bin/tcode.js web`，等它打印本地地址后把窗口导过去。
-// ponytail: 自用版——node 取自系统 PATH，后端目录用编译期路径；打包分发
-// （内置 Node 运行时）等有真实需求再说。后端起不来时把 stderr 原话展示在窗口里
-//（十有八九是 ~/.tcode/config.json 没配）。
+// tcode 桌面壳：从应用资源启动本地后端；工作区和模型在界面中配置。
+// ponytail: 复用系统 Node 24；需要独立分发运行时再加入 Node sidecar。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, Command, Stdio};
+mod backend;
+mod workspace;
+
+use std::path::Path;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-struct Backend(Mutex<Option<Child>>);
+struct BackendState(Mutex<Option<backend::Backend>>);
 
 fn kill_backend(app: &tauri::AppHandle) {
-    if let Some(state) = app.try_state::<Backend>() {
-        if let Some(mut child) = state.0.lock().unwrap().take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+    if let Some(state) = app.try_state::<BackendState>() {
+        // take 后立即 Drop：关窗与窗口创建失败共用同一清理入口。
+        let _ = state.0.lock().unwrap().take();
     }
-}
-
-/// 阻塞读后端 stdout，直到出现本地服务地址；进程退出则把 stderr 原话带回
-fn wait_backend_url(child: &mut Child) -> Result<String, String> {
-    let stdout = child.stdout.take().ok_or("无法读取后端输出")?;
-    let mut stderr_pipe = child.stderr.take();
-    let err_handle = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(e) = stderr_pipe.as_mut() {
-            let _ = e.read_to_end(&mut buf);
-        }
-        String::from_utf8_lossy(&buf).to_string()
-    });
-    for line in BufReader::new(stdout).lines() {
-        match line {
-            Ok(l) if l.starts_with("http://127.0.0.1") => return Ok(l.trim().to_string()),
-            Ok(_) => {}
-            Err(e) => return Err(format!("读取后端输出失败：{e}")),
-        }
-    }
-    let err = err_handle.join().unwrap_or_default();
-    Err(if err.trim().is_empty() {
-        "后端进程退出且未给出服务地址".into()
-    } else {
-        err.trim().to_string()
-    })
 }
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn percent_encode(s: &str) -> String {
@@ -68,7 +43,7 @@ fn error_page_url(msg: &str) -> Result<tauri::Url, String> {
     let html = format!(
         "<body style=\"font-family:monospace;background:#101418;color:#d6dde6;padding:24px\">\
          <h2 style=\"color:#f85149\">tcode 后端启动失败</h2>\
-         <p>多半是还没配模型（写一份 ~/.tcode/config.json 即可），后端原话：</p>\
+         <p>请按以下提示检查环境，然后重新打开应用。</p>\
          <pre>{}</pre></body>",
         html_escape(msg)
     );
@@ -77,34 +52,40 @@ fn error_page_url(msg: &str) -> Result<tauri::Url, String> {
         .map_err(|e| format!("构造错误页失败：{e}"))
 }
 
+fn desktop_context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
+
 fn main() {
-    // 编译期定位 tcode 项目根（src-tauri 的上两级），自用版足够
-    let tcode_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-
     tauri::Builder::default()
-        .setup(move |app| {
-            let child = Command::new("node")
-                .args(["bin/tcode.js", "web"])
-                .current_dir(tcode_root)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("启动后端失败（需要系统 PATH 里有 Node 24）：{e}"))?;
-            let mut child = child;
+        .invoke_handler(tauri::generate_handler![workspace::select_workspace])
+        .setup(|app| {
+            let resources = app.path().resource_dir().ok();
+            // 发行版只使用随应用打包的资源；开发模式可直接读取源码。
+            let development = cfg!(debug_assertions)
+                .then(|| Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../..")));
+            let result =
+                backend::backend_root(resources.as_deref(), development).and_then(|root| {
+                    backend::Backend::start(
+                        &backend::node_executable(),
+                        &root,
+                        Duration::from_secs(15),
+                    )
+                });
 
-            match wait_backend_url(&mut child) {
-                Ok(url) => {
+            match result {
+                Ok((backend, url)) => {
                     // 终端启动时把服务地址透传出来（测试与排障都靠它）
                     println!("{url}");
-                    let parsed: tauri::Url = url
-                        .parse()
-                        .map_err(|e| format!("服务地址解析失败：{e}"))?;
+                    let parsed: tauri::Url =
+                        url.parse().map_err(|e| format!("服务地址解析失败：{e}"))?;
+                    workspace::enable(app, parsed.clone())?;
                     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
                         .title("tcode")
                         .inner_size(1100.0, 800.0)
                         .min_inner_size(700.0, 500.0)
                         .build()?;
-                    app.manage(Backend(Mutex::new(Some(child))));
+                    app.manage(BackendState(Mutex::new(Some(backend))));
                     Ok(())
                 }
                 Err(msg) => {
@@ -113,7 +94,7 @@ fn main() {
                         .title("tcode · 启动失败")
                         .inner_size(900.0, 600.0)
                         .build()?;
-                    // 后端进程已退出，不纳入托管
+                    // 启动失败时进程已由 Backend::drop 清理。
                     Ok(())
                 }
             }
@@ -123,6 +104,6 @@ fn main() {
                 kill_backend(window.app_handle());
             }
         })
-        .run(tauri::generate_context!())
+        .run(desktop_context())
         .expect("tcode 桌面壳运行失败");
 }

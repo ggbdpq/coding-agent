@@ -8,6 +8,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["webview-data-url"] }
+rfd = { version = "=0.16.0", default-features = false, features = ["gtk3"] }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
 
 [profile.release]
 strip = true

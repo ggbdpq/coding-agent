@@ -73,11 +73,15 @@ function cappedRead(p: string): string | null {
 }
 
 try {
-  const config = loadConfig();
+  const config = loadConfig({ allowIncomplete: shellName === 'web', desktop: args.includes('--desktop') });
+  if (shellName === 'web' && config.workspace) {
+    try { process.chdir(config.workspace); config.workspace = process.cwd(); }
+    catch { config.configError = '上次选择的项目目录不可用，请在设置中重新选择'; config.workspace = ''; }
+  }
   const registry = new Registry().registerAll(builtinPlugins);
   const app = createApp(config, registry, {
     yolo: yolo || (config.approval === 'never'),
-    freshMessages: () => [{ role: 'system', content: buildSystemPrompt(process.cwd()) }],
+    freshMessages: () => [{ role: 'system', content: buildSystemPrompt(process.cwd(), undefined, config.tcodeDir) }],
     store: new SessionStore(path.join(config.tcodeDir, 'sessions')),
   });
 

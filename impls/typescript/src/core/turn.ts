@@ -53,7 +53,7 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
       onText: (delta) => emit({ type: 'text_delta', delta }),
       onToolCall: (callId, name, args) => emit({ type: 'tool_call', call_id: callId, name, args }),
       onToolResult: (callId, name, result, ms) =>
-        emit({ type: 'tool_result', call_id: callId, name, summary: result.split('\n')[0], ms }),
+        emit({ type: 'tool_result', call_id: callId, name, summary: result.split('\n')[0], output: result, ms }),
       onUsage: (usage) => emit({ type: 'usage', ...usage }),
     });
   } catch (e) {
@@ -64,14 +64,14 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
       errorMessage = err.message;
     }
     // 中断可能留下"有工具调用、无回应"的断尾，补占位保证消息序列对 API 合法
-    const last = app.messages[app.messages.length - 1];
+    const last = app.messages.findLast((message) => message.role === 'assistant' && message.tool_calls?.length);
     if (last?.role === 'assistant' && last.tool_calls) {
       const answered = new Set(
         app.messages.filter((m) => m.role === 'tool').map((m) => m.tool_call_id)
       );
       for (const tc of last.tool_calls) {
         if (!answered.has(tc.id)) {
-          app.messages.push({ role: 'tool', tool_call_id: tc.id, content: '（用户中止，未执行）' });
+          app.messages.push({ role: 'tool', tool_call_id: tc.id, content: '（本轮中断，未取得执行结果；请先检查实际状态）' });
         }
       }
     }

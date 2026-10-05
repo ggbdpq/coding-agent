@@ -1,0 +1,464 @@
+// 浏览器公共边界：真实页面经 HTTP/SSE 驱动，不访问页面内部函数。
+// 使用桌面自带 Playwright；可用 PLAYWRIGHT_MODULE 指向已有安装，不增加项目依赖。
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE ?? path.join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'));
+const pageSource = () => readFileSync(new URL('../src/shell/web.html', import.meta.url), 'utf8');
+const initialState = (override = {}) => ({
+  ready: true,
+  config: { baseUrl: 'http://127.0.0.1:8080/v1', model: 'test-model', protocol: 'auto', contextLimit: 100000, workspace: '/tmp/ui-project', hasApiKey: true, approval: 'normal', allowWriteDirs: [] },
+  projects: [{ path: '/tmp/ui-project', name: 'ui-project', available: true, sessionCount: 0 }],
+  preferences: { theme: 'dark', fontSize: 16, enterToSend: true },
+  capabilities: { commands: [], skills: [], tools: [] }, version: '0.5.0', dataDir: '/tmp/ui-data',
+  currentSessionId: 's1', title: '新会话', sessions: [], messages: [], activity: [],
+  status: 'idle', busy: false, yolo: false, planMode: false, pending: [], usage: { prompt_tokens: 0, completion_tokens: 0 }, turnId: null, seq: 0,
+  ...override,
+});
+
+async function withPage(state, routes, verify, { initScript } = {}) {
+  const streams = new Set();
+  const emit = (event) => { for (const stream of streams) stream.write(`data: ${JSON.stringify(event)}\n\n`); };
+  const reply = (res, body, status = 200) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+  const server = createServer((req, res) => {
+    const endpoint = req.url.replace('/t/ui-test', '');
+    if (endpoint === '/events') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' }); streams.add(res);
+      res.write(`data: ${JSON.stringify({ type: 'hello', model: state.config.model, version: 'test', yolo: state.yolo, state })}\n\n`);
+      req.on('close', () => streams.delete(res)); return;
+    }
+    if (endpoint === '/state') { reply(res, state); return; }
+    if (endpoint === '/diff' && !routes[endpoint]) { reply(res, { diff: '' }); return; }
+    if (routes[endpoint]) {
+      let raw = ''; req.on('data', (chunk) => { raw += chunk; });
+      req.on('end', async () => {
+        try { const result = await routes[endpoint](raw ? JSON.parse(raw) : {}, { emit, state }); reply(res, result); }
+        catch (error) { reply(res, { error: error.message }, 400); }
+      }); return;
+    }
+    if (endpoint === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(pageSource()); return; }
+    res.writeHead(404).end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+  try {
+    const page = await browser.newPage(), errors = [];
+    page.setDefaultTimeout(4000);
+    if (initScript) await page.addInitScript(initScript);
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto(`http://127.0.0.1:${server.address().port}/t/ui-test/`);
+    await verify(page, { emit, state, streams });
+    assert.deepEqual(errors, [], '页面不应出现未处理的 JavaScript 错误');
+  } finally {
+    await browser.close(); server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+test('通过原生目录选择打开项目，取消选择保留当前工作区', async () => {
+  const state = initialState();
+  await withPage(state, { '/workspace': ({ workspace }) => {
+    assert.equal(workspace, '/tmp/selected-project');
+    state.config.workspace = workspace; state.seq++;
+    return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '选择项目目录', exact: true }).click({ timeout: 2000 });
+    await page.getByText('selected-project · 会话', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('textbox', { name: '工作区目录', exact: true }).count(), 0);
+    await page.getByRole('button', { name: '选择项目目录', exact: true }).click();
+    assert.equal(state.config.workspace, '/tmp/selected-project');
+    assert.equal(await page.getByText('selected-project · 会话', { exact: true }).isVisible(), true);
+  }, { initScript: () => {
+    let choices = 0;
+    window.__TAURI__ = { core: { invoke: async (command) => {
+      if (command !== 'select_workspace') throw new Error('错误的原生目录选择命令');
+      return choices++ ? null : '/tmp/selected-project';
+    } } };
+  } });
+});
+
+test('项目导航可切换已打开项目，同时展示该项目会话并提供新任务和设置入口', async () => {
+  const state = initialState({ projects: [
+    { path: '/tmp/ui-project', name: 'ui-project', available: true, sessionCount: 1 },
+    { path: '/tmp/another-project', name: 'another-project', available: true, sessionCount: 1 },
+    { path: '/tmp/missing-project', name: 'missing-project', available: false, sessionCount: 0 },
+  ] });
+  await withPage(state, { '/workspace': ({ workspace }) => {
+    state.config.workspace = workspace; state.seq++;
+    state.sessions = [{ id: 'another-session', title: '另一个项目的任务', cwd: workspace, mtime: 1 }];
+    return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '打开项目 another-project', exact: true }).click({ timeout: 2000 });
+    await page.getByRole('button', { name: '打开会话 另一个项目的任务', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '打开项目 another-project', exact: true }).getAttribute('aria-current'), 'page');
+    assert.equal(await page.getByRole('button', { name: '打开项目 missing-project', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '新任务', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: '设置', exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('/tmp/another-project', { exact: true }).isVisible(), false, '长路径只在设置详情中展示');
+  });
+});
+
+test('设置中心独立于工作区，七组可导航且模型保存后能返回工作区', async () => {
+  const state = initialState();
+  await withPage(state, { '/config': (body) => {
+    state.config = { ...state.config, ...body }; delete state.config.apiKey; state.seq++;
+    return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    for (const name of ['常规', '模型', '权限', '外观', '用量', '技能', '命令']) {
+      assert.equal(await navigation.getByRole('button', { name, exact: true }).isVisible(), true);
+    }
+    assert.equal(await page.getByText('/tmp/ui-data', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('0.5.0', { exact: true }).isVisible(), true);
+    await navigation.getByRole('button', { name: '模型', exact: true }).click();
+    await page.getByLabel('模型', { exact: true }).fill('updated-model');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('updated-model · 自动识别协议', { exact: true }).isVisible(), true);
+  });
+});
+
+test('滚动技能设置后切换常规设置，标题和当前项目从顶部可见且技能草稿保留', async () => {
+  await withPage(initialState(), {}, async (page) => {
+    await page.setViewportSize({ width: 1000, height: 500 });
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await navigation.getByRole('button', { name: '技能', exact: true }).click();
+    await page.getByRole('button', { name: '新建技能', exact: true }).click();
+    await page.getByRole('textbox', { name: '技能文件名', exact: true }).fill('draft.md');
+    await page.getByRole('textbox', { name: '技能正文', exact: true }).fill('# 未保存草稿\n保留正在编辑的内容');
+    const content = page.getByRole('region', { name: '设置中心', exact: true }).getByRole('main');
+    await content.hover({ position: { x: 20, y: 180 } });
+    await page.mouse.wheel(0, 700);
+    await page.waitForFunction(() => document.querySelector('[aria-label="设置中心"] main').scrollTop > 0);
+    await navigation.getByRole('button', { name: '常规', exact: true }).click();
+    const heading = page.getByRole('heading', { name: '常规', exact: true });
+    const bounds = await heading.boundingBox();
+    assert.ok(bounds && bounds.y >= 0 && bounds.y < 100, '新设置组的标题应从顶部可见');
+    assert.equal(await content.evaluate((element) => element.scrollTop), 0);
+    assert.equal(await page.getByRole('heading', { name: '当前项目', exact: true }).isVisible(), true);
+    assert.equal(await page.getByLabel('技能正文', { exact: true }).inputValue(), '# 未保存草稿\n保留正在编辑的内容');
+  });
+});
+
+test('常规与外观偏好保存后刷新保留，并改变主题字号和消息发送按键', async () => {
+  const state = initialState(); let received;
+  await withPage(state, {
+    '/preferences': (body) => { state.preferences = body; state.seq++; return { ok: true, state }; },
+    '/send': ({ text }) => { received = text; return { ok: true }; },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    await page.getByLabel('Enter 发送消息', { exact: true }).uncheck();
+    await page.getByRole('button', { name: '保存常规设置', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '外观', exact: true }).click();
+    await page.getByLabel('主题', { exact: true }).selectOption('light');
+    await page.getByLabel('消息字号', { exact: true }).selectOption('18');
+    await page.getByRole('button', { name: '保存外观设置', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    await page.reload();
+    assert.equal(await page.locator('body').evaluate((body) => getComputedStyle(body).color), 'rgb(35, 42, 54)');
+    assert.equal(await page.getByRole('log', { name: '会话记录' }).evaluate((log) => getComputedStyle(log).fontSize), '18px');
+    const input = page.getByRole('textbox', { name: '消息', exact: true });
+    await input.fill('消息一'); await input.press('Enter');
+    assert.equal(await input.inputValue(), '消息一\n');
+    await input.press('Control+Enter');
+    await page.waitForFunction(() => document.querySelector('[aria-label="消息"]').value === '');
+    assert.equal(received, '消息一');
+  });
+});
+
+test('权限设置可保存默认审批和通过选择器添加的额外目录，刷新后保留', async () => {
+  const state = initialState(); let saved;
+  await withPage(state, { '/config': (body) => {
+    saved = body; state.config = { ...state.config, ...body }; state.seq++;
+    return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '权限', exact: true }).click();
+    await page.getByLabel('默认审批方式', { exact: true }).selectOption('never');
+    await page.getByRole('button', { name: '添加免审批目录', exact: true }).click();
+    await page.getByText('/tmp/extra-project', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '保存权限设置', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    assert.deepEqual(saved, { approval: 'never', allowWriteDirs: ['/tmp/extra-project'] });
+    await page.reload();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '权限', exact: true }).click();
+    assert.equal(await page.getByLabel('默认审批方式', { exact: true }).inputValue(), 'never');
+    assert.equal(await page.getByText('/tmp/extra-project', { exact: true }).isVisible(), true);
+  }, { initScript: () => { window.__TAURI__ = { core: { invoke: async () => '/tmp/extra-project' } }; } });
+});
+
+test('用量页展示已记录会话的输入输出汇总，并可刷新', async () => {
+  let total = 150;
+  await withPage(initialState(), { '/usage': () => ({ sessions: 3, projects: 2, inputTokens: 120, outputTokens: total - 120, totalTokens: total }) }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '用量', exact: true }).click();
+    await page.getByText('150 Tokens', { exact: true }).waitFor();
+    assert.equal(await page.getByText('120 输入', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('30 输出', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('3 个会话 · 2 个项目', { exact: true }).isVisible(), true);
+    total = 200;
+    await page.getByRole('button', { name: '刷新用量', exact: true }).click();
+    await page.getByText('200 Tokens', { exact: true }).waitFor();
+  });
+});
+
+test('命令页展示实际命令与工具，命令可填入工作区后执行', async () => {
+  const state = initialState({ capabilities: {
+    commands: [{ name: 'help', usage: '/help', description: '查看所有可用命令' }],
+    tools: [{ name: 'read', description: '读取本地文件' }], skills: [],
+  } }); let line;
+  await withPage(state, { '/command': (body) => { line = body.line; state.activity.push({ type: 'command', output: '命令帮助已显示', seq: ++state.seq }); return { state, output: '命令帮助已显示' }; } }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '命令', exact: true }).click();
+    assert.equal(await page.getByText('查看所有可用命令', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('读取本地文件', { exact: true }).isVisible(), true);
+    await page.getByRole('button', { name: '填入 /help', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), '/help');
+    await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+    await page.getByText('命令帮助已显示', { exact: true }).waitFor();
+    assert.equal(line, '/help');
+  });
+});
+
+test('技能页可读取并修改实际技能，也能新建项目技能，刷新后保留', async () => {
+  const state = initialState({ capabilities: { commands: [], tools: [], skills: [{ name: 'review.md', description: '审查当前改动', path: '/tmp/ui-project/.tcode/skills/review.md', scope: 'project' }] } });
+  const skills = new Map([['review.md', '# 审查\n\n<script>安全地显示为文本</script>']]);
+  await withPage(state, {
+    '/skills?scope=project&name=review.md': () => ({ name: 'review.md', content: skills.get('review.md') }),
+    '/skills?scope=project&name=new-skill.md': () => ({ name: 'new-skill.md', content: skills.get('new-skill.md') }),
+    '/skills': (body) => {
+      skills.set(body.name, body.content); state.seq++;
+      if (!state.capabilities.skills.some((skill) => skill.name === body.name)) state.capabilities.skills.push({ name: body.name, description: body.content.split('\n')[0], scope: body.scope, path: '/tmp/ui-project/.tcode/skills/' + body.name });
+      return { ok: true, state };
+    },
+  }, async (page) => {
+    const openSkills = async () => {
+      await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+      await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '技能', exact: true }).click();
+    };
+    await openSkills();
+    await page.getByRole('button', { name: '编辑技能 review.md（项目）', exact: true }).click();
+    await page.getByRole('textbox', { name: '技能正文', exact: true }).waitFor();
+    assert.equal(await page.getByRole('textbox', { name: '技能正文', exact: true }).inputValue(), '# 审查\n\n<script>安全地显示为文本</script>');
+    await page.getByRole('textbox', { name: '技能正文', exact: true }).fill('# 逐项审查\n保留必要验证');
+    await page.getByRole('button', { name: '保存技能', exact: true }).click();
+    await page.getByText('技能已保存，下次任务会读取最新内容', { exact: true }).waitFor();
+    assert.equal(skills.get('review.md'), '# 逐项审查\n保留必要验证');
+    await page.getByRole('button', { name: '新建技能', exact: true }).click();
+    await page.getByLabel('技能文件名', { exact: true }).fill('new-skill.md');
+    await page.getByRole('textbox', { name: '技能正文', exact: true }).fill('# 新技能\n测试先行');
+    await page.getByRole('button', { name: '保存技能', exact: true }).click();
+    await page.getByText('技能已保存，下次任务会读取最新内容', { exact: true }).waitFor();
+    await page.reload(); await openSkills();
+    await page.getByRole('button', { name: '编辑技能 new-skill.md（项目）', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '技能正文', exact: true }).inputValue(), '# 新技能\n测试先行');
+  });
+});
+
+test('缺少模型配置时能保存配置并开始聊天，API Key 不读回', async () => {
+  let saved;
+  const state = initialState({ ready: false, configError: '请先配置模型', config: { baseUrl: '', model: '', protocol: 'auto', contextLimit: 100000, workspace: '/tmp/ui-project', hasApiKey: false } });
+  await withPage(state, { '/config': (body) => {
+    saved = body; state.ready = true; state.config = { ...body, hasApiKey: true }; delete state.config.apiKey; delete state.configError;
+    return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('region', { name: '设置中心', exact: true }).waitFor();
+    assert.equal(await page.getByLabel('API Key', { exact: true }).getAttribute('type'), 'password');
+    await page.getByLabel('API Key', { exact: true }).fill('test-key-not-for-display');
+    await page.getByLabel('API 端点', { exact: true }).fill('http://127.0.0.1:8080/v1');
+    await page.getByLabel('模型', { exact: true }).fill('test-model');
+    await page.getByRole('button', { name: '保存设置', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    assert.equal(saved.apiKey, 'test-key-not-for-display');
+    assert.equal(await page.getByRole('textbox', { name: '消息' }).isEnabled(), true);
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), '');
+    assert.equal((await page.locator('body').innerText()).includes('test-key-not-for-display'), false);
+  });
+});
+
+test('侧栏可搜索、切换和重命名会话，刷新后恢复同一会话', async () => {
+  const state = initialState({ title: '排查加载问题', sessions: [
+    { id: 's1', title: '排查加载问题', label: '加载失败', cwd: '/tmp/ui-project', mtime: 1, usage: { prompt_tokens: 0, completion_tokens: 0 } },
+    { id: 's2', title: '优化列表', label: '改善列表性能', cwd: '/tmp/ui-project', mtime: 2, usage: { prompt_tokens: 0, completion_tokens: 0 } },
+  ], activity: [{ type: 'user', text: '加载失败', seq: 1 }], seq: 1 });
+  await withPage(state, {
+    '/session/select': ({ id }) => { state.currentSessionId = id; state.title = state.sessions.find((s) => s.id === id).title; state.activity = [{ type: 'user', text: '改善列表性能', seq: ++state.seq }, { type: 'text', delta: '历史回答已恢复', seq: ++state.seq }]; return { ok: true, state }; },
+    '/session/rename': ({ id, title }) => { state.sessions.find((s) => s.id === id).title = title; state.title = title; state.seq++; return { ok: true, state }; },
+    '/session/new': () => { state.currentSessionId = 's3'; state.title = '新会话'; state.activity = []; state.sessions.unshift({ id: 's3', title: '新会话', cwd: '/tmp/ui-project', mtime: 3, usage: { prompt_tokens: 0, completion_tokens: 0 } }); state.seq++; return { ok: true, state }; },
+  }, async (page) => {
+    await page.getByRole('textbox', { name: '搜索会话' }).fill('优化列表', { timeout: 2000 });
+    assert.equal(await page.getByRole('button', { name: '打开会话 排查加载问题', exact: true }).count(), 0);
+    await page.getByRole('button', { name: '打开会话 优化列表', exact: true }).click();
+    await page.getByRole('heading', { name: '优化列表', exact: true }).waitFor();
+    assert.equal(await page.getByText('历史回答已恢复', { exact: true }).isVisible(), true);
+    await page.getByRole('button', { name: '重命名 优化列表', exact: true }).click();
+    await page.getByRole('textbox', { name: '会话名称', exact: true }).fill('优化列表性能');
+    await page.getByRole('button', { name: '保存名称', exact: true }).click();
+    await page.reload();
+    await page.getByRole('heading', { name: '优化列表性能', exact: true }).waitFor();
+    assert.equal(state.currentSessionId, 's2');
+    assert.equal(await page.getByText('历史回答已恢复', { exact: true }).count(), 1);
+    await page.getByRole('button', { name: '新任务', exact: true }).click();
+    await page.getByRole('heading', { name: '新会话', exact: true }).waitFor();
+    assert.equal(await page.getByText('历史回答已恢复', { exact: true }).count(), 0);
+  });
+});
+
+test('审批等待期间禁止切换，双击审批只提交一次并同步运行状态', async () => {
+  let decisions = 0;
+  const state = initialState({ status: 'waiting_approval', busy: true, seq: 2,
+    sessions: [{ id: 's1', title: '新会话', cwd: '/tmp/ui-project', mtime: 1 }, { id: 's2', title: '历史会话', cwd: '/tmp/ui-project', mtime: 2 }],
+    pending: [{ type: 'permission', id: 'p1', tool: 'write', preview: '写入 README.md' }],
+    activity: [{ type: 'user', text: '修改文档', seq: 1 }, { type: 'tool_call', call_id: 'call1', name: 'write', args: { file: 'README.md' }, seq: 2 }],
+  });
+  await withPage(state, { '/permission': async () => {
+    decisions++; await new Promise((resolve) => setTimeout(resolve, 80));
+    state.pending = []; state.status = 'running';
+    return { ok: true };
+  } }, async (page) => {
+    await page.getByText('等待审批', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '打开会话 历史会话', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '新任务', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '模型设置', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('checkbox', { name: '全部免审批' }).isDisabled(), true);
+    await page.getByRole('button', { name: '允许', exact: true }).dblclick();
+    await page.getByText('正在执行', { exact: true }).waitFor({ timeout: 2000 });
+    assert.equal(decisions, 1);
+    assert.equal(await page.getByRole('button', { name: '允许', exact: true }).count(), 0);
+  });
+});
+
+test('任务运行中可以浏览设置，修改控件保持禁用，返回后审批仍在', async () => {
+  const state = initialState({ status: 'waiting_approval', busy: true, pending: [{ type: 'permission', id: 'p1', tool: 'write', preview: '等待批准写入' }] });
+  await withPage(state, {}, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    assert.equal(await page.getByRole('checkbox', { name: 'Enter 发送消息', exact: true }).isDisabled(), true);
+    await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '模型', exact: true }).click();
+    assert.equal(await page.getByLabel('API 端点', { exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    assert.equal(await page.getByText('等待批准写入', { exact: true }).isVisible(), true);
+  });
+});
+
+test('回答支持 Markdown 和代码块，模型输出不能注入 HTML 或脚本链接', async () => {
+  const answer = '# 实施结果\n\n**已完成**，检查 `npm test`。\n\n- 保留用户改动\n- 验证通过\n\n```js\nconsole.log("<safe>");\n```\n\n[官方资料](https://example.com/docs) [恶意链接](javascript:alert(1))\n\n<img src=x onerror="alert(1)"><script>alert(1)</script>';
+  await withPage(initialState({ activity: [{ type: 'user', text: '完成后给出说明', seq: 1 }, { type: 'text', delta: answer, seq: 2 }, { type: 'turn_end', reason: 'completed', seq: 3 }], status: 'completed', seq: 3 }), {}, async (page) => {
+    await page.getByRole('heading', { name: '实施结果', exact: true }).waitFor({ timeout: 2000 });
+    assert.equal(await page.locator('strong').filter({ hasText: '已完成' }).count(), 1);
+    assert.equal(await page.getByRole('listitem').count(), 2);
+    assert.equal(await page.locator('pre code').innerText(), 'console.log("<safe>");');
+    assert.equal(await page.getByRole('link', { name: '官方资料', exact: true }).getAttribute('href'), 'https://example.com/docs');
+    assert.equal(await page.getByRole('link', { name: '恶意链接', exact: true }).count(), 0);
+    assert.equal(await page.locator('img').count(), 0);
+    assert.equal(await page.locator('script').count(), 1, '仅页面自己的脚本可以存在');
+  });
+});
+
+test('会话用量可见，Git 变更以只读逐文件 diff 展示', async () => {
+  const diff = 'diff --git a/src/demo.ts b/src/demo.ts\nindex 123..456 100644\n--- a/src/demo.ts\n+++ b/src/demo.ts\n@@ -1 +1 @@\n-before\n+after <img src=x>\n';
+  await withPage(initialState({ usage: { prompt_tokens: 120, completion_tokens: 30 } }), { '/diff': () => ({ diff }) }, async (page) => {
+    await page.getByText('输入 120 · 输出 30 · 共 150 Tokens', { exact: true }).waitFor({ timeout: 2000 });
+    await page.getByRole('button', { name: '查看变更', exact: true }).click();
+    const panel = page.getByRole('complementary', { name: 'Git 变更' });
+    await panel.waitFor();
+    await panel.getByText('src/demo.ts', { exact: true }).click();
+    assert.equal(await panel.getByText('+after <img src=x>', { exact: true }).isVisible(), true);
+    assert.equal(await panel.getByText('-before', { exact: true }).isVisible(), true);
+    assert.equal(await panel.getByRole('textbox').count(), 0);
+    assert.equal(await panel.locator('img').count(), 0);
+    await page.getByRole('button', { name: '关闭变更', exact: true }).click();
+    assert.equal(await panel.isVisible(), false);
+  });
+});
+
+test('工具结果按 call_id 关联，完整输出在刷新后仍可查看', async () => {
+  const state = initialState({ seq: 5, status: 'completed', activity: [
+    { type: 'user', text: '执行两项检查', seq: 1 },
+    { type: 'tool_call', call_id: 'first', name: 'read', args: { path: 'a.txt' }, seq: 2 },
+    { type: 'tool_call', call_id: 'second', name: 'bash', args: { command: 'echo b' }, seq: 3 },
+    { type: 'tool_result', call_id: 'second', name: 'bash', summary: 'B 第一行', output: 'B 第一行\nB 完整末行', ms: 20, seq: 4 },
+    { type: 'tool_result', call_id: 'first', name: 'read', summary: 'A 第一行', output: 'A 第一行\nA 完整末行', ms: 10, seq: 5 },
+  ] });
+  await withPage(state, {}, async (page) => {
+    await page.getByText('read · 10 ms', { exact: true }).click();
+    const read = page.locator('details').filter({ has: page.getByText('read · 10 ms', { exact: true }) });
+    assert.equal(await read.getByText('A 第一行\nA 完整末行', { exact: true }).isVisible(), true);
+    assert.equal(await read.getByText('B 第一行\nB 完整末行', { exact: true }).count(), 0);
+    await page.reload();
+    await page.getByText('bash · 20 ms', { exact: true }).click();
+    assert.equal(await page.getByText('B 第一行\nB 完整末行', { exact: true }).isVisible(), true);
+  });
+});
+
+test('390px 窄屏没有横向溢出，Shift+Enter 换行和 Enter 发送可用', async () => {
+  let received;
+  await withPage(initialState({ sessions: [{ id: 's1', title: '这是一个很长的会话标题用于验证侧栏宽度边界', cwd: '/tmp/ui-project', mtime: 1 }] }), { '/send': (body) => { received = body.text; return { ok: true }; } }, async (page) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    const input = page.getByRole('textbox', { name: '消息', exact: true });
+    await input.waitFor();
+    await input.fill('第一行'); await input.press('Shift+Enter'); await input.pressSequentially('第二行');
+    assert.equal(await input.inputValue(), '第一行\n第二行');
+    await input.press('Enter');
+    await page.waitForFunction(() => document.querySelector('[aria-label="消息"]').value === '');
+    assert.equal(received, '第一行\n第二行');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+    assert.equal(await page.getByRole('button', { name: '设置', exact: true }).isVisible(), true);
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '返回工作区', exact: true }).isVisible(), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+  });
+});
+
+test('连接中断时保留任务状态，重连后恢复待审批而不重复历史', async () => {
+  const state = initialState({ busy: true, status: 'waiting_approval', seq: 1, activity: [{ type: 'user', text: '运行中的任务', seq: 1 }], pending: [{ type: 'permission', id: 'p1', tool: 'write', preview: '等待批准写入' }] });
+  await withPage(state, {}, async (page, { streams }) => {
+    await page.getByText('等待审批', { exact: true }).waitFor();
+    for (const stream of streams) stream.end();
+    await page.getByText('连接断开，正在重连', { exact: true }).waitFor({ timeout: 2000 });
+    assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isDisabled(), true);
+    await page.getByText('等待审批', { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await page.getByText('运行中的任务', { exact: true }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: '允许', exact: true }).count(), 1);
+  });
+});
+
+test('保存失败与 diff 截断警告可见，仍能审阅已经读取的变更', async () => {
+  const state = initialState({ storageError: '本地会话保存失败，请检查数据目录的空间和权限' });
+  await withPage(state, { '/diff': () => ({ diff: 'diff --git a/demo.txt b/demo.txt\n--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-old\n+new\n', error: '差异超过限制，以下仅展示前段' }) }, async (page) => {
+    await page.getByText('本地会话保存失败，请检查数据目录的空间和权限', { exact: true }).waitFor({ timeout: 2000 });
+    await page.getByRole('button', { name: '查看变更', exact: true }).click();
+    await page.getByText('差异超过限制，以下仅展示前段', { exact: true }).waitFor();
+    await page.getByText('demo.txt', { exact: true }).click();
+    assert.equal(await page.getByText('+new', { exact: true }).isVisible(), true);
+  });
+});
+
+test('斜杠命令结果随会话同步，刷新后仍可查看且不重复', async () => {
+  const state = initialState();
+  await withPage(state, { '/command': () => {
+    const output = '/help 可用命令：/new /resume /yolo';
+    state.activity.push({ type: 'command', output, seq: ++state.seq });
+    return { output, state };
+  } }, async (page) => {
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill('/help');
+    await page.getByRole('textbox', { name: '消息', exact: true }).press('Enter');
+    await page.getByText('/help 可用命令：/new /resume /yolo', { exact: true }).waitFor();
+    await page.reload();
+    await page.getByText('/help 可用命令：/new /resume /yolo', { exact: true }).waitFor({ timeout: 2000 });
+    assert.equal(await page.getByText('/help 可用命令：/new /resume /yolo', { exact: true }).count(), 1);
+  });
+});

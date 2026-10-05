@@ -51,7 +51,7 @@ export type AgentEvent =
   | { type: 'user'; text: string }
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_call'; call_id: string; name: string; args: Record<string, unknown> }
-  | { type: 'tool_result'; call_id: string; name: string; summary: string; ms: number }
+  | { type: 'tool_result'; call_id: string; name: string; summary: string; output?: string; ms: number }
   | { type: 'permission'; id: string; tool: string; preview: string }
   | { type: 'trimmed'; count: number }
   | { type: 'compact'; savedTokens: number }

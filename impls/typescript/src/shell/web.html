@@ -3,143 +3,754 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tcode</title>
+<title>tcode · 工作台</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --text: #e4e7ed; --page: #141518; --sidebar: #1d1f25; --panel: #191b21; --card: #202229; --field: #17191e; --border: #353944; --selected: #323640; --muted: #949dab; --link: #91b8ff; --hover: #34373e; --bubble: #282b33; --code: #2b2f38; --message-size: 16px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; color: var(--text); background: var(--page); }
+  :root[data-color="light"] { color-scheme: light; --text: #232a36; --page: #f7f8fa; --sidebar: #eef0f4; --panel: #ffffff; --card: #ffffff; --field: #f7f8fa; --border: #d8dde6; --selected: #e2e8f5; --muted: #667184; --link: #285fbe; --hover: #e3e7ee; --bubble: #e8edf5; --code: #eef1f5; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #101418; color: #d6dde6; font: 14px/1.6 "Cascadia Code", Consolas, "Microsoft YaHei", monospace; }
-  header { position: sticky; top: 0; display: flex; gap: 12px; align-items: center; padding: 10px 16px; background: #161b22; border-bottom: 1px solid #2a313c; }
-  header b { color: #58d5c9; }
-  header .model { color: #7d8590; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  button { background: #21262d; color: #d6dde6; border: 1px solid #363b42; border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; }
-  button:hover { background: #2a313a; }
-  button:disabled { opacity: .4; cursor: default; }
-  #log { max-width: 860px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; padding-bottom: 120px; }
-  .user { color: #79c0ff; white-space: pre-wrap; }
-  .user::before { content: "你 › "; color: #555; }
-  .assistant { white-space: pre-wrap; }
-  .dim { color: #6e7681; font-size: 12px; white-space: pre-wrap; }
-  .error { color: #f85149; white-space: pre-wrap; }
-  .cmdout { color: #d2a8ff; white-space: pre-wrap; border-left: 2px solid #8957e5; padding-left: 10px; }
-  details.tool { border-left: 2px solid #2f81f7; padding-left: 10px; }
-  details.tool summary { cursor: pointer; color: #58d5c9; }
-  details.tool pre { margin: 6px 0 0; color: #8b949e; white-space: pre-wrap; font: inherit; }
-  .perm { border: 1px solid #d29922; border-radius: 8px; padding: 10px 12px; }
-  .perm .title { color: #d29922; margin-bottom: 6px; }
-  .perm pre { margin: 0 0 10px; color: #b0bac4; white-space: pre-wrap; font: inherit; max-height: 300px; overflow: auto; }
-  .perm .bar { display: flex; gap: 8px; }
-  footer { position: fixed; bottom: 0; left: 0; right: 0; background: #101418; border-top: 1px solid #2a313c; padding: 10px 16px; }
-  #input { width: 100%; background: #161b22; color: #d6dde6; border: 1px solid #363b42; border-radius: 8px; padding: 10px 12px; font: inherit; resize: none; height: 64px; }
-  #input:focus { outline: 1px solid #58d5c9; }
+  body { margin: 0; height: 100dvh; }
+  button, input, textarea, select { font: inherit; }
+  button { border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: inherit; padding: 8px 12px; cursor: pointer; }
+  button:hover:not(:disabled) { background: var(--hover); }
+  button:disabled { opacity: .45; cursor: default; }
+  :focus-visible { outline: 2px solid #82b4ff; outline-offset: 3px; }
+  [hidden] { display: none !important; }
+  .workbench { display: flex; height: 100%; }
+  .sidebar { width: 258px; flex-shrink: 0; display: flex; flex-direction: column; padding: 20px 14px 14px; border-right: 1px solid var(--border); background: var(--sidebar); gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 20px; padding: 0 8px; }
+  .brand span { font: 17px ui-monospace, monospace; color: var(--link); }
+  #workspace-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #search { width: 100%; padding: 10px; color: inherit; background: var(--field); border: 1px solid var(--border); border-radius: 8px; }
+  .session-section { color: var(--muted); font-size: 11px; letter-spacing: .05em; padding: 0 8px; }
+  #sessions { flex: 1; overflow: auto; min-height: 0; }
+  .session-entry { display: flex; margin-bottom: 4px; border-radius: 8px; }
+  .session-entry.current { background: var(--selected); }
+  .session-entry button { border: 0; background: transparent; text-align: left; }
+  .session-open { flex: 1; overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .session-rename { color: var(--muted); font-size: 13px; padding: 8px; }
+  .sidebar-bottom { border-top: 1px solid var(--border); padding: 14px 2px 0; display: flex; align-items: center; gap: 10px; }
+  .local-avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: #303640; color: #b6c7e2; font-size: 12px; }
+  .local-profile { flex: 1; font-size: 13px; font-weight: 600; }
+  .local-profile small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; margin-top: 3px; }
+  .nav-button { text-align: left; background: transparent; border: 0; }
+  .project-entry { width: 100%; text-align: left; background: transparent; border: 0; display: flex; align-items: center; gap: 8px; }
+  .project-entry[aria-current] { background: var(--selected); }
+  .project-entry span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  .project-entry small { color: var(--muted); font-size: 11px; }
+  .diff-panel { width: 380px; flex-shrink: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--panel); min-width: 0; }
+  .diff-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border); gap: 10px; }
+  .diff-heading h2 { font-size: 15px; margin: 0; }
+  .diff-note { color: var(--muted); font-size: 11px; padding: 12px 16px; }
+  #diff-content { flex: 1; overflow: auto; padding: 0 14px 18px; }
+  .diff-file { border: 1px solid var(--border); border-radius: 8px; margin: 10px 0; }
+  .diff-file summary { padding: 10px; cursor: pointer; overflow-wrap: anywhere; font-size: 12px; }
+  .diff-file pre { margin: 0; padding: 10px; overflow-x: auto; white-space: pre; border-top: 1px solid var(--border); }
+  .diff-line { display: block; min-height: 1.65em; }
+  .diff-add { color: #a4deb2; background: #1f3428; }
+  .diff-remove { color: #efacac; background: #39252b; }
+  .diff-hunk { color: #9ebffa; }
+  .chat { height: 100%; flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  header { display: flex; gap: 16px; align-items: center; padding: 15px 24px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .heading { flex: 1; min-width: 0; }
+  .heading h1 { display: block; font-size: 16px; margin: 0; font-weight: 600; }
+  .model { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #status[data-status="waiting_approval"] { color: #eab568; }
+  #status[data-status="error"] { color: #f59292; }
+  .toggle { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #notice, #storage-warning { padding: 10px 24px; color: #ffaaaa; background: #3b2228; }
+  #log { flex: 1; overflow-y: auto; padding: 28px max(24px, calc((100% - 900px) / 2)); display: flex; flex-direction: column; gap: 22px; font-size: var(--message-size); }
+  .empty { margin: auto 0; text-align: center; color: var(--muted); }
+  .empty h1 { font-size: 25px; font-weight: 600; color: var(--text); margin: 0 0 12px; }
+  .user { align-self: flex-end; max-width: 85%; border-radius: 16px; padding: 12px 16px; background: var(--bubble); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .assistant { line-height: 1.75; overflow-wrap: anywhere; }
+  .assistant p { margin: 0 0 12px; white-space: pre-wrap; }
+  .assistant p:last-child { margin-bottom: 0; }
+  .assistant h1, .assistant h2, .assistant h3, .assistant h4 { margin: 18px 0 10px; line-height: 1.4; }
+  .assistant h1, .assistant h2 { font-size: 21px; }
+  .assistant h3, .assistant h4 { font-size: 17px; }
+  .assistant > :first-child { margin-top: 0; }
+  .assistant code { font: 12px/1.6 ui-monospace, Consolas, monospace; border-radius: 4px; padding: 2px 5px; background: var(--code); }
+  .assistant pre { border: 1px solid var(--border); border-radius: 9px; background: var(--panel); padding: 14px; overflow: auto; }
+  .assistant pre code { padding: 0; background: transparent; }
+  .assistant a { color: var(--link); text-underline-offset: 3px; }
+  .assistant ul, .assistant ol { padding-left: 24px; margin: 10px 0 16px; }
+  .dim { color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+  .error { color: #ffa5a5; white-space: pre-wrap; }
+  .cmdout { border-left: 2px solid #a395d5; padding-left: 14px; color: #c6bae9; white-space: pre-wrap; }
+  details.tool { border: 1px solid var(--selected); border-radius: 10px; background: var(--panel); }
+  details.tool summary { padding: 10px 14px; color: #b5c4df; cursor: pointer; overflow-wrap: anywhere; }
+  pre { font: 12px/1.65 ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  details.tool pre { margin: 0; padding: 12px 14px; border-top: 1px solid var(--border); max-height: 380px; overflow: auto; }
+  .perm { border: 1px solid #ad8146; border-radius: 12px; padding: 16px; background: #27221b; }
+  .perm .title { color: #edbe7d; font-weight: 600; }
+  .perm pre { max-height: 300px; overflow: auto; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; }
+  .composer { padding: 16px max(24px, calc((100% - 900px) / 2)) 20px; }
+  .input-box { border: 1px solid var(--border); border-radius: 16px; background: var(--card); padding: 12px; }
+  #input { width: 100%; background: transparent; color: inherit; border: 0; padding: 5px; resize: vertical; min-height: 64px; max-height: 220px; }
+  #input:focus { outline: none; }
+  .composer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .hint { color: var(--muted); font-size: 11px; }
+  #usage { color: var(--muted); font-size: 11px; display: block; }
+  .primary { background: #416bc1; border-color: #537ddd; color: #fff; }
+  .primary:hover:not(:disabled) { background: #527bd0; }
+  dialog { width: min(560px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: 16px; padding: 24px; color: inherit; background: var(--card); }
+  dialog::backdrop { background: #0009; }
+  dialog h2 { margin: 0 0 6px; font-size: 21px; }
+  dialog p { color: var(--muted); font-size: 12px; }
+  dialog form { display: grid; gap: 14px; }
+  dialog label { display: grid; gap: 6px; font-size: 13px; }
+  dialog input, dialog select { width: 100%; border: 1px solid var(--border); border-radius: 7px; padding: 10px; color: inherit; background: var(--field); }
+  dialog .bar { justify-content: flex-end; margin-top: 8px; }
+  #config-error { color: #ffa5a5; white-space: pre-wrap; }
+  .settings-layout { width: 100%; display: flex; min-width: 0; }
+  .settings-sidebar { width: 258px; padding: 24px 18px; background: var(--sidebar); border-right: 1px solid var(--border); flex-shrink: 0; }
+  .settings-sidebar h2 { font-size: 20px; margin: 25px 10px 22px; }
+  .settings-sidebar nav { display: grid; gap: 6px; }
+  .settings-sidebar nav button { text-align: left; border: 0; background: transparent; padding: 12px; }
+  .settings-sidebar nav button[aria-current] { background: var(--selected); }
+  .settings-main { flex: 1; min-width: 0; overflow: auto; padding: 54px max(28px, calc((100% - 780px) / 2)); }
+  .settings-main h1 { font-size: 30px; margin: 0 0 10px; }
+  .settings-description { color: var(--muted); font-size: 13px; line-height: 1.7; margin: 0 0 28px; }
+  .settings-main form { display: grid; gap: 20px; max-width: 700px; }
+  .settings-main label { display: grid; gap: 8px; font-size: 14px; }
+  .settings-main input, .settings-main select, .settings-main textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 12px; color: inherit; background: var(--field); }
+  .settings-main label.inline-check { display: flex; align-items: center; gap: 12px; }
+  .settings-main input[type="checkbox"] { width: auto; }
+  .settings-card { border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-bottom: 22px; }
+  .settings-card h2 { font-size: 16px; margin: 0 0 10px; }
+  .settings-card p { margin: 8px 0 16px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .settings-path { color: var(--muted); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; margin: 12px 0; }
+  .settings-facts { display: grid; grid-template-columns: 120px 1fr; gap: 16px; font-size: 13px; }
+  .settings-facts dt { color: var(--muted); }.settings-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .settings-actions { display: flex; justify-content: flex-end; margin-top: 6px; gap: 8px; }
+  .directory-entry { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-size: 12px; }
+  .directory-entry span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
+  .usage-total { font-size: 32px; font-weight: 600; margin-bottom: 12px; }
+  .usage-split { display: flex; gap: 28px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+  .capability-entry { border-bottom: 1px solid var(--border); padding: 16px 0; }
+  .capability-entry:first-child { padding-top: 0; }.capability-entry:last-child { border-bottom: 0; }
+  .capability-entry .bar { align-items: center; justify-content: space-between; }
+  .capability-entry code { font: 13px ui-monospace, monospace; overflow-wrap: anywhere; }
+  .capability-entry p { font-size: 13px; color: var(--muted); margin: 10px 0 0; line-height: 1.65; }
+  #skill-content { min-height: 280px; resize: vertical; font: 13px/1.65 ui-monospace, monospace; }
+  #settings-feedback { padding: 12px 0; margin: 0 0 18px; color: #99d9b0; font-size: 13px; }
+  #settings-feedback.error { color: #ffa5a5; }
+  :root[data-color="light"] details.tool summary { color: #586d8f; }
+  :root[data-color="light"] .perm { background: #fff6e6; }
+  :root[data-color="light"] .perm .title { color: #86601e; }
+  :root[data-color="light"] .error, :root[data-color="light"] #config-error, :root[data-color="light"] #settings-feedback.error { color: #af3333; }
+  :root[data-color="light"] #notice, :root[data-color="light"] #storage-warning { color: #af3333; background: #fbeaea; }
+  :root[data-color="light"] #settings-feedback { color: #287847; }
+  :root[data-color="light"] .cmdout { color: #6b509e; }
+  :root[data-color="light"] .diff-add { color: #236337; background: #e8f5eb; }
+  :root[data-color="light"] .diff-remove { color: #9d3535; background: #faeded; }
+  :root[data-color="light"] .diff-hunk { color: #3970b2; }
+  @media (max-width: 850px) { .settings-sidebar { width: 210px; } .settings-main { padding: 28px 22px; } }
+  @media (max-width: 560px) { .settings-layout { flex-direction: column; min-height: 0; } .settings-sidebar { width: 100%; padding: 10px; border-right: 0; border-bottom: 1px solid var(--border); } .settings-sidebar h2 { display: none; } .settings-sidebar nav { margin-top: 10px; display: flex; overflow-x: auto; } .settings-sidebar nav button { white-space: nowrap; padding: 8px 12px; } .settings-main { padding: 22px 16px; } .settings-main h1 { font-size: 24px; } .settings-facts { grid-template-columns: 90px 1fr; } }
+  @media (max-width: 850px) { .sidebar { width: 210px; } header { flex-wrap: wrap; padding: 12px 16px; gap: 8px; } .heading { flex-basis: 55%; } #log { padding: 20px 16px; } .composer { padding: 12px 16px; } }
+  @media (max-width: 1150px) { .diff-panel { position: fixed; z-index: 2; top: 0; right: 0; height: 100%; width: min(420px, calc(100% - 24px)); box-shadow: -16px 0 40px #0007; } }
+  @media (max-width: 560px) { .workbench { flex-direction: column; } .sidebar { width: 100%; max-height: 205px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-right: 0; border-bottom: 1px solid var(--border); } .brand, .session-section { display: none; } .sidebar-bottom { grid-column: 2; grid-row: 2; border: 0; padding: 0; justify-content: flex-end; } .sidebar-bottom .local-avatar, .sidebar-bottom .local-profile { display: none; } #workspace-pick { grid-column: 1; grid-row: 2; } #projects { grid-column: span 2; } #sessions { grid-column: span 2; min-height: 40px; } #search { grid-column: span 2; } .chat { height: auto; min-height: 0; } }
 </style>
 </head>
 <body>
+<div class="workbench">
+<aside class="sidebar" id="workspace-sidebar" aria-label="项目与会话">
+  <div class="brand"><span aria-hidden="true">&gt;_</span> tcode</div>
+  <button id="new" class="nav-button" aria-label="新任务">＋ 新任务</button>
+  <button id="search-open" class="nav-button" aria-label="搜索">⌕ 搜索</button>
+  <input id="search" type="text" aria-label="搜索会话" placeholder="搜索会话" autocomplete="off">
+  <div class="session-section">项目</div>
+  <nav id="projects" aria-label="项目列表"></nav>
+  <button id="workspace-pick" aria-label="选择项目目录" class="nav-button">＋ 打开项目</button>
+  <div class="session-section" id="workspace-name">当前项目会话</div>
+  <nav id="sessions" aria-label="会话列表"></nav>
+  <div class="sidebar-bottom"><span class="local-avatar" aria-hidden="true">&gt;_</span><div class="local-profile">本地工作区<small>tcode · 无需登录</small></div><button id="settings-home" aria-label="设置" title="设置">⚙</button></div>
+</aside>
+<main class="chat" id="chat">
 <header>
-  <b>tcode</b>
-  <span class="model" id="model">连接中…</span>
-  <label><input type="checkbox" id="yolo"> yolo</label>
-  <button id="new">新会话</button>
-  <button id="resume">恢复</button>
-  <button id="stop" disabled>停止</button>
+  <div class="heading"><h1 id="title">tcode</h1><span class="model" id="model">连接中…</span></div>
+  <span id="status" role="status">连接中</span>
+  <label class="toggle"><input type="checkbox" id="yolo"> 全部免审批</label>
+  <button id="settings">模型设置</button>
+  <button id="diff-toggle" aria-expanded="false" aria-controls="diff-panel">查看变更</button>
 </header>
-<div id="log"></div>
-<footer>
-  <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行；/ 开头走命令（/help）"></textarea>
+<div id="notice" role="alert" hidden></div>
+<div id="storage-warning" role="alert" hidden></div>
+<div id="log" role="log" aria-label="会话记录"></div>
+<footer class="composer">
+  <div class="input-box">
+    <textarea id="input" aria-label="消息" placeholder="描述要完成的任务；/help 查看命令"></textarea>
+    <div class="composer-bottom"><div><span id="usage" aria-label="会话 Token 用量"></span><span class="hint" id="send-hint">Enter 发送 · Shift+Enter 换行</span></div><div class="bar"><button id="stop" disabled>停止</button><button class="primary" id="send" disabled>发送</button></div></div>
+  </div>
 </footer>
+</main>
+<aside id="diff-panel" class="diff-panel" aria-label="Git 变更" hidden>
+  <div class="diff-heading"><h2>Git 变更</h2><div class="bar"><button id="diff-refresh">刷新</button><button id="diff-close" aria-label="关闭变更">关闭</button></div></div>
+  <div class="diff-note">当前工作区相对 HEAD 的变更 · 只读</div>
+  <div id="diff-content" aria-live="polite"></div>
+</aside>
+<section id="settings-page" class="settings-layout" aria-label="设置中心" hidden>
+  <aside class="settings-sidebar">
+    <button id="settings-close" class="nav-button" aria-label="返回工作区">← 返回工作区</button><h2>设置</h2>
+    <nav aria-label="设置分组">
+      <button data-section="general">常规</button><button data-section="model">模型</button><button data-section="permissions">权限</button>
+      <button data-section="appearance">外观</button><button data-section="usage">用量</button><button data-section="skills">技能</button><button data-section="commands">命令</button>
+    </nav>
+  </aside>
+  <main class="settings-main">
+    <div id="settings-feedback" role="status" aria-live="polite" hidden></div>
+    <section id="settings-general" data-settings="general">
+      <h1>常规</h1><p class="settings-description">项目、消息输入和本地数据。</p>
+      <div class="settings-card"><h2>当前项目</h2><p>选择本机上的项目目录。切换项目会恢复该项目的会话。</p><div id="config-workspace" class="settings-path"></div><button id="general-workspace-pick">选择目录</button></div>
+      <form id="general-form" class="settings-card"><h2>消息输入</h2><label class="inline-check"><input id="enter-to-send" type="checkbox">Enter 发送消息</label><p>开启时 Shift+Enter 换行。关闭时 Enter 换行，⌘/Ctrl+Enter 发送。</p><div class="settings-actions"><button type="submit" class="primary">保存常规设置</button></div></form>
+      <div class="settings-card"><h2>本地数据</h2><dl class="settings-facts"><dt>版本</dt><dd id="app-version"></dd><dt>数据目录</dt><dd id="data-dir"></dd></dl></div>
+    </section>
+    <section id="settings-model" data-settings="model" hidden>
+  <h1>模型</h1>
+  <p class="settings-description">请求发送到你配置的 API 端点。API Key 仅用于保存，不读回页面。</p>
+  <form id="settings-form">
+    <label>API 端点<input id="config-base-url" name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
+    <label>模型<input id="config-model" name="model" required autocomplete="off"></label>
+    <label>API Key<input id="config-api-key" name="apiKey" type="password" autocomplete="new-password" placeholder="填写密钥；已保存时留空保留"></label>
+    <label>协议<select id="config-protocol" name="protocol"><option value="auto">自动识别</option><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></label>
+    <label>上下文 Token 上限<input id="config-context-limit" name="contextLimit" type="number" min="1" step="1" required></label>
+    <div id="config-error" role="alert"></div>
+    <div class="settings-actions"><button type="submit" class="primary" id="settings-save">保存设置</button></div>
+  </form>
+    </section>
+    <section data-settings="permissions" hidden>
+      <h1>权限</h1><p class="settings-description">保存后对当前会话及后续新任务生效。工作区顶部的“全部免审批”仅用于当前会话。</p>
+      <form id="permissions-form"><label>默认审批方式<select id="approval" aria-label="默认审批方式"><option value="normal">需要时询问</option><option value="never">全部免审批</option></select></label>
+        <div class="settings-card"><h2>写入免审批目录</h2><p>这些目录内的 write/edit 可免逐次审批；其他文件及命令仍按默认审批执行。移除目录后恢复逐次审批。</p><div id="extra-write-dirs"></div><button type="button" id="extra-dir-pick">添加免审批目录</button></div>
+        <p class="settings-description">全部免审批允许工具直接执行文件修改和命令，请根据当前项目选择。</p>
+        <div class="settings-actions"><button type="submit" class="primary">保存权限设置</button></div>
+      </form>
+    </section>
+    <section data-settings="appearance" hidden><h1>外观</h1><p class="settings-description">外观偏好保存在本地，适用于所有项目。</p><form id="appearance-form"><label>主题<select id="theme" aria-label="主题"><option value="system">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></label><label>消息字号<select id="font-size" aria-label="消息字号"><option value="14">小 · 14 px</option><option value="16">默认 · 16 px</option><option value="18">大 · 18 px</option></select></label><div class="settings-actions"><button class="primary" type="submit">保存外观设置</button></div></form></section>
+    <section data-settings="usage" hidden><h1>用量</h1><p class="settings-description">本地已记录的会话用量。仅包含模型返回并写入会话的 Token 统计，不等同于账户剩余额度或云端账单。</p><div class="settings-card"><h2>已记录的会话用量</h2><div id="usage-total" class="usage-total">—</div><div class="usage-split"><span id="usage-input"></span><span id="usage-output"></span></div><p id="usage-scope"></p><button id="usage-refresh" aria-label="刷新用量">刷新</button></div></section>
+    <section data-settings="skills" hidden>
+      <h1>技能</h1><p class="settings-description">技能以 Markdown 文件保存。全局技能适用于所有项目，项目技能保存在当前项目的 .tcode/skills/。</p>
+      <div class="settings-card"><div class="bar"><h2>可用技能</h2><button id="skill-new">新建技能</button></div><div id="skill-list"></div></div>
+      <form id="skill-form" hidden><h2 id="skill-editor-title">新建技能</h2><label>技能文件名<input id="skill-name" type="text" required maxlength="100" placeholder="review.md" autocomplete="off"></label>
+        <label>作用范围<select id="skill-scope" aria-label="作用范围"><option value="project">当前项目</option><option value="global">全局</option></select></label>
+        <label>技能正文<textarea id="skill-content" required spellcheck="false" placeholder="# 技能名称&#10;&#10;描述目标和执行约定"></textarea></label>
+        <div class="settings-actions"><button type="button" id="skill-cancel">取消编辑</button><button type="submit" class="primary">保存技能</button></div>
+      </form>
+    </section>
+    <section data-settings="commands" hidden><h1>命令</h1><p class="settings-description">命令作用于当前会话。填入后可以补充参数，再发送执行。</p><div class="settings-card"><h2>可用命令</h2><div id="command-list"></div></div><div class="settings-card"><h2>可用工具</h2><p>模型可调用的本地工具，执行时遵循当前权限设置。</p><div id="tool-list"></div></div></section>
+  </main>
+</section>
+</div>
+<dialog id="rename-dialog" aria-labelledby="rename-title">
+  <h2 id="rename-title">重命名会话</h2>
+  <form id="rename-form">
+    <label>会话名称<input id="rename-input" type="text" maxlength="100" required autocomplete="off"></label>
+    <div id="rename-error" role="alert"></div>
+    <div class="bar"><button id="rename-close" type="button">取消</button><button id="rename-save" class="primary" type="submit">保存名称</button></div>
+  </form>
+</dialog>
 <script>
-  const token = location.pathname.split('/')[2];
-  const base = `/t/${token}`;
   const $ = (id) => document.getElementById(id);
-  const log = $('log'), input = $('input'), stopBtn = $('stop');
-  let busy = false, cur = null, lastToolPre = null, lastToolSummary = null;
+  const base = `/t/${location.pathname.split('/')[2]}`;
+  const log = $('log'), input = $('input');
+  let view = null, connected = false, sending = false, saving = false, changing = false, renamingId = null, lastSeq = -1, diffRequest = 0;
+  let settingsSection = null, setupOpened = false;
+  let extraWriteDirs = [];
+  let usageRequest = 0;
+  let skillRequest = 0, editingSkill = false;
+  const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+  const permissionRequests = new Set();
 
-  const scroll = () => window.scrollTo(0, document.body.scrollHeight);
-  function row(cls, text) {
-    const d = document.createElement('div');
-    d.className = cls;
-    if (text !== undefined) d.textContent = text;
-    log.appendChild(d); scroll(); return d;
+  async function api(path, body) {
+    const res = await fetch(base + path, body === undefined ? { cache: 'no-store' } : {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    let result;
+    try { result = await res.json(); } catch { throw new Error('服务返回了无法读取的响应，请检查连接'); }
+    if (!res.ok || result.error) throw new Error(result.error || `请求失败 (${res.status})`);
+    return result;
   }
-  function setBusy(v) {
-    busy = v; input.disabled = v; $('new').disabled = v; $('resume').disabled = v;
-    stopBtn.disabled = !v;
-    if (!v) { cur = null; input.focus(); }
+  function showError(error) { $('notice').textContent = error.message || String(error); $('notice').hidden = false; if (settingsSection) settingsFeedback(error.message || String(error), true); }
+  function clearError() { $('notice').hidden = true; }
+  function row(cls, text, parent = log) {
+    const node = document.createElement('div'); node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    parent.appendChild(node); return node;
   }
-  async function post(path, body) {
-    const r = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    return r.json();
+  function inline(parent, text) {
+    const tokens = /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\[([^\]]+)\]\(([^)\s]+)\)|\*([^*\n]+)\*|_([^_\n]+)_/g;
+    let cursor = 0;
+    for (const match of text.matchAll(tokens)) {
+      parent.append(document.createTextNode(text.slice(cursor, match.index)));
+      let node;
+      if (match[1]) { node = document.createElement('code'); node.textContent = match[1]; }
+      else if (match[2] || match[3]) { node = document.createElement('strong'); inline(node, match[2] || match[3]); }
+      else if (match[4]) {
+        let url; try { url = new URL(match[5]); } catch {}
+        if (url && ['https:', 'http:'].includes(url.protocol)) {
+          node = document.createElement('a'); node.href = url.href; node.target = '_blank'; node.rel = 'noopener noreferrer'; node.textContent = match[4];
+        } else node = document.createTextNode(match[0]);
+      } else { node = document.createElement('em'); node.textContent = match[6] || match[7]; }
+      parent.append(node); cursor = match.index + match[0].length;
+    }
+    parent.append(document.createTextNode(text.slice(cursor)));
   }
-
-  function renderPermission(ev) {
-    cur = null;
-    const d = row('perm');
-    const t = document.createElement('div'); t.className = 'title'; t.textContent = `── ${ev.tool} 请求执行 ──`;
-    const pre = document.createElement('pre'); pre.textContent = ev.preview;
-    const bar = document.createElement('div'); bar.className = 'bar';
-    const mk = (label, decision) => {
-      const b = document.createElement('button'); b.textContent = label;
-      b.onclick = async () => { await post('/permission', { id: ev.id, decision }); d.remove(); if (decision === 'always') $('yolo').checked = true; setBusy(true); };
-      return b;
-    };
-    bar.append(mk('允许', 'allow'), mk('拒绝', 'deny'), mk('本会话全部允许', 'always'));
-    d.append(t, pre, bar); scroll();
+  // ponytail: 常用 Markdown 直接创建 DOM，不接受原始 HTML；复杂表格或嵌套确有需要时再引入解析器。
+  function markdown(text) {
+    const fragment = document.createDocumentFragment(), lines = text.replace(/\r\n/g, '\n').split('\n');
+    let paragraph = [], list = null;
+    const flush = () => { if (paragraph.length) { const p = document.createElement('p'); inline(p, paragraph.join('\n')); fragment.append(p); paragraph = []; } };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i], fence = line.match(/^\s*(`{3,}|~{3,})([\w+-]*)\s*$/), heading = line.match(/^(#{1,6})\s+(.+)$/), item = line.match(/^\s*(?:([-*+])|\d+[.)])\s+(.+)$/);
+      if (fence) {
+        flush(); list = null; const codeLines = [];
+        while (++i < lines.length && !new RegExp(`^\\s*${fence[1][0]}{${fence[1].length},}\\s*$`).test(lines[i])) codeLines.push(lines[i]);
+        const pre = document.createElement('pre'), code = document.createElement('code');
+        code.textContent = codeLines.join('\n'); if (fence[2]) code.dataset.language = fence[2]; pre.append(code); fragment.append(pre);
+      } else if (heading) {
+        flush(); list = null; const node = document.createElement('h' + heading[1].length); inline(node, heading[2]); fragment.append(node);
+      } else if (item) {
+        flush(); const tag = item[1] ? 'UL' : 'OL';
+        if (!list || list.tagName !== tag) { list = document.createElement(tag); fragment.append(list); }
+        const li = document.createElement('li'); inline(li, item[2]); list.append(li);
+      } else if (!line.trim()) { flush(); list = null; }
+      else { list = null; paragraph.push(line); }
+    }
+    flush(); return fragment;
   }
-
-  const es = new EventSource(base + '/events');
-  es.onmessage = (e) => {
-    const ev = JSON.parse(e.data);
-    switch (ev.type) {
-      case 'hello': $('model').textContent = `${ev.model} · v${ev.version}`; $('yolo').checked = ev.yolo; break;
-      case 'user': cur = null; row('user', ev.text); break;
-      case 'text':
-        if (!cur) cur = row('assistant', '');
-        cur.textContent += ev.delta; scroll(); break;
-      case 'tool_call': {
-        cur = null;
-        const d = document.createElement('details'); d.className = 'tool';
-        const s = document.createElement('summary');
-        s.textContent = `⚙ ${ev.name} ${JSON.stringify(ev.args).slice(0, 120)}`;
-        const pre = document.createElement('pre'); pre.textContent = '（运行中…）';
-        d.append(s, pre); log.appendChild(d); scroll();
-        lastToolPre = pre; lastToolSummary = s; break;
+  function controls() {
+    const blocked = !connected || !view?.ready || view.busy || sending || changing;
+    input.disabled = blocked; $('send').disabled = blocked;
+    $('new').disabled = blocked;
+    $('settings').disabled = !connected || !!view?.busy || saving || changing;
+    $('workspace-pick').disabled = $('settings').disabled;
+    $('settings-home').disabled = !connected || saving || changing;
+    $('general-workspace-pick').disabled = $('settings').disabled;
+    $('settings-save').disabled = $('settings').disabled;
+    for (const field of $('settings-page').querySelectorAll('form input, form select, form textarea, form button')) field.disabled = !connected || !!view?.busy || saving || changing;
+    $('skill-new').disabled = !connected || !!view?.busy || saving || changing;
+    $('skill-scope').disabled ||= editingSkill;
+    $('settings-close').disabled = saving || changing;
+    for (const button of document.querySelectorAll('[data-section]')) button.disabled = saving || changing;
+    $('yolo').disabled = blocked;
+    $('yolo').checked = !!view?.yolo;
+    $('stop').disabled = !connected || !view?.busy;
+    $('diff-toggle').disabled = !connected || !view?.ready;
+    const usage = view?.usage || { prompt_tokens: 0, completion_tokens: 0 };
+    const format = (value) => Number(value || 0).toLocaleString('zh-CN');
+    $('usage').textContent = `输入 ${format(usage.prompt_tokens)} · 输出 ${format(usage.completion_tokens)} · 共 ${format(usage.prompt_tokens + usage.completion_tokens)} Tokens`;
+    $('send-hint').textContent = view?.preferences?.enterToSend === false ? 'Enter 换行 · ⌘/Ctrl+Enter 发送' : 'Enter 发送 · Shift+Enter 换行';
+    const labels = { idle: '就绪', running: '正在执行', waiting_approval: '等待审批', completed: '已完成', aborted: '已停止', error: '执行失败' };
+    $('status').textContent = !connected ? '连接断开，正在重连' : !view?.ready ? '需要配置模型' : labels[view.status] || '就绪';
+    $('status').dataset.status = view?.status || 'idle';
+    renderProjects(); renderSessions(); if (settingsSection === 'commands') renderCommands(); if (settingsSection === 'skills') renderSkills();
+  }
+  function renderProjects() {
+    const fragment = document.createDocumentFragment();
+    for (const project of view?.projects || []) {
+      const button = document.createElement('button'); button.className = 'project-entry';
+      button.setAttribute('aria-label', '打开项目 ' + project.name); button.title = project.path;
+      if (project.path === view.config?.workspace) button.setAttribute('aria-current', 'page');
+      button.disabled = !project.available || !connected || !!view.busy || changing || saving;
+      const icon = document.createElement('b'); icon.textContent = '▱'; icon.setAttribute('aria-hidden', 'true');
+      const name = document.createElement('span'); name.textContent = project.name;
+      const count = document.createElement('small'); count.textContent = project.available ? project.sessionCount || '' : '不可用';
+      button.append(icon, name, count); button.onclick = () => changeWorkspace(project.path); fragment.append(button);
+    }
+    if (!fragment.childNodes.length) row('dim', '选择一个本地项目开始', fragment);
+    $('projects').replaceChildren(fragment);
+  }
+  function renderSessions() {
+    const fragment = document.createDocumentFragment();
+    const query = $('search').value.trim().toLocaleLowerCase();
+    for (const session of view?.sessions || []) {
+      const title = session.title || session.label || '新会话';
+      if (query && !`${title} ${session.label || ''}`.toLocaleLowerCase().includes(query)) continue;
+      const entry = row('session-entry', undefined, fragment);
+      if (session.id === view.currentSessionId) entry.classList.add('current');
+      const open = document.createElement('button'); open.className = 'session-open'; open.textContent = title;
+      open.setAttribute('aria-label', '打开会话 ' + title); open.title = title;
+      if (session.id === view.currentSessionId) open.setAttribute('aria-current', 'page');
+      const rename = document.createElement('button'); rename.className = 'session-rename'; rename.textContent = '···'; rename.setAttribute('aria-label', '重命名 ' + title);
+      open.disabled = rename.disabled = !connected || !!view.busy || sending || changing;
+      open.onclick = () => selectSession(session.id);
+      rename.onclick = () => {
+        if (view.busy || changing) return;
+        renamingId = session.id; $('rename-input').value = title; $('rename-error').textContent = ''; $('rename-dialog').showModal();
+      };
+      entry.append(open, rename);
+    }
+    if (!fragment.childNodes.length) row('dim', query ? '没有匹配的会话' : '尚无会话', fragment);
+    $('sessions').replaceChildren(fragment);
+  }
+  async function selectSession(id) {
+    if (view.busy || changing || id === view.currentSessionId) return;
+    changing = true; controls(); clearError();
+    try { const result = await api('/session/select', { id }); applyState(result.state); input.value = ''; log.scrollTop = log.scrollHeight; }
+    catch (error) { showError(error); }
+    finally { changing = false; controls(); }
+  }
+  async function loadDiff() {
+    const requestId = ++diffRequest;
+    $('diff-refresh').disabled = true;
+    $('diff-content').textContent = '正在读取 Git 变更…';
+    try {
+      const response = await fetch(base + '/diff', { cache: 'no-store' });
+      const { diff, error } = await response.json();
+      if (!response.ok) throw new Error(error || `读取 Git 变更失败 (${response.status})`);
+      if (requestId !== diffRequest) return;
+      const fragment = document.createDocumentFragment();
+      if (error) row('error', error, fragment);
+      for (const block of (diff || '').split(/(?=^diff --git )/m).filter((part) => part.trim())) {
+        const file = block.match(/^\+\+\+ b\/(.+)$/m)?.[1] || block.match(/^--- a\/(.+)$/m)?.[1] || block.split('\n')[0];
+        const details = document.createElement('details'); details.className = 'diff-file';
+        const summary = document.createElement('summary'); summary.textContent = file;
+        const pre = document.createElement('pre');
+        for (const line of block.replace(/\n$/, '').split('\n')) {
+          const span = document.createElement('span'); span.className = 'diff-line'; span.textContent = line;
+          if (line.startsWith('+') && !line.startsWith('+++')) span.classList.add('diff-add');
+          else if (line.startsWith('-') && !line.startsWith('---')) span.classList.add('diff-remove');
+          else if (line.startsWith('@@')) span.classList.add('diff-hunk');
+          pre.append(span);
+        }
+        details.append(summary, pre); fragment.append(details);
       }
-      case 'tool_result':
-        if (lastToolPre) lastToolPre.textContent = ev.summary;
-        if (lastToolSummary) lastToolSummary.textContent = `⚙ ${ev.name} → ${ev.summary.slice(0, 80)} (${ev.ms}ms)`;
-        scroll(); break;
-      case 'permission': renderPermission(ev); break;
-      case 'trimmed': cur = null; row('dim', `（上下文超预算，已省略 ${ev.count} 条早期工具输出）`); break;
-      case 'turn_end': setBusy(false); break;
-      case 'aborted': cur = null; row('dim', '（本轮已中止）'); break;
-      case 'error': cur = null; row('error', '出错了：' + ev.message); break;
-    }
-  };
-
-  async function sendLine() {
-    const t = input.value.trim();
-    if (!t || busy) return;
-    input.value = '';
-    if (t.startsWith('/')) {
-      const r = await post('/command', { line: t });
-      if (r.reset) log.innerHTML = '';
-      row('cmdout', r.output || r.error || '(无输出)');
-      if (typeof r.yolo === 'boolean') $('yolo').checked = r.yolo;
-      if (r.exit) row('dim', '服务已退出，可关闭页面');
-      return;
-    }
-    setBusy(true);
-    const r = await post('/send', { text: t });
-    if (r.error) { row('error', r.error); setBusy(false); }
+      if (!fragment.childNodes.length) row('dim', '没有 Git 变更', fragment);
+      $('diff-content').replaceChildren(fragment);
+    } catch (error) { if (requestId === diffRequest) $('diff-content').textContent = error.message; }
+    finally { if (requestId === diffRequest) $('diff-refresh').disabled = false; }
   }
-
-  $('send')?.remove;
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendLine(); }
-  });
-  stopBtn.onclick = () => post('/abort', {});
-  $('new').onclick = async () => { const r = await post('/command', { line: '/new' }); log.innerHTML = ''; row('dim', r.output || ''); };
-  $('resume').onclick = async () => { const r = await post('/command', { line: '/resume' }); row('cmdout', r.output || r.error || ''); };
-  setBusy(false); input.focus();
+  function toggleDiff(open) {
+    $('diff-panel').hidden = !open; $('diff-toggle').setAttribute('aria-expanded', String(open));
+    $('diff-toggle').textContent = open ? '收起变更' : '查看变更';
+    if (open) void loadDiff();
+  }
+  $('diff-toggle').onclick = () => toggleDiff($('diff-panel').hidden);
+  $('diff-close').onclick = () => { toggleDiff(false); $('diff-toggle').focus(); };
+  $('diff-refresh').onclick = loadDiff;
+  function permissionCard(ev, parent) {
+    const card = row('perm', undefined, parent); card.dataset.permissionId = ev.id;
+    row('title', `${ev.tool} 请求执行`, card);
+    const pre = document.createElement('pre'); pre.textContent = ev.preview; card.append(pre);
+    const bar = document.createElement('div'); bar.className = 'bar';
+    for (const [label, decision] of [['允许', 'allow'], ['拒绝', 'deny'], ['本会话全部允许', 'always']]) {
+      const button = document.createElement('button'); button.textContent = label;
+      button.disabled = permissionRequests.has(ev.id) || !connected;
+      button.onclick = async () => {
+        if (permissionRequests.has(ev.id)) return;
+        permissionRequests.add(ev.id); card.querySelectorAll('button').forEach((b) => { b.disabled = true; }); clearError();
+        try { const result = await api('/permission', { id: ev.id, decision }); applyState(result.state || await api('/state')); }
+        catch (error) { showError(error); }
+        finally { permissionRequests.delete(ev.id); if (card.isConnected) renderLog(); }
+      };
+      bar.append(button);
+    }
+    card.append(bar);
+  }
+  function renderLog() {
+    if (!view) return;
+    const bottom = log.scrollHeight - log.scrollTop - log.clientHeight < 90;
+    const openTools = new Set([...log.querySelectorAll('details[open]')].map((el) => el.dataset.callId));
+    const fragment = document.createDocumentFragment(), tools = new Map();
+    let assistantText = '';
+    const flushAssistant = () => {
+      if (assistantText) row('assistant', undefined, fragment).append(markdown(assistantText));
+      assistantText = '';
+    };
+    for (const ev of view.activity || []) {
+      if (!['text', 'text_delta', 'usage', 'permission'].includes(ev.type)) flushAssistant();
+      switch (ev.type) {
+        case 'user': row('user', ev.text, fragment); break;
+        case 'text': case 'text_delta': assistantText += ev.delta; break;
+        case 'tool_call': {
+          const details = document.createElement('details'); details.className = 'tool'; details.dataset.callId = ev.call_id;
+          details.open = openTools.has(ev.call_id);
+          const summary = document.createElement('summary'); summary.textContent = `${ev.name} · 运行中`;
+          const args = document.createElement('pre'); args.textContent = JSON.stringify(ev.args, null, 2);
+          const output = document.createElement('pre'); output.textContent = '等待工具结果…';
+          details.append(summary, args, output); fragment.append(details); tools.set(ev.call_id, { summary, output }); break;
+        }
+        case 'tool_result': {
+          const tool = tools.get(ev.call_id);
+          if (tool) { tool.summary.textContent = `${ev.name} · ${ev.ms} ms`; tool.output.textContent = ev.output ?? ev.summary; }
+          break;
+        }
+        case 'trimmed': row('dim', `上下文已省略 ${ev.count} 条早期工具输出`, fragment); break;
+        case 'compact': row('dim', `上下文已压缩，节省 ${ev.savedTokens} Tokens`, fragment); break;
+        case 'command': row('cmdout', ev.output || '(无输出)', fragment); break;
+        case 'turn_end':
+          if (ev.reason === 'error' && ev.error) row('error', ev.error, fragment);
+          else if (ev.reason === 'aborted') row('dim', '本轮已停止', fragment);
+          break;
+      }
+    }
+    flushAssistant();
+    for (const ev of view.pending || []) permissionCard(ev, fragment);
+    if (!fragment.childNodes.length) {
+      const empty = row('empty', undefined, fragment);
+      const heading = document.createElement('h1'); heading.textContent = '从一个具体任务开始';
+      const p = document.createElement('p'); p.textContent = view.ready ? '描述要修改、排查或理解的内容。执行前会展示需要审批的操作。' : '先配置模型和工作区，再开始第一个任务。';
+      empty.append(heading, p);
+    }
+    const previousScroll = log.scrollTop; log.replaceChildren(fragment);
+    log.scrollTop = bottom ? log.scrollHeight : previousScroll;
+  }
+  function applyState(state) {
+    if (view && state.currentSessionId === view.currentSessionId && Number(state.seq) < lastSeq) return;
+    const refreshDiff = view && ((view.busy && !state.busy) || view.config?.workspace !== state.config?.workspace);
+    view = state; lastSeq = Number(state.seq) || 0;
+    $('title').textContent = state.title || 'tcode';
+    $('model').textContent = `${state.config?.model || '模型未配置'} · ${state.config?.protocol === 'auto' ? '自动识别协议' : state.config?.protocol || ''}`;
+    const workspace = state.config?.workspace || '';
+    $('workspace-name').textContent = (workspace.split(/[\\/]/).filter(Boolean).at(-1) || '当前项目') + ' · 会话';
+    $('storage-warning').textContent = state.storageError || ''; $('storage-warning').hidden = !state.storageError;
+    $('config-workspace').textContent = workspace || '尚未选择目录';
+    $('app-version').textContent = state.version || '—'; $('data-dir').textContent = state.dataDir || '—';
+    applyPreferences();
+    controls(); renderLog();
+    if (refreshDiff && !$('diff-panel').hidden) void loadDiff();
+    if (!state.ready && !setupOpened) { setupOpened = true; openSettings('model'); }
+  }
+  function settingsFeedback(message, error = false) {
+    $('settings-feedback').textContent = message; $('settings-feedback').hidden = !message;
+    $('settings-feedback').classList.toggle('error', error);
+  }
+  function openSettings(section = 'general') {
+    if (!view || saving || changing) return;
+    const changedSection = settingsSection !== section;
+    settingsSection = section; settingsFeedback('');
+    $('workspace-sidebar').hidden = true; $('chat').hidden = true; toggleDiff(false); $('settings-page').hidden = false;
+    for (const panel of document.querySelectorAll('[data-settings]')) panel.hidden = panel.dataset.settings !== section;
+    if (changedSection) $('settings-page').querySelector('main').scrollTop = 0;
+    for (const button of document.querySelectorAll('[data-section]')) {
+      if (button.dataset.section === section) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+    }
+    const config = view.config;
+    $('config-base-url').value = config.baseUrl || ''; $('config-model').value = config.model || '';
+    $('config-api-key').value = ''; $('config-protocol').value = config.protocol || 'auto';
+    $('config-context-limit').value = config.contextLimit || 100000;
+    $('config-error').textContent = view.configError || '';
+    $('approval').value = config.approval || 'normal'; extraWriteDirs = [...(config.allowWriteDirs || [])]; renderWriteDirs();
+    const preferences = view.preferences || { theme: 'system', fontSize: 16, enterToSend: true };
+    $('theme').value = preferences.theme; $('font-size').value = String(preferences.fontSize); $('enter-to-send').checked = preferences.enterToSend;
+    if (section === 'usage') void loadUsage();
+    if (section === 'commands') renderCommands();
+    if (section === 'skills') { skillRequest++; $('skill-form').hidden = true; renderSkills(); }
+  }
+  function renderSkills() {
+    const fragment = document.createDocumentFragment();
+    for (const skill of view.capabilities?.skills || []) {
+      const entry = row('capability-entry', undefined, fragment), bar = row('bar', undefined, entry);
+      const name = document.createElement('code'); name.textContent = skill.name + (skill.scope === 'global' ? '（全局）' : '（项目）');
+      const button = document.createElement('button'); button.textContent = '编辑'; button.setAttribute('aria-label', '编辑技能 ' + name.textContent);
+      button.disabled = !connected || saving || changing; button.onclick = () => editSkill(skill);
+      bar.append(name, button); const description = document.createElement('p'); description.textContent = skill.description; entry.append(description);
+      const path = document.createElement('div'); path.className = 'settings-path'; path.textContent = skill.path; entry.append(path);
+    }
+    if (!fragment.childNodes.length) row('dim', '暂无技能。新建一个 Markdown 文件即可使用；已有 .tcode/skills/*.md 会自动列出。', fragment);
+    $('skill-list').replaceChildren(fragment);
+  }
+  function fillSkill(name, scope, content, existing) {
+    editingSkill = existing; $('skill-name').value = name; $('skill-name').readOnly = existing;
+    $('skill-scope').value = scope; $('skill-content').value = content;
+    $('skill-editor-title').textContent = existing ? '编辑 ' + name : '新建技能'; $('skill-form').hidden = false; controls();
+  }
+  async function editSkill(skill) {
+    if (saving || changing) return;
+    const request = ++skillRequest; changing = true; controls(); settingsFeedback('');
+    try {
+      const result = await api(`/skills?scope=${encodeURIComponent(skill.scope)}&name=${encodeURIComponent(skill.name)}`);
+      if (request === skillRequest && settingsSection === 'skills') fillSkill(skill.name, skill.scope, result.content, true);
+    } catch (error) { if (request === skillRequest) settingsFeedback(error.message, true); }
+    finally { changing = false; controls(); }
+  }
+  $('skill-new').onclick = () => { if (!view?.busy && !saving && !changing) { skillRequest++; settingsFeedback(''); fillSkill('', 'project', '', false); $('skill-name').focus(); } };
+  $('skill-cancel').onclick = () => { if (!saving && !changing) { skillRequest++; $('skill-form').hidden = true; $('skill-content').value = ''; } };
+  $('skill-form').onsubmit = async (event) => {
+    event.preventDefault(); if (!view || view.busy || saving || changing) return;
+    let name = $('skill-name').value.trim(); if (!name.endsWith('.md')) name += '.md';
+    const scope = $('skill-scope').value, content = $('skill-content').value;
+    saving = true; controls(); settingsFeedback('');
+    try { const result = await api('/skills', { scope, name, content }); applyState(result.state); fillSkill(name, scope, content, true); settingsFeedback('技能已保存，下次任务会读取最新内容'); }
+    catch (error) { settingsFeedback(error.message, true); }
+    finally { saving = false; controls(); }
+  };
+  function closeSettings() {
+    if (saving || changing) return;
+    settingsSection = null; $('config-api-key').value = ''; $('settings-page').hidden = true;
+    $('workspace-sidebar').hidden = false; $('chat').hidden = false; input.focus();
+  }
+  function renderCommands() {
+    const commands = document.createDocumentFragment(), tools = document.createDocumentFragment();
+    for (const command of view.capabilities?.commands || []) {
+      const entry = row('capability-entry', undefined, commands), bar = row('bar', undefined, entry);
+      const name = document.createElement('code'); name.textContent = command.usage || '/' + command.name;
+      const button = document.createElement('button'); const line = command.name.startsWith('/') ? command.name : '/' + command.name;
+      button.textContent = '填入'; button.setAttribute('aria-label', '填入 ' + line); button.disabled = !view.ready || view.busy || !connected;
+      button.onclick = () => { closeSettings(); input.value = line; input.focus(); };
+      bar.append(name, button); const description = document.createElement('p'); description.textContent = command.description; entry.append(description);
+    }
+    for (const tool of view.capabilities?.tools || []) {
+      const entry = row('capability-entry', undefined, tools); const name = document.createElement('code'); name.textContent = tool.name;
+      const description = document.createElement('p'); description.textContent = tool.description; entry.append(name, description);
+    }
+    if (!commands.childNodes.length) row('dim', '暂无命令', commands);
+    if (!tools.childNodes.length) row('dim', '暂无工具', tools);
+    $('command-list').replaceChildren(commands); $('tool-list').replaceChildren(tools);
+  }
+  async function loadUsage() {
+    const request = ++usageRequest; $('usage-refresh').disabled = true; $('usage-total').textContent = '正在读取…';
+    try {
+      const usage = await api('/usage'); if (request !== usageRequest) return;
+      const format = (value) => Number(value || 0).toLocaleString('zh-CN');
+      $('usage-total').textContent = `${format(usage.totalTokens)} Tokens`;
+      $('usage-input').textContent = `${format(usage.inputTokens)} 输入`; $('usage-output').textContent = `${format(usage.outputTokens)} 输出`;
+      $('usage-scope').textContent = `${format(usage.sessions)} 个会话 · ${format(usage.projects)} 个项目`;
+    } catch (error) { if (request === usageRequest) { $('usage-total').textContent = '读取失败'; settingsFeedback(error.message, true); } }
+    finally { if (request === usageRequest) $('usage-refresh').disabled = false; }
+  }
+  $('usage-refresh').onclick = loadUsage;
+  function applyPreferences() {
+    const preferences = view?.preferences || { theme: 'system', fontSize: 16, enterToSend: true };
+    document.documentElement.dataset.color = preferences.theme === 'system' ? (systemTheme.matches ? 'dark' : 'light') : preferences.theme;
+    document.documentElement.style.setProperty('--message-size', `${preferences.fontSize}px`);
+  }
+  systemTheme.addEventListener('change', applyPreferences);
+  async function savePreferences(changes) {
+    if (!view || view.busy || saving || changing) return;
+    saving = true; controls(); settingsFeedback('');
+    try { const result = await api('/preferences', { ...view.preferences, ...changes }); applyState(result.state); settingsFeedback('设置已保存'); }
+    catch (error) { settingsFeedback(error.message, true); }
+    finally { saving = false; controls(); }
+  }
+  $('general-form').onsubmit = (event) => { event.preventDefault(); void savePreferences({ enterToSend: $('enter-to-send').checked }); };
+  $('appearance-form').onsubmit = (event) => { event.preventDefault(); void savePreferences({ theme: $('theme').value, fontSize: Number($('font-size').value) }); };
+  function renderWriteDirs() {
+    const fragment = document.createDocumentFragment();
+    for (const directory of extraWriteDirs) {
+      const entry = row('directory-entry', undefined, fragment); const path = document.createElement('span'); path.textContent = directory;
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '移除'; remove.setAttribute('aria-label', '移除 ' + directory);
+      remove.onclick = () => { extraWriteDirs = extraWriteDirs.filter((item) => item !== directory); renderWriteDirs(); controls(); };
+      entry.append(path, remove);
+    }
+    if (!extraWriteDirs.length) row('dim', '未配置免审批目录', fragment);
+    $('extra-write-dirs').replaceChildren(fragment);
+  }
+  async function selectDirectory() {
+    return window.__TAURI__?.core?.invoke ? await window.__TAURI__.core.invoke('select_workspace') : (await api('/workspace/pick', {})).workspace;
+  }
+  $('extra-dir-pick').onclick = async () => {
+    if (!view || view.busy || changing || saving) return;
+    changing = true; controls(); settingsFeedback('');
+    try { const directory = await selectDirectory(); if (directory && !extraWriteDirs.includes(directory)) { extraWriteDirs.push(directory); renderWriteDirs(); } }
+    catch (error) { settingsFeedback(error.message, true); }
+    finally { changing = false; controls(); }
+  };
+  $('permissions-form').onsubmit = async (event) => {
+    event.preventDefault(); if (!view || view.busy || saving || changing) return;
+    saving = true; controls(); settingsFeedback('');
+    try { const result = await api('/config', { approval: $('approval').value, allowWriteDirs: extraWriteDirs }); applyState(result.state); settingsFeedback('设置已保存'); }
+    catch (error) { settingsFeedback(error.message, true); }
+    finally { saving = false; controls(); }
+  };
+  $('settings').onclick = () => openSettings('model');
+  $('settings-home').onclick = () => openSettings();
+  for (const button of document.querySelectorAll('[data-section]')) button.onclick = () => { if (!saving && !changing) openSettings(button.dataset.section); };
+  async function changeWorkspace(workspace) {
+    if (!view || view.busy || changing || workspace === view.config.workspace) return;
+    changing = true; controls(); clearError();
+    try { const result = await api('/workspace', { workspace }); $('search').value = ''; applyState(result.state); input.value = ''; }
+    catch (error) { showError(error); }
+    finally { changing = false; controls(); }
+  }
+  async function pickWorkspace() {
+    if (!view || view.busy || changing) return;
+    changing = true; controls(); clearError();
+    try {
+      const workspace = await selectDirectory();
+      if (workspace) { const result = await api('/workspace', { workspace }); applyState(result.state); }
+    } catch (error) { showError(error); }
+    finally { changing = false; controls(); }
+  }
+  $('workspace-pick').onclick = pickWorkspace;
+  $('general-workspace-pick').onclick = pickWorkspace;
+  $('search-open').onclick = () => $('search').focus();
+  $('search').oninput = renderSessions;
+  $('rename-close').onclick = () => { if (!changing) $('rename-dialog').close(); };
+  $('rename-dialog').addEventListener('cancel', (event) => { if (changing) event.preventDefault(); });
+  $('rename-form').onsubmit = async (event) => {
+    event.preventDefault(); if (view.busy || changing) return;
+    const title = $('rename-input').value.trim(); if (!title) return;
+    changing = true; controls(); $('rename-save').disabled = true; $('rename-close').disabled = true;
+    try { const result = await api('/session/rename', { id: renamingId, title }); applyState(result.state); $('rename-dialog').close(); }
+    catch (error) { $('rename-error').textContent = error.message; }
+    finally { changing = false; $('rename-save').disabled = false; $('rename-close').disabled = false; controls(); }
+  };
+  $('settings-close').onclick = closeSettings;
+  $('settings-form').onsubmit = async (event) => {
+    event.preventDefault(); if (saving || view?.busy) return;
+    saving = true; controls(); $('config-error').textContent = '';
+    const config = {
+      baseUrl: $('config-base-url').value.trim(), model: $('config-model').value.trim(), apiKey: $('config-api-key').value,
+      protocol: $('config-protocol').value, contextLimit: Number($('config-context-limit').value),
+    };
+    try { const result = await api('/config', config); applyState(result.state); $('config-api-key').value = ''; settingsFeedback('设置已保存'); clearError(); }
+    catch (error) { $('config-error').textContent = error.message; }
+    finally { saving = false; $('settings-save').disabled = false; $('settings-close').disabled = false; controls(); }
+  };
+  async function sendLine() {
+    const text = input.value.trim(); if (!text || input.disabled || sending) return;
+    sending = true; controls(); clearError();
+    try {
+      const result = await api(text.startsWith('/') ? '/command' : '/send', text.startsWith('/') ? { line: text } : { text });
+      input.value = ''; if (result.state) applyState(result.state);
+      if (result.exit) row('dim', '服务已退出，可关闭页面');
+    } catch (error) { showError(error); }
+    finally { sending = false; controls(); }
+  }
+  $('send').onclick = sendLine;
+  input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey || (view?.preferences?.enterToSend !== false && !event.shiftKey))) { event.preventDefault(); void sendLine(); } });
+  $('stop').onclick = async () => {
+    $('stop').disabled = true;
+    try { const result = await api('/abort', {}); if (result.state) applyState(result.state); }
+    catch (error) { showError(error); controls(); }
+  };
+  $('new').onclick = async () => {
+    if (view.busy || changing) return; changing = true; controls();
+    try { clearError(); const result = await api('/session/new', {}); $('search').value = ''; applyState(result.state); input.value = ''; }
+    catch (error) { showError(error); }
+    finally { changing = false; controls(); input.focus(); }
+  };
+  $('yolo').onchange = async () => {
+    $('yolo').disabled = true;
+    try { const result = await api('/yolo', { value: $('yolo').checked }); applyState(result.state); }
+    catch (error) { showError(error); controls(); }
+  };
+  const events = new EventSource(base + '/events');
+  events.onopen = () => { connected = true; controls(); };
+  events.onerror = () => { connected = false; controls(); renderLog(); };
+  events.onmessage = ({ data }) => {
+    try {
+      const ev = JSON.parse(data);
+      if (ev.type === 'hello' || ev.type === 'state') { if (ev.state) applyState(ev.state); return; }
+      if (ev.type === 'error' || ev.type === 'aborted') return;
+      if (!view || (ev.seq !== undefined && ev.seq <= lastSeq)) return;
+      if (ev.seq !== undefined) lastSeq = ev.seq;
+      view.activity.push(ev);
+      if (ev.type === 'permission') { view.pending.push(ev); view.status = 'waiting_approval'; }
+      if (ev.type === 'turn_start') { view.busy = true; view.status = 'running'; }
+      if (ev.type === 'turn_end') { view.busy = false; view.status = ev.reason || 'completed'; view.pending = []; }
+      if (ev.type === 'usage') {
+        view.usage.prompt_tokens += ev.prompt_tokens || 0; view.usage.completion_tokens += ev.completion_tokens || 0;
+      }
+      controls(); renderLog();
+      if (ev.type === 'turn_end' && !$('diff-panel').hidden) void loadDiff();
+    } catch (error) { showError(new Error('无法同步会话状态：' + error.message)); }
+  };
+  controls();
+  api('/state').then(applyState).catch(showError);
 </script>
 </body>
 </html>

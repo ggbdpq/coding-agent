@@ -1,16 +1,22 @@
 // web 壳插件：本地 HTTP 服务 + 浏览器单文件 UI。零依赖（node:http + 原生 EventSource）。
 // 信任边界安全闸（不可省）：只绑 127.0.0.1；URL 携带随机 token；Host/Origin 双校验——
 // 浏览器里任何网页都能对 localhost 端口发 POST，没有这两道闸等于网页可远程触发命令执行。
-// ponytail: 单会话单服务、无鉴权体系、不自动开浏览器（打印 URL 自己点）；多会话/认证
-// 等真实需求出现再加。
+// 同一服务仅运行一个项目的一轮任务；历史会话复用 JSONL，不另建数据库。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync, lstatSync, existsSync, mkdirSync, writeFileSync, renameSync, realpathSync } from 'node:fs';
+import nodePath from 'node:path';
 import { createPermissionGate, type PermissionDecision } from '../core/permission.ts';
 import { runUserTurn } from '../core/turn.ts';
 import type { AgentEvent } from '../kernel/types.ts';
-import { VERSION, type App } from '../kernel/app.ts';
+import { VERSION, selectProvider, type App } from '../kernel/app.ts';
+import { saveWebConfig, saveWorkspace, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
+import { SessionStore } from '../core/session.ts';
+import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
+import { workspaceDiff } from './webdiff.ts';
+import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
+import { pickWorkspace } from './workspacepicker.ts';
 
 const BODY_LIMIT = 1024 * 1024;
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
@@ -21,25 +27,58 @@ const json = (res: ServerResponse, status: number, body: unknown) => {
 };
 
 export async function startWeb(app: App): Promise<void> {
+  if (!(app.store instanceof SessionStore)) throw new Error('Web 工作台需要 SessionStore');
+  const store = app.store;
   const token = randomBytes(12).toString('base64url');
   const page = readFileSync(new URL('./web.html', import.meta.url), 'utf8');
 
   const sseClients = new Set<ServerResponse>();
+  const activity: Record<string, unknown>[] = [];
+  let seq = 0;
+  let status = 'idle';
+  let turnId: string | null = null;
+  let usage = { prompt_tokens: 0, completion_tokens: 0 };
+  let storageError: string | undefined;
+  let pickerOpen = false;
+  const safeError = (message: string) => app.config.apiKey ? message.split(app.config.apiKey).join('[凭证已隐藏]') : message;
   const sendEvent = (ev: Record<string, unknown>) => {
-    const line = `data: ${JSON.stringify(ev)}\n\n`;
+    const packet = { ...ev, seq: ++seq, sessionId: store.currentId };
+    if (!['state', 'error', 'aborted'].includes(String(ev.type))) {
+      activity.push(packet);
+      try { store.appendActivity(packet); }
+      catch { storageError = '本地会话保存失败，请检查数据目录的空间和权限'; }
+    }
+    const line = `data: ${JSON.stringify(packet)}\n\n`;
     for (const res of sseClients) res.write(line);
   };
 
   // 权限 UI 适配：发 permission 事件带 id，等 /permission 端点回传三态决定
   const pending = new Map<string, (d: PermissionDecision) => void>();
   let permSeq = 0;
+  const permissions = new Map<string, Record<string, unknown>>();
   const gate = createPermissionGate(
     {
       ask: ({ tool, preview }) =>
-        new Promise((resolve) => {
+        new Promise((resolve, reject) => {
           const id = `p${++permSeq}`;
-          pending.set(id, resolve);
-          sendEvent({ type: 'permission', id, tool, preview });
+          const signal = abort?.signal;
+          const cancel = () => {
+            pending.delete(id);
+            permissions.delete(id);
+            reject(new DOMException('用户已停止', 'AbortError'));
+          };
+          if (signal?.aborted) { cancel(); return; }
+          signal?.addEventListener('abort', cancel, { once: true });
+          pending.set(id, (decision) => {
+            permissions.delete(id);
+            signal?.removeEventListener('abort', cancel);
+            if (signal?.aborted) cancel();
+            else resolve(decision);
+          });
+          status = 'waiting_approval';
+          const request = { type: 'permission', id, tool, preview };
+          permissions.set(id, request);
+          sendEvent(request);
         }),
     },
     app.yolo
@@ -56,6 +95,164 @@ export async function startWeb(app: App): Promise<void> {
 
   let busy = false;
   let abort: AbortController | null = null;
+
+  function fromMessages(messages: ChatMessage[]): Record<string, unknown>[] {
+    return messages.flatMap((message) => {
+      if (message.role === 'user') return [{ type: 'user', text: message.content ?? '' }];
+      if (message.role === 'tool') return [{ type: 'tool_result', call_id: message.tool_call_id, name: 'tool', output: message.content ?? '', summary: (message.content ?? '').split('\n')[0], ms: 0 }];
+      if (message.role !== 'assistant') return [];
+      const result: Record<string, unknown>[] = message.content ? [{ type: 'text', delta: message.content }] : [];
+      for (const call of message.tool_calls ?? []) {
+        let args = {}; try { args = JSON.parse(call.function.arguments); } catch {}
+        result.push({ type: 'tool_call', call_id: call.id, name: call.function.name, args });
+      }
+      return result;
+    });
+  }
+
+  function replaceActivity(events: Record<string, unknown>[]) {
+    activity.length = 0; usage = { prompt_tokens: 0, completion_tokens: 0 };
+    status = 'idle'; turnId = null; storageError = undefined;
+    for (const event of events) {
+      seq = Math.max(seq, Number(event.seq) || 0);
+      if (event.type === 'usage') {
+        usage.prompt_tokens += Number(event.prompt_tokens) || 0;
+        usage.completion_tokens += Number(event.completion_tokens) || 0;
+      }
+      if (event.type === 'turn_start') turnId = String(event.id);
+      if (event.type === 'turn_end') status = String(event.reason);
+      activity.push(event); store.appendActivity(event);
+    }
+    const lastStart = events.findLastIndex((event) => event.type === 'turn_start');
+    const lastEnd = events.findLastIndex((event) => event.type === 'turn_end');
+    if (lastStart > lastEnd) {
+      status = 'aborted';
+      sendEvent({ type: 'turn_end', reason: 'aborted', error: '服务重启，上轮执行已中断' });
+    }
+  }
+
+  function activate(id: string) {
+    const history = store.history(id, app.config.workspace ?? process.cwd());
+    const messages = history.messages.filter((message) => message.role !== 'system');
+    const lastStart = history.activity.findLastIndex((event) => event.type === 'turn_start');
+    const lastEnd = history.activity.findLastIndex((event) => event.type === 'turn_end');
+    if (lastStart > lastEnd) {
+      // 强制退出时消息可能尚未落盘；回放本轮已保存事件，工具无结果时明确标记未知。
+      const tail: ChatMessage[] = [];
+      let assistant: ChatMessage | undefined;
+      const flush = () => { if (assistant) tail.push(assistant); assistant = undefined; };
+      for (const event of history.activity.slice(lastStart)) {
+        if (event.type === 'user') { flush(); tail.push({ role: 'user', content: String(event.text ?? '') }); }
+        if (event.type === 'text') {
+          assistant ??= { role: 'assistant', content: '' };
+          assistant.content = (assistant.content ?? '') + String(event.delta ?? '');
+        }
+        if (event.type === 'tool_call') {
+          assistant ??= { role: 'assistant', content: '' };
+          (assistant.tool_calls ??= []).push({ id: String(event.call_id), type: 'function', function: { name: String(event.name), arguments: JSON.stringify(event.args ?? {}) } });
+        }
+        if (event.type === 'tool_result') { flush(); tail.push({ role: 'tool', tool_call_id: String(event.call_id), content: String(event.output ?? event.summary ?? '') }); }
+      }
+      flush();
+      const answered = new Set(tail.filter((message) => message.role === 'tool').map((message) => message.tool_call_id));
+      for (const message of tail) {
+        for (const call of message.tool_calls ?? []) {
+          if (!answered.has(call.id)) tail.push({ role: 'tool', tool_call_id: call.id, content: '（服务中断，执行结果未知；请先检查文件或命令结果）' });
+        }
+      }
+      // 消息落盘与终态事件之间也可能退出，已有本轮消息时替换断尾，避免重复目标。
+      const userCount = history.activity.filter((event) => event.type === 'user').length;
+      if (userCount === messages.filter((message) => message.role === 'user').length && tail[0]?.content === messages.findLast((message) => message.role === 'user')?.content) {
+        messages.splice(messages.findLastIndex((message) => message.role === 'user'));
+      }
+      messages.push(...tail);
+    }
+    resetModes(); app.resetMessages(); app.messages.push(...messages);
+    app.startSession({ sessionId: id, resumedFrom: history.file.split(/[\\/]/).pop() });
+    messages.forEach((message) => store.append(message));
+    replaceActivity(history.activity.length ? history.activity : fromMessages(messages));
+  }
+
+  function resetModes() {
+    app.yolo.value = app.config.approval === 'never';
+    app.planMode.value = false;
+  }
+
+  function skillDirectories() {
+    return [nodePath.join(app.config.tcodeDir, 'skills'), nodePath.join(app.config.workspace ?? process.cwd(), '.tcode', 'skills')];
+  }
+
+  function skillFile(scope: unknown, name: unknown) {
+    if (scope !== 'global' && scope !== 'project') throw new ConfigInputError('技能范围须为 global 或 project');
+    if (scope === 'project' && app.config.workspace === '') throw new ConfigInputError('请先选择项目');
+    if (typeof name !== 'string' || !/^[\p{L}\p{N}_-][\p{L}\p{N} _.-]{0,99}\.md$/u.test(name)) throw new ConfigInputError('技能名称须为 .md 文件名，不能含目录');
+    const dir = skillDirectories()[scope === 'global' ? 0 : 1]!;
+    const parent = nodePath.dirname(dir);
+    const anchor = scope === 'global' ? app.config.tcodeDir : app.config.workspace ?? process.cwd();
+    if ((existsSync(parent) && lstatSync(parent).isSymbolicLink()) || (existsSync(dir) && lstatSync(dir).isSymbolicLink())) throw new ConfigInputError('技能目录不能是符号链接');
+    if (existsSync(dir) && !realpathSync(dir).startsWith(realpathSync(anchor) + nodePath.sep)) throw new ConfigInputError('技能目录越界');
+    const file = nodePath.join(dir, name);
+    try { if (!lstatSync(file).isFile()) throw new ConfigInputError('技能文件须为普通文件'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    return { dir, file, name };
+  }
+
+  function refreshSystemPrompt() {
+    const marker = '\n# Plan Mode（当前生效）';
+    const previous = app.messages[0]?.content ?? '';
+    const plan = app.planMode.value && previous.includes(marker) ? previous.slice(previous.indexOf(marker)) : '';
+    app.messages[0] = { role: 'system', content: buildSystemPrompt(app.config.workspace ?? process.cwd(), undefined, app.config.tcodeDir) + plan };
+  }
+
+  if (app.messages.length > 1) replaceActivity(fromMessages(app.messages));
+  else {
+    const cwd = app.config.workspace ?? process.cwd();
+    const recent = cwd && store.listWorkspace(cwd).find((session) => session.id !== store.currentId && session.label);
+    if (recent) activate(recent.id);
+  }
+
+  function snapshot() {
+    const { baseUrl, model, protocol, contextLimit, apiKey, workspace, configError } = app.config;
+    const cwd = workspace ?? process.cwd();
+    const sessions = cwd ? store.listWorkspace(cwd)
+      .filter((session) => session.label || session.id === store.currentId)
+      .map(({ file: _file, ...session }) => session) : [];
+    const projects = [...new Set([...(app.config.projects ?? []), ...(cwd ? [cwd] : [])])].map((directory) => {
+      let available = false; try { available = statSync(directory).isDirectory(); } catch {}
+      return { path: directory, name: nodePath.basename(directory) || directory, available,
+        sessionCount: store.listWorkspace(directory).filter((session) => session.label).length };
+    });
+    return { ready: !!(apiKey && baseUrl && model && cwd && !configError), projects,
+      version: VERSION, dataDir: app.config.tcodeDir,
+      preferences: app.config.preferences ?? { theme: 'system', fontSize: 16, enterToSend: true },
+      capabilities: {
+        commands: app.registry.commands().map((command) => ({ name: command.name, usage: command.usage, description: command.summary })),
+        tools: app.registry.tools().map((tool) => ({ name: tool.name, description: tool.description })),
+        skills: skillDirectories().flatMap((dir, index) => index && app.config.workspace === '' ? [] : discoverSkills([dir]).map((skill) => ({ ...skill, scope: index ? 'project' : 'global' }))),
+      },
+      config: { baseUrl, model, protocol: protocol ?? 'auto', contextLimit, workspace: cwd, hasApiKey: !!apiKey,
+        approval: app.config.approval ?? 'normal', allowWriteDirs: app.config.allowWriteDirs ?? [] },
+      configError, storageError, currentSessionId: store.currentId, title: sessions.find((session) => session.id === store.currentId)?.title ?? '新会话', sessions,
+      messages: app.messages.filter((message) => message.role !== 'system'), activity, status, busy,
+      yolo: app.yolo.value, planMode: app.planMode.value, pending: [...permissions.values()], usage, turnId, seq,
+    };
+  }
+
+  function switchWorkspace(next: typeof app.config) {
+    const changed = next.workspace !== (app.config.workspace ?? process.cwd());
+    if (next.workspace) process.chdir(next.workspace); Object.assign(app.config, next);
+    if (changed) {
+      resetModes(); app.resetMessages(); app.startSession(); replaceActivity([]);
+      const recent = store.listWorkspace(process.cwd()).find((session) => session.id !== store.currentId && session.label);
+      if (recent) activate(recent.id);
+    }
+  }
+
+  function sendState() {
+    const packet = { type: 'state', seq: ++seq, state: snapshot() };
+    const line = `data: ${JSON.stringify(packet)}\n\n`;
+    for (const res of sseClients) res.write(line);
+  }
 
   const readBody = (req: IncomingMessage) =>
     new Promise<string>((resolve, reject) => {
@@ -74,6 +271,8 @@ export async function startWeb(app: App): Promise<void> {
   /** EventBridge：规范 AgentEvent → 浏览器线协议（保持既有 SSE 事件名不变） */
   function bridgeEvent(ev: AgentEvent): void {
     switch (ev.type) {
+      case 'turn_start':
+        turnId = ev.id; status = 'running'; sendEvent(ev); break;
       case 'user':
         sendEvent({ type: 'user', text: ev.text });
         break;
@@ -81,21 +280,27 @@ export async function startWeb(app: App): Promise<void> {
         sendEvent({ type: 'text', delta: ev.delta });
         break;
       case 'tool_call':
-        sendEvent({ type: 'tool_call', name: ev.name, args: ev.args });
+        sendEvent({ type: 'tool_call', call_id: ev.call_id, name: ev.name, args: ev.args });
         break;
       case 'tool_result':
-        sendEvent({ type: 'tool_result', name: ev.name, summary: ev.summary, ms: ev.ms });
+        sendEvent({ ...ev });
         break;
+      case 'usage':
+        usage.prompt_tokens += ev.prompt_tokens;
+        usage.completion_tokens += ev.completion_tokens;
+        sendEvent(ev); break;
+      case 'compact': sendEvent(ev); break;
       case 'trimmed':
         sendEvent({ type: 'trimmed', count: ev.count });
         break;
       case 'turn_end':
+        status = ev.reason;
         if (ev.reason === 'aborted') sendEvent({ type: 'aborted' });
-        else if (ev.reason === 'error') sendEvent({ type: 'error', message: ev.error ?? '未知错误' });
-        sendEvent({ type: 'turn_end' });
+        else if (ev.reason === 'error') sendEvent({ type: 'error', message: safeError(ev.error ?? '未知错误') });
+        sendEvent({ ...ev, error: ev.error ? safeError(ev.error) : undefined });
         break;
       default:
-        break; // turn_start 无线协议对应物
+        break;
     }
   }
 
@@ -111,6 +316,8 @@ export async function startWeb(app: App): Promise<void> {
     } finally {
       busy = false;
       abort = null;
+      pending.clear(); permissions.clear();
+      sendState();
     }
   }
 
@@ -133,6 +340,85 @@ export async function startWeb(app: App): Promise<void> {
     }
     const path = m[2] ?? '/';
 
+    // 读取请求体可能让出执行权；全部状态检查必须在读取之后，检查到执行间不再 await。
+    let body: Record<string, unknown> = {};
+    if (req.method === 'POST') {
+      try {
+        const value = JSON.parse(await readBody(req)) as unknown;
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
+        body = value as Record<string, unknown>;
+      } catch { json(res, 400, { error: '请求须为 JSON 对象' }); return; }
+    }
+
+    if (req.method === 'GET' && path === '/state') { json(res, 200, snapshot()); return; }
+    if (req.method === 'GET' && path === '/usage') {
+      const sessions = store.listWorkspace().filter((session) => session.label);
+      const inputTokens = sessions.reduce((total, session) => total + session.usage.prompt_tokens, 0);
+      const outputTokens = sessions.reduce((total, session) => total + session.usage.completion_tokens, 0);
+      json(res, 200, { sessions: sessions.length, projects: new Set(sessions.map((session) => session.cwd)).size,
+        inputTokens, outputTokens, totalTokens: inputTokens + outputTokens }); return;
+    }
+    if (req.method === 'GET' && path === '/skills') {
+      const skill = skillFile(url.searchParams.get('scope'), url.searchParams.get('name'));
+      if (!existsSync(skill.file)) { json(res, 404, { error: '技能不存在' }); return; }
+      if (statSync(skill.file).size > 256 * 1024) throw new ConfigInputError('技能正文超过 256KB，无法在设置中编辑');
+      json(res, 200, { name: skill.name, content: readFileSync(skill.file, 'utf8') }); return;
+    }
+    if (req.method === 'POST' && path === '/skills') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改技能' }); return; }
+      const skill = skillFile(body.scope, body.name);
+      if (typeof body.content !== 'string' || !body.content.trim() || Buffer.byteLength(body.content) > 256 * 1024) throw new ConfigInputError('技能正文须为非空文本，且不超过 256KB');
+      mkdirSync(skill.dir, { recursive: true, mode: 0o700 });
+      const temporary = nodePath.join(skill.dir, `.${randomBytes(8).toString('hex')}.tmp`);
+      writeFileSync(temporary, body.content, { mode: 0o600, flag: 'wx' }); renameSync(temporary, skill.file);
+      refreshSystemPrompt();
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'GET' && path === '/diff') {
+      json(res, 200, await workspaceDiff(app.config.workspace ?? process.cwd())); return;
+    }
+    if (req.method === 'POST' && path === '/workspace') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能切换项目' }); return; }
+      switchWorkspace(saveWorkspace(app.config, body.workspace));
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/workspace/pick') {
+      if (busy || pickerOpen) { json(res, 409, { error: '任务或目录选择器正在运行' }); return; }
+      pickerOpen = true;
+      try { json(res, 200, { workspace: await pickWorkspace() }); }
+      finally { pickerOpen = false; }
+      return;
+    }
+    if (req.method === 'POST' && path === '/preferences') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改设置' }); return; }
+      Object.assign(app.config, saveWebPreferences(app.config, body));
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/config') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改配置' }); return; }
+      const next = saveWebConfig(app.config, body);
+      const provider = selectProvider(next, app.registry);
+      switchWorkspace(next); app.provider = provider;
+      if (body.approval !== undefined) app.yolo.value = next.approval === 'never';
+      json(res, 200, { ok: true, state: snapshot() });
+      sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/yolo') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能修改权限' }); return; }
+      if (typeof body.value !== 'boolean') { json(res, 400, { error: '权限值须为布尔值' }); return; }
+      app.yolo.value = body.value;
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path.startsWith('/session/')) {
+      if (busy) { json(res, 409, { error: '任务运行期间不能切换或修改会话' }); return; }
+      if (!snapshot().ready) { json(res, 409, { error: '请先配置模型与项目' }); return; }
+      if (path === '/session/new') { resetModes(); app.resetMessages(); app.startSession(); replaceActivity([]); }
+      else if (path === '/session/select') activate(String(body.id ?? ''));
+      else if (path === '/session/rename') store.rename(String(body.id ?? ''), process.cwd(), String(body.title ?? ''));
+      else { json(res, 404, { error: '未知会话操作' }); return; }
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+
     if (req.method === 'GET' && (path === '/' || path === '')) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(page);
@@ -145,7 +431,7 @@ export async function startWeb(app: App): Promise<void> {
         connection: 'keep-alive',
       });
       res.write(
-        `data: ${JSON.stringify({ type: 'hello', model: app.config.model, yolo: app.yolo.value, version: VERSION })}\n\n`
+        `data: ${JSON.stringify({ type: 'hello', model: app.config.model, yolo: app.yolo.value, version: VERSION, state: snapshot() })}\n\n`
       );
       sseClients.add(res);
       req.on('close', () => sseClients.delete(res));
@@ -156,18 +442,18 @@ export async function startWeb(app: App): Promise<void> {
         json(res, 409, { error: '上一轮还在跑，先停止或等它结束' });
         return;
       }
-      const body = JSON.parse(await readBody(req)) as { text?: string };
+      if (!snapshot().ready) { json(res, 409, { error: '请先在模型设置中完成模型与项目配置' }); return; }
       const text = String(body.text ?? '').trim();
       if (!text) {
         json(res, 400, { error: '空输入' });
         return;
       }
       json(res, 200, { ok: true });
-      void runTurnAsync(text);
+      // turn 已通过 SSE 发出错误终态；异步任务必须接收拒绝，不能连带退出服务。
+      void runTurnAsync(text).catch(() => {});
       return;
     }
     if (req.method === 'POST' && path === '/permission') {
-      const body = JSON.parse(await readBody(req)) as { id?: string; decision?: string };
       const id = String(body.id ?? '');
       const decision = body.decision;
       const resolve = pending.get(id);
@@ -177,7 +463,9 @@ export async function startWeb(app: App): Promise<void> {
       }
       pending.delete(id);
       resolve(decision);
+      status = 'running';
       json(res, 200, { ok: true });
+      sendState();
       return;
     }
     if (req.method === 'POST' && path === '/abort') {
@@ -186,27 +474,40 @@ export async function startWeb(app: App): Promise<void> {
       return;
     }
     if (req.method === 'POST' && path === '/command') {
-      const body = JSON.parse(await readBody(req)) as { line?: string };
+      if (busy) { json(res, 409, { error: '任务运行期间不能执行会话命令' }); return; }
       const line = String(body.line ?? '').trim();
       const [rawCmd, ...args] = line.replace(/^\//, '').split(/\s+/);
+      if (rawCmd === 'resume' || rawCmd === 'sessions') {
+        const output = '请使用左侧当前项目的会话列表查看和恢复历史';
+        sendEvent({ type: 'command', output });
+        json(res, 200, { output, state: snapshot() }); return;
+      }
       const cmd = app.registry.commands().find((c) => c.name === rawCmd);
       if (!cmd) {
         json(res, 404, { error: `未知命令 /${rawCmd}，/help 查看可用命令` });
         return;
       }
       captureBuf = [];
+      busy = true;
       try {
+        if (rawCmd === 'new') resetModes();
         const outcome = await cmd.run(app, args);
-        const output = (captureBuf ?? []).join('\n').replace(ANSI_RE, '');
+        const output = safeError((captureBuf ?? []).join('\n').replace(ANSI_RE, ''));
+        if (rawCmd === 'new') replaceActivity([]);
+        sendEvent({ type: 'command', output });
+        busy = false;
         json(res, 200, {
           output,
           exit: outcome?.exit === true,
           reset: rawCmd === 'new' || rawCmd === 'resume',
           yolo: app.yolo.value,
+          state: snapshot(),
         });
+        sendState();
         if (outcome?.exit) setTimeout(() => process.exit(0), 200);
       } finally {
         captureBuf = null;
+        busy = false;
       }
       return;
     }
@@ -215,8 +516,8 @@ export async function startWeb(app: App): Promise<void> {
 
   const server = createServer((req, res) => {
     route(req, res).catch((e: Error) => {
-      if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
+      if (!res.headersSent) res.writeHead(e instanceof ConfigInputError ? 400 : 500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: safeError(e.message) }));
     });
   });
 

@@ -2,7 +2,7 @@
 // 注入顺序：~/.tcode/AGENTS.md（全局）在前，项目根 AGENTS.md 在后（后者更具体）。
 // Skill 约定（蓝图 §三-13）：~/.tcode/skills/*.md 与 <cwd>/.tcode/skills/*.md 为技能库，
 // 此处只注入"可用技能索引"，正文由 agent 按需用 read 工具读取——最小机制，无加载器。
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -15,8 +15,8 @@ function readIfExists(file: string): string | null {
 }
 
 /** 技能索引：列出技能目录中每个 .md 的名字与首行说明（无目录返回 null） */
-export function skillIndex(dirs: string[]): string | null {
-  const lines: string[] = [];
+export function discoverSkills(dirs: string[]) {
+  const skills: Array<{ name: string; description: string; path: string }> = [];
   for (const rawDir of dirs) {
     const dir = path.resolve(rawDir);
     if (!existsSync(dir)) continue;
@@ -24,6 +24,7 @@ export function skillIndex(dirs: string[]): string | null {
     // 也不打断启动（skillIndex 在 fresh_messages 闭包语境被调用，上抛会击穿装配）
     let entries: string[];
     try {
+      if (lstatSync(dir).isSymbolicLink() || lstatSync(path.dirname(dir)).isSymbolicLink()) continue;
       entries = readdirSync(dir);
     } catch (e) {
       process.stderr.write(`skill 索引：跳过不可读目录 ${dir}（${(e as Error).message}）\n`);
@@ -35,6 +36,7 @@ export function skillIndex(dirs: string[]): string | null {
       if (!full.startsWith(dir + path.sep)) continue;
       let desc = '';
       try {
+        if (!lstatSync(full).isFile()) continue;
         const first = readFileSync(full, 'utf8')
           .split('\n')
           .find((l) => l.trim());
@@ -42,14 +44,20 @@ export function skillIndex(dirs: string[]): string | null {
       } catch {
         /* 读不了就只列名字 */
       }
-      lines.push(`- ${path.basename(dir)}/${path.basename(full)}：${desc}（用 read 工具按需读取全文）`);
+      skills.push({ name: f, description: desc, path: full });
     }
   }
-  return lines.length > 0 ? ['## 可用技能（按需用 read 读取全文）', ...lines].join('\n') : null;
+  return skills;
 }
 
-export function buildSystemPrompt(cwd: string, homeDir?: string): string {
+export function skillIndex(dirs: string[]): string | null {
+  const skills = discoverSkills(dirs);
+  return skills.length ? ['## 可用技能（按需用 read 读取全文）', ...skills.map((skill) => `- ${skill.path}：${skill.description}（用 read 工具按需读取全文）`)].join('\n') : null;
+}
+
+export function buildSystemPrompt(cwd: string, homeDir?: string, dataDir?: string): string {
   const home = path.resolve(homeDir ?? homedir());
+  const globalDir = path.resolve(dataDir ?? path.join(home, '.tcode'));
   const today = new Date().toISOString().slice(0, 10);
   const parts = [
     '你是 tcode，一个直接运行在用户本地终端的极简 coding agent。',
@@ -64,12 +72,12 @@ export function buildSystemPrompt(cwd: string, homeDir?: string): string {
     '- 找不到文件时先用 glob/grep 定位，不要瞎猜路径。',
     '- 回答用简体中文，简洁直接。',
   ];
-  const global = readIfExists(path.join(path.resolve(home), '.tcode', 'AGENTS.md'));
+  const global = readIfExists(path.join(globalDir, 'AGENTS.md'));
   if (global) parts.push('', '# 用户全局指令（~/.tcode/AGENTS.md）', global);
   const project = readIfExists(path.join(path.resolve(cwd), 'AGENTS.md'));
   if (project) parts.push('', '# 项目指令（AGENTS.md）', project);
   const skills = skillIndex([
-    path.join(path.resolve(home), '.tcode', 'skills'),
+    path.join(globalDir, 'skills'),
     path.join(path.resolve(cwd), '.tcode', 'skills'),
   ]);
   if (skills) parts.push('', skills);
