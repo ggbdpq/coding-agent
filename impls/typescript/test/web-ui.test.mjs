@@ -813,7 +813,7 @@ test('权限设置可保存默认审批和通过选择器添加的额外目录�
     await page.getByText('/tmp/extra-project', { exact: true }).waitFor();
     await page.getByRole('button', { name: '保存权限设置', exact: true }).click();
     await page.getByText('设置已保存', { exact: true }).waitFor();
-    assert.deepEqual(saved, { approval: 'never', allowWriteDirs: ['/tmp/extra-project'], afterTurn: '' });
+    assert.deepEqual(saved, { approval: 'never', allowWriteDirs: ['/tmp/extra-project'], afterTurn: '', beforeTurn: '' });
     await page.reload();
     await page.getByRole('button', { name: '设置', exact: true }).click();
     await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '权限', exact: true }).click();

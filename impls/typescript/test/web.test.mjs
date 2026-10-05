@@ -592,7 +592,7 @@ test('afterTurn 钩子：轮末以项目目录执行、输出回显会话、状�
 test('afterTurn 钩子的 stdout 回显到会话', async (t) => {
   const h = await harness(t, { cli: true, configContent: JSON.stringify({ afterTurn: 'echo hook-ran' }) });
   await h.post('send', { text: '正常回答' });
-  const echoed = await until(() => h.events.findLast((event) => event.type === 'command' && event.output?.includes('轮次钩子输出：')), '钩子输出回显');
+  const echoed = await until(() => h.events.findLast((event) => event.type === 'command' && event.output?.includes('轮结束钩子输出：')), '钩子输出回显');
   assert.match(echoed.output, /hook-ran/);
 });
 
@@ -639,4 +639,37 @@ test('记忆自动沉淀：模型经 memory_append 工具写入并注入后续�
     return request && request.messages[0]?.content?.includes('记住 pnpm');
   }, '下轮 system 注入新记忆');
   assert.match(h.requests.at(-1).messages.at(-1).content ?? '', /记住 pnpm|已记录/, '会话含沉淀内容');
+});
+
+test('beforeTurn 钩子：轮开始前执行、事件与状态经环境变量传递', async (t) => {
+  const marker = path.join(tmpdir(), `tcode-hook-before-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+  t.after(() => { try { unlinkSync(marker); } catch {} });
+  const h = await harness(t, { cli: true, configContent: JSON.stringify({ beforeTurn: `echo "$TCODE_HOOK_EVENT" > '${marker}'` }) });
+  await h.post('send', { text: '正常回答' });
+  await until(() => existsSync(marker), '钩子写标记文件');
+  assert.equal(readFileSync(marker, 'utf8').trim(), 'beforeTurn', '环境变量携带事件名');
+  await until(async () => (await h.state()).status === 'completed', '轮次照常完成');
+});
+
+test('beforeTurn 钩子的 stdout 回显到会话', async (t) => {
+  const h = await harness(t, { cli: true, configContent: JSON.stringify({ beforeTurn: 'echo hook-start' }) });
+  await h.post('send', { text: '正常回答' });
+  const echoed = await until(() => h.events.findLast((event) => event.type === 'command' && event.output?.includes('轮开始钩子输出：')), '开始钩子回显');
+  assert.match(echoed.output, /hook-start/);
+  await until(async () => (await h.state()).status === 'completed', '轮次照常完成');
+});
+
+test('beforeTurn 钩子失败可见且不阻塞轮次', async (t) => {
+  const h = await harness(t, { cli: true, configContent: JSON.stringify({ beforeTurn: 'exit 3' }) });
+  await h.post('send', { text: '正常回答' });
+  const failed = await until(() => h.events.findLast((event) => event.type === 'command' && event.output?.includes('轮开始钩子执行失败')), '失败回显');
+  assert.match(failed.output, /3/);
+  await until(async () => (await h.state()).status === 'completed', '失败不阻塞轮次');
+});
+
+test('beforeTurn 配置经 config 端点持久化', async (t) => {
+  const h = await harness(t);
+  const saved = await h.post('config', { beforeTurn: 'echo done' });
+  assert.equal(saved.status, 200);
+  assert.equal(JSON.parse(readFileSync(h.dir + '/data/config.json', 'utf8')).beforeTurn, 'echo done');
 });

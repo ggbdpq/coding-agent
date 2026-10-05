@@ -345,16 +345,17 @@ export async function startWeb(app: App): Promise<void> {
     }
   }
 
-  /** 轮次结束钩子：以用户权限在项目目录执行 config.afterTurn，输出回显会话；失败可见不阻塞 */
-  async function runAfterTurnHook(status: string): Promise<void> {
-    const command = app.config.afterTurn?.trim();
+  /** 生命周期钩子：以用户权限在项目目录执行配置的 shell 命令，输出回显会话；失败可见不阻塞 */
+  async function runHook(event: 'beforeTurn' | 'afterTurn', status: string): Promise<void> {
+    const command = (event === 'beforeTurn' ? app.config.beforeTurn : app.config.afterTurn)?.trim();
     if (!command) return;
+    const label = event === 'beforeTurn' ? '轮开始钩子' : '轮结束钩子';
     try {
       const executed = await new Promise<{ code: number | null; text: string }>((resolve, reject) => {
         const child = spawn(command, {
           shell: true,
           cwd: app.config.workspace ?? process.cwd(),
-          env: { ...process.env, TCODE_HOOK_STATUS: status, TCODE_HOOK_CWD: app.config.workspace ?? process.cwd() },
+          env: { ...process.env, TCODE_HOOK_EVENT: event, TCODE_HOOK_STATUS: status, TCODE_HOOK_CWD: app.config.workspace ?? process.cwd() },
           timeout: 30_000,
         });
         let text = '';
@@ -364,17 +365,20 @@ export async function startWeb(app: App): Promise<void> {
         child.on('error', reject);
       });
       const output = executed.text.trim();
-      if (executed.code !== 0) sendEvent({ type: 'command', output: `轮次钩子执行失败（code ${executed.code}）${output ? '\n' + output : ''}` });
-      else if (output) sendEvent({ type: 'command', output: `轮次钩子输出：\n${output}` });
+      if (executed.code !== 0) sendEvent({ type: 'command', output: `${label}执行失败（code ${executed.code}）${output ? '\n' + output : ''}` });
+      else if (output) sendEvent({ type: 'command', output: `${label}输出：\n${output}` });
     } catch (error) {
-      sendEvent({ type: 'command', output: `轮次钩子执行失败：${(error as Error).message}` });
+      sendEvent({ type: 'command', output: `${label}执行失败：${(error as Error).message}` });
     }
   }
+
+  const runAfterTurnHook = (status: string) => runHook('afterTurn', status);
 
   async function runTurnAsync(text: string): Promise<void> {
     busy = true;
     abort = new AbortController();
     resetJournal(app.config.tcodeDir, store.currentId ?? 'unknown');
+    await runHook('beforeTurn', 'beforeTurn');
     try {
       // MCP 工具桥接就绪（连接预热完成或 2 秒上限）后再组装本轮工具
       await Promise.race([

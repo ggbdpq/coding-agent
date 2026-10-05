@@ -253,7 +253,8 @@
       <form id="permissions-form"><label>默认审批方式<select id="approval" aria-label="默认审批方式"><option value="normal">需要时询问</option><option value="never">全部免审批</option></select></label>
         <div class="settings-card"><h2>写入免审批目录</h2><p>这些目录内的 write/edit 可免逐次审批；其他文件及命令仍按默认审批执行。移除目录后恢复逐次审批。</p><div id="extra-write-dirs"></div><button type="button" id="extra-dir-pick">添加免审批目录</button></div>
         <div class="settings-card"><h2>轮次结束钩子</h2><p>每轮对话结束后在当前项目目录执行的 shell 命令（30 秒超时）；轮次状态经环境变量 TCODE_HOOK_STATUS 传入，stdout/stderr 会回显到会话。钩子以你的用户权限执行任意命令，请谨慎填写。</p>
-          <label>钩子命令（留空禁用）<input id="after-turn" maxlength="2000" placeholder="例如：notify-send \"一轮结束\"" autocomplete="off"></label></div>
+          <label>轮结束钩子（留空禁用）<input id="after-turn" maxlength="2000" placeholder="例如：notify-send \"一轮结束\"" autocomplete="off"></label>
+          <label>轮开始钩子（留空禁用）<input id="before-turn" maxlength="2000" placeholder="例如：say \"开始新的轮次\"" autocomplete="off"></label></div>
         <p class="settings-description">全部免审批允许工具直接执行文件修改和命令，请根据当前项目选择。</p>
         <div class="settings-actions"><button type="submit" class="primary">保存权限设置</button></div>
       </form>
@@ -839,6 +840,7 @@
     if (opening) fillModelForm();
     $('approval').value = config.approval || 'normal'; extraWriteDirs = [...(config.allowWriteDirs || [])]; renderWriteDirs();
     $('after-turn').value = config.afterTurn || '';
+    $('before-turn').value = config.beforeTurn || '';
     const preferences = view.preferences || { theme: 'system', fontSize: 16, enterToSend: true };
     $('theme').value = preferences.theme; $('font-size').value = String(preferences.fontSize); $('enter-to-send').checked = preferences.enterToSend;
     if (section === 'usage') { void loadUsage(); void loadBalance(); }
@@ -1180,7 +1182,7 @@
   $('permissions-form').onsubmit = async (event) => {
     event.preventDefault(); if (!view || view.busy || saving || changing) return;
     saving = true; controls(); settingsFeedback('');
-    try { const result = await api('/config', { approval: $('approval').value, allowWriteDirs: extraWriteDirs, afterTurn: $('after-turn').value }); applyState(result.state); settingsFeedback('设置已保存'); }
+    try { const result = await api('/config', { approval: $('approval').value, allowWriteDirs: extraWriteDirs, afterTurn: $('after-turn').value, beforeTurn: $('before-turn').value }); applyState(result.state); settingsFeedback('设置已保存'); }
     catch (error) { settingsFeedback(error.message, true); }
     finally { saving = false; controls(); }
   };
