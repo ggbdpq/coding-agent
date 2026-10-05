@@ -166,3 +166,21 @@ test('运行中的任务拒绝删除', async (t) => {
   assert.equal((await h.post('automations/delete', { id: 'no-such' })).status, 404);
   assert.equal((await h.list()).body.automations.length, 1);
 });
+
+test('自动化运行期间与主会话轮次互斥：send 与第二个任务都被拒绝且提示明确', async (t) => {
+  const h = await fixture(t, { mode: 'hang' });
+  const first = await h.post('automations', { name: '占用任务', prompt: '慢慢做' });
+  const id = first.body.id;
+  await until(async () => (await h.list()).body.automations.find((task) => task.id === id)?.status === 'running');
+  const send = await h.post('send', { text: '主会话任务' });
+  assert.equal(send.status, 409);
+  assert.match(send.body.error, /自动化/, '互斥提示须指向自动化任务');
+  const second = await h.post('automations', { name: '第二个任务', prompt: '也做点什么' });
+  assert.equal(second.status, 409);
+  assert.match(second.body.error, /自动化/);
+  assert.equal((await h.list()).body.automations.filter((task) => task.name === '第二个任务').length, 0, '被拒绝的创建不产生任务记录');
+  await h.post('automations/stop', { id });
+  await until(async () => (await h.list()).body.automations.find((task) => task.id === id)?.status === 'stopped');
+  const after = await h.post('send', { text: '恢复正常' });
+  assert.equal(after.status, 200, '停止后主会话恢复可用');
+});

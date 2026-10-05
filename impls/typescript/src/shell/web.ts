@@ -647,6 +647,7 @@ export async function startWeb(app: App): Promise<void> {
       if (intervalMinutes !== undefined && (!Number.isSafeInteger(intervalMinutes) || intervalMinutes < 5 || intervalMinutes > 525600)) {
         throw new ConfigInputError('重复执行间隔须为 5–525600 分钟的整数');
       }
+      if (automations.anyRunning()) { json(res, 409, { error: '已有自动化任务正在运行（与主会话共用工作目录基准），请等待完成或先停止' }); return; }
       const task = automations.create({ name, prompt, workspace: app.config.workspace ?? process.cwd(), intervalMinutes });
       runAutomation(task.id);
       json(res, 200, { ok: true, id: task.id }); return;
@@ -856,6 +857,10 @@ export async function startWeb(app: App): Promise<void> {
     if (req.method === 'POST' && path === '/send') {
       if (busy) {
         json(res, 409, { error: '上一轮还在跑，先停止或等它结束' });
+        return;
+      }
+      if (automations.anyRunning()) {
+        json(res, 409, { error: '自动化任务正在运行（与主会话共用工作目录基准），请等待完成或先停止任务' });
         return;
       }
       if (!snapshot().ready) { json(res, 409, { error: '请先在模型设置中完成模型与项目配置' }); return; }

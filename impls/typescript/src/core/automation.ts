@@ -75,6 +75,11 @@ export class AutomationRunner {
     return this.list().find((task) => task.id === id);
   }
 
+  /** 是否有任务正在执行（全局单值基准下与主会话轮次互斥） */
+  anyRunning(): boolean {
+    return this.running.size > 0;
+  }
+
   create(input: { name: string; prompt: string; workspace: string; intervalMinutes?: number }): AutomationTask {
     const task: AutomationTask = {
       id: randomUUID(), name: input.name, workspace: input.workspace, prompt: input.prompt,

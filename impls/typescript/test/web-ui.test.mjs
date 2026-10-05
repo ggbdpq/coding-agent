@@ -1311,6 +1311,18 @@ test('命令页可编辑与清空长期记忆', async () => {
   });
 });
 
+test('自动化任务运行期间主会话发送提示互斥', async () => {
+  const state = initialState();
+  await withPage(state, {
+    '/automations': () => ({ automations: [{ id: 'a1', name: '后台任务', workspace: '/tmp/ui-project', prompt: '做点什么', status: 'running', createdAt: 1 }] }),
+    '/send': () => ({ error: '自动化任务正在运行（与主会话共用工作目录基准），请等待完成或先停止任务' }),
+  }, async (page) => {
+    await page.getByRole('textbox', { name: '消息', exact: true }).fill('主会话任务');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await page.getByText('自动化任务正在运行（与主会话共用工作目录基准），请等待完成或先停止任务', { exact: true }).waitFor();
+  });
+});
+
 test('命令页可从内置目录预填 MCP 服务器表单', async () => {
   const state = initialState();
   const saved = [];
