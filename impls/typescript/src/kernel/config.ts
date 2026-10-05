@@ -43,6 +43,8 @@ export interface Config {
    * bash/web_fetch 不受白名单影响（命令级操作无法按路径约束），仍逐次确认。
    */
   allowWriteDirs?: string[];
+  /** 轮次结束钩子：每轮结束后以用户权限在项目目录执行的 shell 命令 */
+  afterTurn?: string;
   /** 估算 token 上限，超过即触发上下文裁剪 */
   contextLimit: number;
   /** ~/.tcode 目录，配置/会话/全局指令都住这里 */
@@ -87,6 +89,7 @@ interface FileConfig {
   protocol?: string;
   approval?: string;
   allowWriteDirs?: string[];
+  afterTurn?: string;
   contextLimit?: number;
   workspace?: string;
   projects?: string[];
@@ -111,6 +114,7 @@ function readJsonConfig(tcodeDir: string): FileConfig {
     if (fields.approval !== undefined && !['normal', 'never'].includes(String(fields.approval))) throw new Error();
     if (fields.contextLimit !== undefined && (!Number.isSafeInteger(fields.contextLimit) || Number(fields.contextLimit) <= 0)) throw new Error();
     if (fields.allowWriteDirs !== undefined && (!Array.isArray(fields.allowWriteDirs) || fields.allowWriteDirs.some((dir) => typeof dir !== 'string'))) throw new Error();
+    if (fields.afterTurn !== undefined && typeof fields.afterTurn !== 'string') throw new Error();
     for (const key of ['projects', 'archivedProjects']) {
       const dirs = fields[key];
       if (dirs !== undefined && (!Array.isArray(dirs) || dirs.some((dir) => typeof dir !== 'string' || !path.isAbsolute(dir)))) throw new Error();
@@ -234,7 +238,7 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
     : apiKey === selected.apiKey) : false;
   const activeModelProfileId = selected && keyMatches && selected.baseUrl === baseUrl && selected.model === model
     && selected.protocol === protocol && selected.contextLimit === contextLimit ? selected.id : null;
-  return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, contextLimit, tcodeDir, modelProfiles: file.modelProfiles ?? [], mcpServers: file.mcpServers ?? [], activeModelProfileId,
+  return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, afterTurn: file.afterTurn, contextLimit, tcodeDir, modelProfiles: file.modelProfiles ?? [], mcpServers: file.mcpServers ?? [], activeModelProfileId,
     ...(options.allowIncomplete ? { workspace: file.workspace || (options.desktop ? '' : process.cwd()), projects: file.projects ?? [], archivedProjects: file.archivedProjects ?? [], preferences: file.preferences ?? { ...defaultPreferences }, configError } : {}),
   };
 }
@@ -346,6 +350,11 @@ export function saveWebConfig(current: Config, input: Record<string, unknown>, v
     if (!Array.isArray(input.allowWriteDirs)) throw new ConfigInputError('免审批目录须为目录列表');
     allowWriteDirs = [...new Set(input.allowWriteDirs.map(workspaceDirectory))];
   }
+  let afterTurn = current.afterTurn;
+  if (input.afterTurn !== undefined) {
+    if (typeof input.afterTurn !== 'string' || input.afterTurn.trim().length > 2000) throw new ConfigInputError('轮次结束钩子须为不超过 2000 字符的命令');
+    afterTurn = input.afterTurn.trim() || undefined;
+  }
   const archivedProjects = (current.archivedProjects ?? []).filter((directory) => directory !== workspace);
   const modelUpdate = ['apiKey', 'baseUrl', 'model', 'protocol', 'contextLimit'].some((key) => input[key] !== undefined);
   // 顶层未命名配置的密钥：钥匙串可用时存 account=active 条目，磁盘只留引用
@@ -357,9 +366,9 @@ export function saveWebConfig(current: Config, input: Record<string, unknown>, v
     if (keyRef) { setSecret(store, profile.id, apiKey); return { ...profile, apiKey: '', keyRef: profile.id, baseUrl, model, protocol, contextLimit }; }
     return { ...profile, apiKey, baseUrl, model, protocol, contextLimit };
   }) : current.modelProfiles;
-  const next: Config = { ...current, apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, modelProfiles, configError: undefined };
+  const next: Config = { ...current, apiKey, baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, afterTurn, modelProfiles, configError: undefined };
   validate?.(next);
-  persistConfig(current, { apiKey: keyRef ? '' : apiKey, ...(keyRef ? { keyRef } : {}), baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, modelProfiles });
+  persistConfig(current, { apiKey: keyRef ? '' : apiKey, ...(keyRef ? { keyRef } : {}), baseUrl, model, protocol, contextLimit, workspace, projects, archivedProjects, approval, allowWriteDirs, afterTurn, modelProfiles });
   return next;
 }
 

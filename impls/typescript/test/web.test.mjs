@@ -570,3 +570,46 @@ test('记忆端点校验：content 须为字符串', async (t) => {
   assert.equal((await h.post('memory', { content: 123 })).status, 400);
   assert.equal((await h.post('memory', {})).status, 400);
 });
+
+test('afterTurn 钩子：轮末以项目目录执行、输出回显会话、状态经环境变量传递', async (t) => {
+  const hookFile = () => path.join(tmpdir(), `tcode-hook-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+  const marker = hookFile();
+  t.after(() => { try { unlinkSync(marker); } catch {} });
+  const hookCommand = process.platform === 'win32'
+    ? `echo %TCODE_HOOK_STATUS% > "${marker}"`
+    : `echo "$TCODE_HOOK_STATUS" > '${marker}'`;
+  const h = await harness(t, { cli: true, configContent: JSON.stringify({ afterTurn: hookCommand }) });
+  await h.post('send', { text: 'write' });
+  const pending = await h.event('permission');
+  await h.post('permission', { id: pending.id, decision: 'allow' });
+  await h.event('turn_end');
+  console.log('[DEBUG-n3p6] events:', JSON.stringify(h.events.map((e) => ({ t: e.type, o: e.output?.slice(0, 120) }))), '| cfgAfterTurn:', JSON.parse(readFileSync(path.join(h.dir, 'data', 'config.json'), 'utf8')).afterTurn);
+  await until(() => existsSync(marker), '钩子写标记文件');
+  assert.equal(readFileSync(marker, 'utf8').trim(), 'completed', '钩子环境变量携带轮次状态');
+});
+
+test('afterTurn 钩子的 stdout 回显到会话', async (t) => {
+  const h = await harness(t, { cli: true, configContent: JSON.stringify({ afterTurn: 'echo hook-ran' }) });
+  await h.post('send', { text: '正常回答' });
+  const echoed = await until(() => h.events.findLast((event) => event.type === 'command' && event.output?.includes('轮次钩子输出：')), '钩子输出回显');
+  assert.match(echoed.output, /hook-ran/);
+});
+
+test('afterTurn 钩子失败可见且不影响主流程', async (t) => {
+  const h = await harness(t, { cli: true, configContent: JSON.stringify({ afterTurn: 'exit 3' }) });
+  await h.post('send', { text: '正常回答' });
+  await h.event('turn_end');
+  const failed = await until(() => h.events.findLast((event) => event.type === 'command' && event.output?.includes('钩子执行失败')), '失败回显');
+  assert.match(failed.output, /3/);
+  const state = await h.state();
+  assert.equal(state.status, 'completed', '钩子失败不改变轮次结果');
+});
+
+test('afterTurn 配置经 config 端点持久化与校验', async (t) => {
+  const h = await harness(t);
+  const saved = await h.post('config', { afterTurn: 'echo done' });
+  assert.equal(saved.status, 200);
+  assert.equal(JSON.parse(readFileSync(h.dir + '/data/config.json', 'utf8')).afterTurn, 'echo done');
+  const tooLong = await h.post('config', { afterTurn: 'x'.repeat(2001) });
+  assert.equal(tooLong.status, 400);
+});

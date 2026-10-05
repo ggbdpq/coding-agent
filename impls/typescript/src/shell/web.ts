@@ -4,6 +4,7 @@
 // 同一服务仅运行一个项目的一轮任务；历史会话复用 JSONL，不另建数据库。
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { readFileSync, statSync, lstatSync, existsSync, mkdirSync, writeFileSync, renameSync, realpathSync, unlinkSync } from 'node:fs';
 import nodePath from 'node:path';
 import { createPermissionGate, type PermissionDecision } from '../core/permission.ts';
@@ -343,6 +344,32 @@ export async function startWeb(app: App): Promise<void> {
     }
   }
 
+  /** 轮次结束钩子：以用户权限在项目目录执行 config.afterTurn，输出回显会话；失败可见不阻塞 */
+  async function runAfterTurnHook(status: string): Promise<void> {
+    const command = app.config.afterTurn?.trim();
+    if (!command) return;
+    try {
+      const executed = await new Promise<{ code: number | null; text: string }>((resolve, reject) => {
+        const child = spawn(command, {
+          shell: true,
+          cwd: app.config.workspace ?? process.cwd(),
+          env: { ...process.env, TCODE_HOOK_STATUS: status, TCODE_HOOK_CWD: app.config.workspace ?? process.cwd() },
+          timeout: 30_000,
+        });
+        let text = '';
+        child.stdout?.on('data', (chunk: Buffer) => { text += chunk.toString(); });
+        child.stderr?.on('data', (chunk: Buffer) => { text += chunk.toString(); });
+        child.on('close', (code) => resolve({ code, text: text.slice(-2000) }));
+        child.on('error', reject);
+      });
+      const output = executed.text.trim();
+      if (executed.code !== 0) sendEvent({ type: 'command', output: `轮次钩子执行失败（code ${executed.code}）${output ? '\n' + output : ''}` });
+      else if (output) sendEvent({ type: 'command', output: `轮次钩子输出：\n${output}` });
+    } catch (error) {
+      sendEvent({ type: 'command', output: `轮次钩子执行失败：${(error as Error).message}` });
+    }
+  }
+
   async function runTurnAsync(text: string): Promise<void> {
     busy = true;
     abort = new AbortController();
@@ -354,11 +381,13 @@ export async function startWeb(app: App): Promise<void> {
           .map((server) => mcp.test(server, process.cwd()).catch(() => {}))),
         new Promise((resolve) => setTimeout(resolve, 2000)),
       ]);
+      let turnStatus: string = 'completed';
       await runUserTurn(app, text, {
         check: gate,
         signal: abort.signal,
         emit: bridgeEvent,
-      });
+      }).catch((error: Error) => { turnStatus = error.name === 'AbortError' ? 'aborted' : 'error'; });
+      void runAfterTurnHook(turnStatus);
     } finally {
       busy = false;
       abort = null;
