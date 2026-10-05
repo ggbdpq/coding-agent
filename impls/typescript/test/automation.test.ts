@@ -10,6 +10,7 @@ import { AutomationRunner, type AutomationTask } from '../src/core/automation.ts
 import { SessionStore } from '../src/core/session.ts';
 import writePlugin from '../src/plugins/tools/write.ts';
 import { buildSystemPrompt } from '../src/core/systemprompt.ts';
+import { resolvePath } from '../src/plugins/tools/pathguard.ts';
 import type { App } from '../src/kernel/app.ts';
 
 function setup(t: TestContext, now: () => number) {
@@ -142,4 +143,21 @@ test('自动化任务以任务工作目录为工具基准：文件写入任务�
   assert.equal(existsSync(path.join(taskWorkspace, 'out', 'hello.txt')), true, '文件写入任务工作目录');
   assert.equal(process.cwd(), previousCwd, '执行后恢复主会话基准');
   assert.equal(existsSync(path.join(previousCwd, 'out')), false, '不能写进主会话目录');
+});
+
+test('自动化执行期间主会话的路径基准不被任务工作目录干扰', async (t) => {
+  const { runner, app, block, release, dir } = setup(t, () => 5_000_000);
+  const taskWorkspace = path.join(dir, 'auto-ws');
+  mkdirSync(taskWorkspace, { recursive: true });
+  const mainCwd = process.cwd();
+  const task = runner.create({ name: '阻塞任务', prompt: '慢慢写入', workspace: taskWorkspace });
+  runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: 5_000_000 - 1, paused: false });
+  block();
+  const execution = runner.tick(app);
+  await waitRunning(runner, task.id);
+  // 并发隔离目标：自动化挂起期间，主会话的相对路径解析应落在主基准
+  assert.equal(resolvePath('probe.txt').abs, path.join(mainCwd, 'probe.txt'), '主会话路径基准不受自动化任务干扰');
+  release();
+  await waitDone(runner, task.id);
+  await execution;
 });

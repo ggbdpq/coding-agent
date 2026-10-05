@@ -8,7 +8,7 @@ import path from 'node:path';
 import { runUserTurn } from './turn.ts';
 import { SessionStore } from './session.ts';
 import { buildSystemPrompt } from './systemprompt.ts';
-import { setSessionCwd } from '../plugins/tools/pathguard.ts';
+import { runWithSessionCwd } from '../plugins/tools/pathguard.ts';
 import type { App } from '../kernel/app.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 
@@ -149,38 +149,31 @@ export class AutomationRunner {
     if (onFinished) this.finishedCallbacks.set(id, onFinished);
     this.save({ ...task, status: 'running', sessionId: store.currentId ?? task.sessionId, resultText: undefined, error: undefined });
     let promptTokens = 0, completionTokens = 0;
-    // 工具的路径解析与命令执行以任务工作目录为基准；退出恢复主会话基准
-    const previousCwd = process.cwd();
-    let cwdSwitched = false;
-    try {
-      if (path.resolve(task.workspace) !== previousCwd) {
-        process.chdir(task.workspace);
-        setSessionCwd(task.workspace);
-        cwdSwitched = true;
+    const executeTurn = async () => {
+      try {
+        await runUserTurn({ ...app, store, messages, yolo: { value: true }, planMode: { value: false } } as App,
+          messages.at(-1)!.content ?? '', {
+          check: async () => true, // 无人值守：自动化任务以免审批模式运行（创建时明示）
+          signal: controller.signal,
+          emit: (ev) => {
+            if (ev.type === 'usage') { promptTokens += ev.prompt_tokens; completionTokens += ev.completion_tokens; }
+          },
+        });
+        const resultText = [...messages].reverse().find((message) => message.role === 'assistant')?.content ?? '';
+        this.finish(id, { status: resultText ? 'completed' : 'error', resultText: resultText || undefined, error: resultText ? undefined : '模型未返回文本', promptTokens, completionTokens });
+      } catch (error) {
+        const aborted = controller.signal.aborted || (error as Error).name === 'AbortError';
+        this.finish(id, aborted
+          ? { status: 'stopped', error: '已停止' }
+          : { status: 'error', error: (error as Error).message });
+      } finally {
+        this.running.delete(id);
+        this.finishedCallbacks.delete(id);
       }
-      await runUserTurn({ ...app, store, messages, yolo: { value: true }, planMode: { value: false } } as App,
-        messages.at(-1)!.content ?? '', {
-        check: async () => true, // 无人值守：自动化任务以免审批模式运行（创建时明示）
-        signal: controller.signal,
-        emit: (ev) => {
-          if (ev.type === 'usage') { promptTokens += ev.prompt_tokens; completionTokens += ev.completion_tokens; }
-        },
-      });
-      const resultText = [...messages].reverse().find((message) => message.role === 'assistant')?.content ?? '';
-      this.finish(id, { status: resultText ? 'completed' : 'error', resultText: resultText || undefined, error: resultText ? undefined : '模型未返回文本', promptTokens, completionTokens });
-    } catch (error) {
-      const aborted = controller.signal.aborted || (error as Error).name === 'AbortError';
-      this.finish(id, aborted
-        ? { status: 'stopped', error: '已停止' }
-        : { status: 'error', error: (error as Error).message });
-    } finally {
-      if (cwdSwitched) {
-        process.chdir(previousCwd);
-        setSessionCwd(previousCwd);
-      }
-      this.running.delete(id);
-      this.finishedCallbacks.delete(id);
-    }
+    };
+    // 工具的路径解析与命令执行以任务工作目录为基准（异步上下文隔离）；
+    // 主会话的基准不受影响，两者可安全并跑
+    return runWithSessionCwd(task.workspace, executeTurn);
   }
 
   /** 删除已结束的任务：任务记录与会话目录一并清理；运行中返回 'running' */

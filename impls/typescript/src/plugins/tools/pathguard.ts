@@ -2,9 +2,11 @@
 // tcode 的安全边界是权限确认（人工把关），本模块的职责是把越界目标
 // 显式带出来，让确认界面能看到 "../" 或绝对路径这类穿越意图，而不是静默放行。
 // 非插件，是工具共享的工具函数。
-// 会话工作目录注入：setSessionCwd 显式设置解析基准（全局 cwd 解耦第一步）；
-// 未注入时回落进程 cwd，既有行为不变。单会话语义不变，为多会话铺路。
+// 会话工作目录注入：setSessionCwd 设置主会话基准；runWithSessionCwd 在指定
+// 工作目录的异步上下文中执行（主会话与自动化任务各自持有基准、互不覆盖，
+// 为多会话并行铺路）；两者都未生效时回落进程 cwd，既有行为不变。
 import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { lstatSync, realpathSync } from 'node:fs';
 
 export interface ResolvedPath {
@@ -13,15 +15,21 @@ export interface ResolvedPath {
   outside: boolean;
 }
 
-let sessionCwd: string | null = null;
+const sessionStorage = new AsyncLocalStorage<string>();
+let mainCwd: string | null = null;
 
-/** 显式设置会话工作目录；null 回落进程 cwd */
+/** 设置主会话基准（web 壳在启动与项目切换时调用） */
 export function setSessionCwd(cwd: string | null): void {
-  sessionCwd = cwd ? path.resolve(cwd) : null;
+  mainCwd = cwd ? path.resolve(cwd) : null;
+}
+
+/** 在指定工作目录的异步上下文中执行 fn：链内所有路径解析与命令执行使用该目录 */
+export function runWithSessionCwd<T>(cwd: string, fn: () => T): T {
+  return sessionStorage.run(path.resolve(cwd), fn);
 }
 
 export function baseCwd(): string {
-  return sessionCwd ?? process.cwd();
+  return sessionStorage.getStore() ?? mainCwd ?? process.cwd();
 }
 
 export function resolvePath(input: string): ResolvedPath {
