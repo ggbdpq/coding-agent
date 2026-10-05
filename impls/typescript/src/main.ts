@@ -89,8 +89,8 @@ try {
     const latest = app.store.listRecent(1)[0];
     if (latest) {
       const loaded = app.store.load(latest.file).filter((m) => m.role !== 'system');
+      app.startSession({ resumedFrom: path.basename(latest.file) }, { messages: loaded });
       app.messages.push(...loaded);
-      app.startSession({ resumedFrom: path.basename(latest.file) });
       console.log(`已恢复最近会话（${loaded.length} 条消息）。`);
     } else {
       console.log('没有可恢复的会话，从新会话开始。');

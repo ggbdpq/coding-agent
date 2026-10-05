@@ -39,9 +39,15 @@ node bin/tcode.js --yolo     # 跳过写/命令的逐次确认
 
 工作台支持当前项目的会话列表、搜索、重命名、切换和刷新恢复；重启恢复最近会话，继续写入新 JSONL，保留原文件。中断轮会标记为已停止并补齐模型上下文中的工具配对，不自动重新执行未完成操作。一次只跑一轮任务；运行或等待审批时禁止切换会话和修改配置。模型错误只结束当前轮，停止会阻止后续工具继续执行。
 
+手动／自动压缩及摘要失败后的工具输出裁剪，均追加上下文快照后再改变内存；切会话、重启、CLI `/resume` 或 `--continue` 继续使用压缩后的背景。界面保留完整活动历史和用量；旧消息文件不被重写。快照写入失败时保留原上下文。
+
 左侧常驻最近项目、新任务、搜索和设置入口。独立设置中心提供常规、模型、权限、外观、用量、技能和命令七组；主题、消息字号、发送快捷键和默认审批保存在本地。临时免审批和 Plan Mode 在新任务、恢复或切项目时复位；写白名单按目标真实路径判断，符号链接指向白名单外仍须审批。
 
-技能设置可创建、查看和编辑全局或当前项目 `.md` 技能，保存后更新同一来源的模型技能索引。全局指令/技能遵守 `TCODE_DATA_DIR`，默认仍为 `~/.tcode`。用量页按稳定会话去重，汇总已收到的 provider 用量；尚未记录的摘要请求不计入，此页并非账户账单。浏览器版使用 macOS 系统目录对话框、Windows FolderBrowserDialog，Linux 需系统已安装 `zenity`；桌面版复用原生目录选择器。
+顶部可收起／展开侧栏，收起后仍可新建任务、搜索和打开设置。`Cmd/Ctrl+N` 新任务、`Cmd/Ctrl+K` 聚焦搜索、`Cmd/Ctrl+,` 设置、`Cmd/Ctrl+B` 切换侧栏；任务、审批或连接测试期间，快捷键遵循同一组操作锁。
+
+技能设置可创建、查看和编辑全局或当前项目 `.md` 技能，保存后更新同一来源的模型技能索引。全局指令/技能遵守 `TCODE_DATA_DIR`，默认仍为 `~/.tcode`。用量页按稳定会话去重，汇总回答和手动／自动压缩请求已收到的 provider 用量；即使请求随后停止或摘要无效，已返回的用量也保留，此页并非账户账单。浏览器版使用 macOS 系统目录对话框、Windows FolderBrowserDialog，Linux 需系统已安装 `zenity`；桌面版复用原生目录选择器。
+
+模型设置可测试**已保存的连接**：只发送一条固定短消息，不发送工具、项目内容或未保存草稿，展示耗时及本次 Token 用量。测试可取消，10 秒自动超时；本次探测用量单独显示，不计入会话统计。先保存配置再测试，测试可能产生少量模型费用。
 
 回答支持常用 Markdown，工具卡保留完整输出，显示当前会话 Token 用量；“查看变更”只读展示 Git 已跟踪修改和新文件。Markdown 使用 DOM 文本节点，原始 HTML 按文本展示。终端模式保留原有命令，Web 中 `/resume`、`/sessions` 通过当前项目侧栏操作。
 
@@ -148,15 +154,16 @@ src/
 ## 开发
 
 ```bash
-npm install          # 仅装 devDependencies（typescript/@types/node），运行时不需要
+pnpm install --frozen-lockfile # 主包仅使用 pnpm 锁；运行时无需安装依赖
+pnpm exec playwright install chromium # 浏览器回归首次安装；Linux 可加 --with-deps
 npm run check        # tsc --noEmit 类型检查
 npm test             # 核心测试 + 真实 HTTP/SSE、进程与文件边界回归
 npm run test:web     # 仅工作台公共 HTTP/SSE 回归
-npm run test:ui      # 浏览器交互（需已有 Playwright 与 Chrome）
+npm run test:ui      # 浏览器交互（项目内固定 Playwright + 受管 Chromium）
 npm run smoke        # 端到端冒烟：本地假 SSE 服务器，无网络依赖
 ```
 
-浏览器测试默认使用 Codex 已提供的 Playwright 和 macOS Chrome，也可通过 `PLAYWRIGHT_MODULE` 指向已有 Playwright 安装、`CHROME_PATH` 指向浏览器可执行文件。测试只使用假模型端点和隔离目录，不使用真实密钥。
+使用 `packageManager` 声明的 pnpm 12.6.0 安装主包开发依赖，桌面子包继续使用其独立 `npm ci`。浏览器测试固定 Playwright 1.62.1，默认使用它下载的 Chromium；也可通过 `PLAYWRIGHT_MODULE` 指向已有 Playwright 安装、`CHROME_PATH` 指向浏览器可执行文件。CI 在 `main`／`develop` 的 push 和 PR 上包含独立浏览器回归。测试只使用假模型端点和隔离目录，不使用真实密钥。
 
 ## 验收（真实模型端到端）
 

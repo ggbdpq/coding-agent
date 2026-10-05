@@ -21,7 +21,7 @@ async function until(fn, label) {
   throw new Error(`等待超时：${label}`);
 }
 
-async function harness(t, { cli = false, unconfigured = false, reuseDir = undefined, configContent = undefined } = {}) {
+async function harness(t, { cli = false, unconfigured = false, reuseDir = undefined, configContent = undefined, summaryMode = 'success' } = {}) {
   const dir = reuseDir ?? mkdtempSync(path.join(tmpdir(), 'tcode-workbench-'));
   const workspace = path.join(dir, 'project');
   const requests = [];
@@ -31,10 +31,18 @@ async function harness(t, { cli = false, unconfigured = false, reuseDir = undefi
     writeFileSync(path.join(dir, 'data', 'config.json'), configContent);
   }
   const provider = http.createServer(async (req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') { res.writeHead(404).end(); return; }
     let raw = '';
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
     requests.push(body);
+    if (body.messages[0]?.content === '你是会话摘要器：只输出摘要正文，用简体中文，尽量精炼。') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      if (summaryMode !== 'empty') res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '压缩后的任务摘要' } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ usage: { prompt_tokens: 23, completion_tokens: 5 }, choices: [] })}\n\n`);
+      if (summaryMode !== 'slow') res.end('data: [DONE]\n\n');
+      return;
+    }
     const user = body.messages.findLast((m) => m.role === 'user')?.content ?? '';
     if (user === 'error') { res.writeHead(400).end('deliberate provider failure test-key'); return; }
     if (['slow', 'slow A', 'slow B'].includes(user)) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': wait\n\n'); return; }
@@ -101,6 +109,115 @@ async function harness(t, { cli = false, unconfigured = false, reuseDir = undefi
   const event = (type, from = 0) => until(() => events.slice(from).find((value) => value.type === type), type);
   return { url, post, state, event, events, workspace, dir, child, endpoint, streams, requests };
 }
+
+test('手动压缩的模型用量进入当前会话与统计，刷新、重启和重复恢复不双计', async (t) => {
+  const h = await harness(t);
+  for (const text of ['历史一', '历史二', '历史三']) {
+    const mark = h.events.length;
+    await h.post('send', { text }); await h.event('turn_end', mark);
+  }
+  assert.deepEqual((await h.state()).usage, { prompt_tokens: 33, completion_tokens: 21 });
+  const mark = h.events.length;
+  const compacted = await h.post('command', { line: '/compact' });
+  assert.equal(compacted.status, 200);
+  assert.match(compacted.body.output, /已压缩/);
+  assert.deepEqual(compacted.body.state.usage, { prompt_tokens: 56, completion_tokens: 26 });
+  assert.equal((await h.event('usage', mark)).prompt_tokens, 23);
+  assert.ok(compacted.body.state.messages[0].content.includes('压缩后的任务摘要'));
+  const expected = { sessions: 1, projects: 1, inputTokens: 56, outputTokens: 26, totalTokens: 82 };
+  assert.deepEqual(await (await fetch(h.url + 'usage')).json(), expected);
+  assert.deepEqual((await h.state()).usage, { prompt_tokens: 56, completion_tokens: 26 });
+  const id = compacted.body.state.currentSessionId;
+  const closed = new Promise((resolve) => h.child.once('close', resolve));
+  h.streams.forEach((stream) => stream.destroy()); h.child.kill(); await closed;
+  const restarted = await harness(t, { reuseDir: h.dir });
+  for (let i = 0; i < 2; i++) await restarted.post('session/select', { id });
+  assert.deepEqual((await restarted.state()).usage, { prompt_tokens: 56, completion_tokens: 26 });
+  assert.deepEqual(await (await fetch(restarted.url + 'usage')).json(), expected);
+});
+
+test('自动压缩与后续回答的模型用量都进入统计并可在重启后恢复', async (t) => {
+  const h = await harness(t);
+  for (const text of ['历史一', '历史二', '历史三']) {
+    const mark = h.events.length;
+    await h.post('send', { text }); await h.event('turn_end', mark);
+  }
+  assert.equal((await h.post('config', { contextLimit: 1 })).status, 200);
+  const mark = h.events.length;
+  await h.post('send', { text: '压缩后继续' }); await h.event('turn_end', mark);
+  assert.ok(h.events.slice(mark).some((event) => event.type === 'compact'));
+  assert.deepEqual((await h.state()).usage, { prompt_tokens: 67, completion_tokens: 33 });
+  assert.equal(h.events.slice(mark).filter((event) => event.type === 'usage').length, 2);
+  const expected = { sessions: 1, projects: 1, inputTokens: 67, outputTokens: 33, totalTokens: 100 };
+  assert.deepEqual(await (await fetch(h.url + 'usage')).json(), expected);
+  const closed = new Promise((resolve) => h.child.once('close', resolve));
+  h.streams.forEach((stream) => stream.destroy()); h.child.kill(); await closed;
+  const restarted = await harness(t, { reuseDir: h.dir });
+  assert.deepEqual((await restarted.state()).usage, { prompt_tokens: 67, completion_tokens: 33 });
+  assert.deepEqual(await (await fetch(restarted.url + 'usage')).json(), expected);
+});
+
+test('停止手动压缩保留已返回的模型用量，原历史不变且服务可继续执行', async (t) => {
+  const h = await harness(t, { summaryMode: 'slow' });
+  for (const text of ['历史一', '历史二', '历史三']) {
+    const mark = h.events.length;
+    await h.post('send', { text }); await h.event('turn_end', mark);
+  }
+  const before = (await h.state()).messages;
+  const mark = h.events.length;
+  const command = h.post('command', { line: '/compact' });
+  await h.event('usage', mark);
+  assert.equal((await h.state()).busy, true);
+  await h.post('abort', {});
+  const stopped = await Promise.race([command, delay(1000).then(() => { throw new Error('停止没有结束压缩命令'); })]);
+  assert.equal(stopped.status, 200);
+  assert.match(stopped.body.output, /压缩未执行.*aborted/);
+  assert.equal(stopped.body.state.busy, false);
+  assert.deepEqual(stopped.body.state.messages, before);
+  assert.deepEqual(stopped.body.state.usage, { prompt_tokens: 56, completion_tokens: 26 });
+  assert.deepEqual(await (await fetch(h.url + 'usage')).json(), { sessions: 1, projects: 1, inputTokens: 56, outputTokens: 26, totalTokens: 82 });
+  const continuedMark = h.events.length;
+  await h.post('send', { text: '停止后继续' }); await h.event('turn_end', continuedMark);
+  assert.equal((await h.state()).messages.findLast((message) => message.role === 'assistant').content, '回答：停止后继续');
+});
+
+test('停止自动压缩不裁剪历史或追加新输入，已返回的用量在重启后保留', async (t) => {
+  const h = await harness(t, { summaryMode: 'slow' });
+  for (const text of ['历史一', '历史二', '历史三']) {
+    const mark = h.events.length;
+    await h.post('send', { text }); await h.event('turn_end', mark);
+  }
+  const before = (await h.state()).messages;
+  await h.post('config', { contextLimit: 1 });
+  const mark = h.events.length;
+  await h.post('send', { text: '本轮已停止，不能追加' }); await h.event('usage', mark);
+  await h.post('abort', {});
+  assert.equal((await h.event('turn_end', mark)).reason, 'aborted');
+  const stopped = await h.state();
+  assert.deepEqual(stopped.messages, before);
+  assert.equal(h.events.slice(mark).some((event) => event.type === 'user'), false);
+  assert.deepEqual(stopped.usage, { prompt_tokens: 56, completion_tokens: 26 });
+  const closed = new Promise((resolve) => h.child.once('close', resolve));
+  h.streams.forEach((stream) => stream.destroy()); h.child.kill(); await closed;
+  const restarted = await harness(t, { reuseDir: h.dir });
+  assert.deepEqual((await restarted.state()).messages, before);
+  assert.deepEqual(await (await fetch(restarted.url + 'usage')).json(), { sessions: 1, projects: 1, inputTokens: 56, outputTokens: 26, totalTokens: 82 });
+});
+
+test('空摘要不改变历史，但模型已返回的用量仍记录到会话统计', async (t) => {
+  const h = await harness(t, { summaryMode: 'empty' });
+  for (const text of ['历史一', '历史二', '历史三']) {
+    const mark = h.events.length;
+    await h.post('send', { text }); await h.event('turn_end', mark);
+  }
+  const before = (await h.state()).messages;
+  const failed = await h.post('command', { line: '/compact' });
+  assert.equal(failed.status, 200);
+  assert.match(failed.body.output, /压缩未执行.*空摘要/);
+  assert.deepEqual(failed.body.state.messages, before);
+  assert.deepEqual(failed.body.state.usage, { prompt_tokens: 56, completion_tokens: 26 });
+  assert.deepEqual(await (await fetch(h.url + 'usage')).json(), { sessions: 1, projects: 1, inputTokens: 56, outputTokens: 26, totalTokens: 82 });
+});
 
 test('选择项目不依赖模型配置，最近项目持久化且无效目录不改变工作区', async (t) => {
   const h = await harness(t, { cli: true, unconfigured: true });

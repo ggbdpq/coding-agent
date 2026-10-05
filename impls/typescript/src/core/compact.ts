@@ -2,7 +2,7 @@
 // [system, 摘要消息, 最近 4 条原文]。trim（裁旧丢历史）降级为 compact 失败时的兜底。
 // 纪律：摘要失败/中止时原 messages 原封不动——compact 永不破坏会话。
 import type { App } from '../kernel/app.ts';
-import type { ChatMessage } from '../kernel/types.ts';
+import type { ChatMessage, ChatOptions } from '../kernel/types.ts';
 import { estimateTokens } from './trim.ts';
 
 const MIN_MESSAGES = 5; // system + 至少 4 条对话才值得压缩
@@ -28,7 +28,7 @@ export interface CompactResult {
 
 export async function compactContext(
   app: App,
-  opts: { signal?: AbortSignal } = {}
+  opts: Pick<ChatOptions, 'signal' | 'onUsage'> = {}
 ): Promise<CompactResult> {
   const { messages } = app;
   if (messages.length <= MIN_MESSAGES) {
@@ -45,7 +45,7 @@ export async function compactContext(
       { role: 'system', content: '你是会话摘要器：只输出摘要正文，用简体中文，尽量精炼。' },
       { role: 'user', content: `${SUMMARY_PROMPT}\n\n--- 对话历史 ---\n${transcript}` },
     ],
-    { signal: opts.signal }
+    opts
   ).then(
     (r) => r.message.content,
     (e: Error) => {
@@ -55,6 +55,7 @@ export async function compactContext(
       throw e;
     }
   );
+  opts.signal?.throwIfAborted();
   if (!summary) throw new Error('模型返回了空摘要');
 
   // 成功才动历史：system + 摘要 + 最近 TAIL_KEEP 条原文（切片点配对安全）
@@ -63,6 +64,7 @@ export async function compactContext(
     role: 'user',
     content: `[此前对话的摘要——当前任务以此为背景继续]\n${summary}\n[摘要结束]`,
   };
+  app.store.checkpoint?.([messages[0]!, summaryMsg, ...messages.slice(tailStart)]);
   messages.splice(1, tailStart - 1, summaryMsg);
   return { savedTokens: Math.max(0, before - estimateTokens(messages)) };
 }

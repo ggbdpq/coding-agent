@@ -113,7 +113,7 @@ export class AnthropicProvider implements ChatClient {
 
   /** 与 OpenAI 版相同的重试纪律：最多 3 次，仅首字节前可重试 */
   chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<CompletionResult> {
-    return withRetry(() => this.attempt(messages, opts));
+    return withRetry(() => this.attempt(messages, opts), opts.signal);
   }
 
   private async attempt(messages: ChatMessage[], opts: ChatOptions): Promise<CompletionResult> {
@@ -131,7 +131,8 @@ export class AnthropicProvider implements ChatClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      const brief = text.length > 300 ? `${text.slice(0, 300)}…` : text;
+      const safeText = this.apiKey ? text.split(this.apiKey).join('[凭证已隐藏]') : text;
+      const brief = safeText.length > 300 ? `${safeText.slice(0, 300)}…` : safeText;
       const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
       throw retryable
         ? new RetryableError(`HTTP ${res.status}：${brief || res.statusText}`)

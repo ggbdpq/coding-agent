@@ -4,7 +4,7 @@
 // "没有需要打补丁的特权核心"思想，但实现保持零依赖手写。
 import type { App } from './app.ts';
 import type { Config } from './config.ts';
-import type { ChatClient } from './types.ts';
+import type { ChatClient, ChatOptions } from './types.ts';
 
 /** 工具插件：一个文件一个工具， ToolDef 是它的别名（core/agentloop 消费） */
 export interface ToolPlugin {
@@ -47,7 +47,7 @@ export interface CommandPlugin {
   kind: 'command';
   usage: string;
   summary: string;
-  run: (app: App, args: string[]) => Promise<CommandOutcome | void>;
+  run: (app: App, args: string[], opts?: Pick<ChatOptions, 'signal' | 'onUsage'>) => Promise<CommandOutcome | void>;
 }
 
 /** 交互壳插件：REPL/TUI/单发都是并列的壳，一次只起一个 */

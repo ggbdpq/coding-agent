@@ -1,9 +1,11 @@
 // 会话持久化：JSONL 追加写，一行一条 JSON（meta 行 + message 行）。
 // /resume 的语义 = 读旧文件、换新文件继续写——避免追加到可能损坏的旧文件。
 // 目录边界：所有读写都限定在会话目录内，出目录一律拒绝/跳过。
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, lstatSync, writeFileSync, renameSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, lstatSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { ChatMessage } from '../kernel/types.ts';
+import type { SessionInitialData } from '../kernel/app.ts';
 
 export interface SessionSummary {
   file: string;
@@ -16,6 +18,7 @@ interface SessionRecord {
   type?: unknown;
   cwd?: unknown;
   sessionId?: unknown;
+  restoredTurnId?: unknown;
   message?: Record<string, unknown>;
   event?: Record<string, unknown>;
 }
@@ -45,16 +48,31 @@ export class SessionStore {
   }
 
   /** 开新会话文件并写入元信息行 */
-  start(meta: Record<string, unknown> = {}): void {
+  start(meta: Record<string, unknown> = {}, initial: SessionInitialData = {}): void {
     // Windows 文件名禁 :，把 ISO 时间的冒号一并换掉
     const name = `${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random()
       .toString(36)
       .slice(2, 6)}.jsonl`;
     const file = path.resolve(this.root, name);
     if (!this.isInsideDir(file)) throw new Error('会话文件路径越界');
+    const sessionId = typeof meta.sessionId === 'string' ? meta.sessionId : name;
+    const restoredTurnId = initial.activity?.findLast((event) => event.type === 'turn_start')?.id;
+    const records = [{ type: 'meta', ts: Date.now(), ...meta, sessionId,
+      ...(typeof restoredTurnId === 'string' ? { restoredTurnId } : {}) },
+      ...(initial.messages ?? []).map((message) => ({ type: 'message', message })),
+      ...(initial.activity ?? []).map((event) => ({ type: 'activity', event }))];
+    const temporary = file + `.${randomBytes(8).toString('hex')}.tmp`;
+    let created = false;
+    try {
+      writeFileSync(temporary, records.map((record) => JSON.stringify(record)).join('\n') + '\n', { flag: 'wx', mode: 0o600 });
+      created = true;
+      renameSync(temporary, file);
+    } catch (error) {
+      if (created) { try { unlinkSync(temporary); } catch {} }
+      throw error;
+    }
     this.filePath = file;
-    this.sessionId = typeof meta.sessionId === 'string' ? meta.sessionId : name;
-    appendFileSync(this.filePath, `${JSON.stringify({ type: 'meta', ts: Date.now(), ...meta, sessionId: this.sessionId })}\n`);
+    this.sessionId = sessionId;
   }
 
   /** 追加一条消息；落盘失败静默（记会话是锦上添花，不该打断对话） */
@@ -65,6 +83,11 @@ export class SessionStore {
     } catch {
       /* 忽略 */
     }
+  }
+
+  /** 只追加快照，不重写原历史；失败让压缩保留原上下文。 */
+  checkpoint(messages: ChatMessage[]): void {
+    if (this.filePath) appendFileSync(this.filePath, JSON.stringify({ type: 'context_checkpoint', messages }) + '\n');
   }
 
   /** 最近 n 个会话（排除当前文件），按修改时间倒序 */
@@ -87,7 +110,11 @@ export class SessionStore {
     for (const line of readFileSync(resolved, 'utf8').split('\n')) {
       if (!line.trim()) continue;
       try {
-        const o = JSON.parse(line) as { type?: string; message?: ChatMessage };
+        const o = JSON.parse(line) as { type?: string; message?: ChatMessage; messages?: ChatMessage[] };
+        if (o.type === 'context_checkpoint' && Array.isArray(o.messages) && o.messages.length
+          && o.messages.every((message) => message && ['system', 'user', 'assistant', 'tool'].includes(message.role))) {
+          messages.splice(0, messages.length, ...o.messages);
+        }
         if (o.type === 'message' && o.message) messages.push(o.message);
       } catch {
         /* 跳过坏行 */
@@ -131,7 +158,7 @@ export class SessionStore {
       if (previous && (previous.mtime > mtime || (previous.mtime === mtime && path.basename(previous.file) >= name))) continue;
       const message = records.find((record) => record.type === 'message' && record.message?.role === 'user')?.message;
       const event = records.find((record) => record.type === 'activity' && record.event?.type === 'user')?.event;
-      const label = (typeof message?.content === 'string' ? message.content : typeof event?.text === 'string' ? event.text : '').slice(0, 100);
+      const label = (typeof event?.text === 'string' ? event.text : typeof message?.content === 'string' ? message.content : '').slice(0, 100);
       const usage = { prompt_tokens: 0, completion_tokens: 0 };
       for (const record of records) {
         if (record.type === 'activity' && record.event?.type === 'usage') {
@@ -148,7 +175,11 @@ export class SessionStore {
     const selected = this.listWorkspace(cwd).find((session) => session.id === id);
     if (!selected) throw new Error('当前项目中没有这个会话');
     const records = this.records(selected.file);
+    const lastStart = records.findLastIndex((record) => record.type === 'activity' && record.event?.type === 'turn_start');
+    const meta = records.find((record) => record.type === 'meta');
     return { ...selected, messages: this.load(selected.file),
+      pendingTurnPersisted: lastStart >= 0 && (records.slice(lastStart + 1).some((record) => record.type === 'message' && record.message?.role === 'user')
+        || (typeof meta?.restoredTurnId === 'string' && meta.restoredTurnId === records[lastStart]?.event?.id)),
       activity: records.flatMap((record) => record.type === 'activity' && record.event ? [record.event] : []),
     };
   }

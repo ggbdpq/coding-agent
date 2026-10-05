@@ -51,6 +51,9 @@
   .diff-hunk { color: #9ebffa; }
   .chat { height: 100%; flex: 1; display: flex; flex-direction: column; min-width: 0; }
   header { display: flex; gap: 16px; align-items: center; padding: 15px 24px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .compact-nav { display: flex; gap: 6px; flex-wrap: wrap; }
+  .compact-nav button { font-size: 12px; padding: 8px; }
+  #sidebar-toggle { flex-shrink: 0; padding: 8px 10px; }
   .heading { flex: 1; min-width: 0; }
   .heading h1 { display: block; font-size: 16px; margin: 0; font-weight: 600; }
   .model { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -137,10 +140,11 @@
   #skill-content { min-height: 280px; resize: vertical; font: 13px/1.65 ui-monospace, monospace; }
   #settings-feedback { padding: 12px 0; margin: 0 0 18px; color: #99d9b0; font-size: 13px; }
   #settings-feedback.error { color: #ffa5a5; }
+  #connection-result.error { color: #ffa5a5; }
   :root[data-color="light"] details.tool summary { color: #586d8f; }
   :root[data-color="light"] .perm { background: #fff6e6; }
   :root[data-color="light"] .perm .title { color: #86601e; }
-  :root[data-color="light"] .error, :root[data-color="light"] #config-error, :root[data-color="light"] #settings-feedback.error { color: #af3333; }
+  :root[data-color="light"] .error, :root[data-color="light"] #config-error, :root[data-color="light"] #settings-feedback.error, :root[data-color="light"] #connection-result.error { color: #af3333; }
   :root[data-color="light"] #notice, :root[data-color="light"] #storage-warning { color: #af3333; background: #fbeaea; }
   :root[data-color="light"] #settings-feedback { color: #287847; }
   :root[data-color="light"] .cmdout { color: #6b509e; }
@@ -158,18 +162,20 @@
 <div class="workbench">
 <aside class="sidebar" id="workspace-sidebar" aria-label="项目与会话">
   <div class="brand"><span aria-hidden="true">&gt;_</span> tcode</div>
-  <button id="new" class="nav-button" aria-label="新任务">＋ 新任务</button>
-  <button id="search-open" class="nav-button" aria-label="搜索">⌕ 搜索</button>
+  <button id="new" class="nav-button" aria-label="新任务" aria-keyshortcuts="Meta+N Control+N" title="新任务 · ⌘/Ctrl+N">＋ 新任务</button>
+  <button id="search-open" class="nav-button" aria-label="搜索" aria-keyshortcuts="Meta+K Control+K" title="搜索 · ⌘/Ctrl+K">⌕ 搜索</button>
   <input id="search" type="text" aria-label="搜索会话" placeholder="搜索会话" autocomplete="off">
   <div class="session-section">项目</div>
   <nav id="projects" aria-label="项目列表"></nav>
   <button id="workspace-pick" aria-label="选择项目目录" class="nav-button">＋ 打开项目</button>
   <div class="session-section" id="workspace-name">当前项目会话</div>
   <nav id="sessions" aria-label="会话列表"></nav>
-  <div class="sidebar-bottom"><span class="local-avatar" aria-hidden="true">&gt;_</span><div class="local-profile">本地工作区<small>tcode · 无需登录</small></div><button id="settings-home" aria-label="设置" title="设置">⚙</button></div>
+  <div class="sidebar-bottom"><span class="local-avatar" aria-hidden="true">&gt;_</span><div class="local-profile">本地工作区<small>tcode · 无需登录</small></div><button id="settings-home" aria-label="设置" aria-keyshortcuts="Meta+, Control+," title="设置 · ⌘/Ctrl+,">⚙</button></div>
 </aside>
 <main class="chat" id="chat">
 <header>
+  <button id="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" aria-controls="workspace-sidebar" aria-keyshortcuts="Meta+B Control+B" title="收起侧栏 · ⌘/Ctrl+B">☰</button>
+  <nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden><button id="compact-new" aria-label="新任务">＋ 新任务</button><button id="compact-search" aria-label="搜索">搜索</button><button id="compact-settings" aria-label="设置">设置</button></nav>
   <div class="heading"><h1 id="title">tcode</h1><span class="model" id="model">连接中…</span></div>
   <span id="status" role="status">连接中</span>
   <label class="toggle"><input type="checkbox" id="yolo"> 全部免审批</label>
@@ -219,6 +225,7 @@
     <div id="config-error" role="alert"></div>
     <div class="settings-actions"><button type="submit" class="primary" id="settings-save">保存设置</button></div>
   </form>
+  <div class="settings-card" style="margin-top: 28px"><h2>连接测试</h2><p>请先保存配置，再测试已保存的模型连接。测试只发送固定短消息，不发送工具或项目内容，最多等待 10 秒，可能产生少量用量。</p><div class="bar"><button id="connection-test">测试已保存的连接</button><button id="connection-cancel" hidden>取消测试</button></div><p id="connection-result" role="status" aria-live="polite" hidden></p></div>
     </section>
     <section data-settings="permissions" hidden>
       <h1>权限</h1><p class="settings-description">保存后对当前会话及后续新任务生效。工作区顶部的“全部免审批”仅用于当前会话。</p>
@@ -260,6 +267,8 @@
   let extraWriteDirs = [];
   let usageRequest = 0;
   let skillRequest = 0, editingSkill = false;
+  let testingConnection = false, cancellingConnection = false, connectionCancelRequested = false;
+  let sidebarCollapsed = false;
   const systemTheme = matchMedia('(prefers-color-scheme: dark)');
   const permissionRequests = new Set();
 
@@ -321,19 +330,25 @@
     flush(); return fragment;
   }
   function controls() {
-    const blocked = !connected || !view?.ready || view.busy || sending || changing;
+    const connectionBusy = testingConnection || cancellingConnection;
+    const blocked = !connected || !view?.ready || view.busy || sending || saving || changing || connectionBusy;
     input.disabled = blocked; $('send').disabled = blocked;
     $('new').disabled = blocked;
     $('settings').disabled = !connected || !!view?.busy || saving || changing;
     $('workspace-pick').disabled = $('settings').disabled;
-    $('settings-home').disabled = !connected || saving || changing;
+    $('settings-home').disabled = !connected || saving || changing || connectionBusy;
+    $('search-open').disabled = !connected || saving || changing || connectionBusy;
+    $('compact-new').disabled = $('new').disabled; $('compact-search').disabled = $('search-open').disabled; $('compact-settings').disabled = $('settings-home').disabled;
     $('general-workspace-pick').disabled = $('settings').disabled;
     $('settings-save').disabled = $('settings').disabled;
-    for (const field of $('settings-page').querySelectorAll('form input, form select, form textarea, form button')) field.disabled = !connected || !!view?.busy || saving || changing;
+    for (const field of $('settings-page').querySelectorAll('form input, form select, form textarea, form button')) field.disabled = !connected || !!view?.busy || saving || changing || connectionBusy;
     $('skill-new').disabled = !connected || !!view?.busy || saving || changing;
     $('skill-scope').disabled ||= editingSkill;
-    $('settings-close').disabled = saving || changing;
-    for (const button of document.querySelectorAll('[data-section]')) button.disabled = saving || changing;
+    $('settings-close').disabled = saving || changing || connectionBusy;
+    for (const button of document.querySelectorAll('[data-section]')) button.disabled = saving || changing || connectionBusy;
+    const modelConfigured = !!(view?.config?.hasApiKey && view.config.baseUrl && view.config.model);
+    $('connection-test').disabled = !connected || !modelConfigured || !!view?.busy || saving || changing || connectionBusy;
+    $('connection-cancel').hidden = !connectionBusy; $('connection-cancel').disabled = !connected || cancellingConnection;
     $('yolo').disabled = blocked;
     $('yolo').checked = !!view?.yolo;
     $('stop').disabled = !connected || !view?.busy;
@@ -580,8 +595,19 @@
   function closeSettings() {
     if (saving || changing) return;
     settingsSection = null; $('config-api-key').value = ''; $('settings-page').hidden = true;
-    $('workspace-sidebar').hidden = false; $('chat').hidden = false; input.focus();
+    $('workspace-sidebar').hidden = sidebarCollapsed; $('chat').hidden = false; input.focus();
   }
+  function setSidebar(collapsed) {
+    sidebarCollapsed = collapsed; $('workspace-sidebar').hidden = collapsed || !!settingsSection;
+    $('sidebar-toggle').setAttribute('aria-expanded', String(!collapsed));
+    $('sidebar-toggle').setAttribute('aria-label', collapsed ? '展开侧栏' : '收起侧栏');
+    $('sidebar-toggle').title = (collapsed ? '展开侧栏' : '收起侧栏') + ' · ⌘/Ctrl+B';
+    $('compact-nav').hidden = !collapsed;
+  }
+  $('sidebar-toggle').onclick = () => { if (!settingsSection) setSidebar(!sidebarCollapsed); };
+  $('compact-new').onclick = () => $('new').click();
+  $('compact-search').onclick = () => $('search-open').click();
+  $('compact-settings').onclick = () => $('settings-home').click();
   function renderCommands() {
     const commands = document.createDocumentFragment(), tools = document.createDocumentFragment();
     for (const command of view.capabilities?.commands || []) {
@@ -656,7 +682,7 @@
     finally { saving = false; controls(); }
   };
   $('settings').onclick = () => openSettings('model');
-  $('settings-home').onclick = () => openSettings();
+  $('settings-home').onclick = () => { if (!settingsSection) openSettings(); };
   for (const button of document.querySelectorAll('[data-section]')) button.onclick = () => { if (!saving && !changing) openSettings(button.dataset.section); };
   async function changeWorkspace(workspace) {
     if (!view || view.busy || changing || workspace === view.config.workspace) return;
@@ -676,7 +702,10 @@
   }
   $('workspace-pick').onclick = pickWorkspace;
   $('general-workspace-pick').onclick = pickWorkspace;
-  $('search-open').onclick = () => $('search').focus();
+  $('search-open').onclick = () => {
+    if ($('search-open').disabled || (settingsSection && $('settings-close').disabled)) return;
+    if (settingsSection) closeSettings(); setSidebar(false); $('search').focus(); $('search').select();
+  };
   $('search').oninput = renderSessions;
   $('rename-close').onclick = () => { if (!changing) $('rename-dialog').close(); };
   $('rename-dialog').addEventListener('cancel', (event) => { if (changing) event.preventDefault(); });
@@ -689,8 +718,29 @@
     finally { changing = false; $('rename-save').disabled = false; $('rename-close').disabled = false; controls(); }
   };
   $('settings-close').onclick = closeSettings;
+  function connectionResult(message, error = false) {
+    $('connection-result').textContent = message; $('connection-result').hidden = !message;
+    $('connection-result').classList.toggle('error', error); $('connection-result').setAttribute('role', error ? 'alert' : 'status');
+  }
+  $('connection-test').onclick = async () => {
+    if ($('connection-test').disabled) return;
+    testingConnection = true; connectionCancelRequested = false; controls(); connectionResult('正在测试已保存的连接…');
+    try {
+      const result = await api('/model/test', {}); if (result.state) applyState(result.state);
+      const format = (value) => Number(value || 0).toLocaleString('zh-CN');
+      connectionResult(`连接成功 · ${format(result.elapsedMs)} ms · 输入 ${format(result.usage?.prompt_tokens)} · 输出 ${format(result.usage?.completion_tokens)} Tokens`);
+    } catch (error) { connectionResult(connectionCancelRequested ? '已取消连接测试' : error.message, !connectionCancelRequested); }
+    finally { testingConnection = false; controls(); }
+  };
+  $('connection-cancel').onclick = async () => {
+    if (!testingConnection || cancellingConnection) return;
+    cancellingConnection = true; connectionCancelRequested = true; controls();
+    try { const result = await api('/abort', {}); if (result.state) applyState(result.state); }
+    catch (error) { connectionCancelRequested = false; connectionResult('取消测试失败：' + error.message, true); }
+    finally { cancellingConnection = false; controls(); }
+  };
   $('settings-form').onsubmit = async (event) => {
-    event.preventDefault(); if (saving || view?.busy) return;
+    event.preventDefault(); if (saving || view?.busy || testingConnection || cancellingConnection) return;
     saving = true; controls(); $('config-error').textContent = '';
     const config = {
       baseUrl: $('config-base-url').value.trim(), model: $('config-model').value.trim(), apiKey: $('config-api-key').value,
@@ -718,11 +768,18 @@
     catch (error) { showError(error); controls(); }
   };
   $('new').onclick = async () => {
-    if (view.busy || changing) return; changing = true; controls();
+    if ($('new').disabled) return;
+    if (settingsSection) closeSettings(); changing = true; controls();
     try { clearError(); const result = await api('/session/new', {}); $('search').value = ''; applyState(result.state); input.value = ''; }
     catch (error) { showError(error); }
     finally { changing = false; controls(); input.focus(); }
   };
+  document.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing || event.repeat || document.querySelector('dialog[open]')) return;
+    const button = { n: 'new', k: 'search-open', ',': 'settings-home', b: 'sidebar-toggle' }[event.key.toLowerCase()];
+    if (!button) return;
+    event.preventDefault(); $(button).click();
+  });
   $('yolo').onchange = async () => {
     $('yolo').disabled = true;
     try { const result = await api('/yolo', { value: $('yolo').checked }); applyState(result.state); }

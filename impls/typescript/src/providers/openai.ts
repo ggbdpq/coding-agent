@@ -19,7 +19,7 @@ export class Provider implements ChatClient {
 
   /** 最多 3 次尝试；仅首字节前可重试（流已开始的中断不重试，避免内容重复） */
   chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<CompletionResult> {
-    return withRetry(() => this.attempt(messages, opts));
+    return withRetry(() => this.attempt(messages, opts), opts.signal);
   }
 
   private async attempt(
@@ -44,7 +44,8 @@ export class Provider implements ChatClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      const brief = text.length > 300 ? `${text.slice(0, 300)}…` : text;
+      const safeText = this.apiKey ? text.split(this.apiKey).join('[凭证已隐藏]') : text;
+      const brief = safeText.length > 300 ? `${safeText.slice(0, 300)}…` : safeText;
       const retryable = res.status === 429 || res.status >= 500;
       throw retryable
         ? new RetryableError(`HTTP ${res.status}：${brief || res.statusText}`)

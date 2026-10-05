@@ -19,24 +19,8 @@ export interface TurnHooks {
 
 export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Promise<void> {
   const emit = (ev: AgentEvent) => hooks.emit(ev);
-
-  // 轮前上下文治理（双档）：估算超预算 80% 先试摘要压缩（保留任务目标与最近原文），
-  // 仍超限再退裁剪（丢最旧工具输出兜底）
-  if (estimateTokens(app.messages) > app.config.contextLimit * 0.8) {
-    try {
-      const { savedTokens } = await compactContext(app, { signal: hooks.signal });
-      emit({ type: 'compact', savedTokens });
-    } catch {
-      const cut = trimContext(app.messages, app.config.contextLimit);
-      if (cut.trimmed > 0) emit({ type: 'trimmed', count: cut.trimmed });
-    }
-  }
-
   emit({ type: 'turn_start', id: randomUUID() });
-  emit({ type: 'user', text: line });
-
-  app.messages.push({ role: 'user', content: line });
-  const mark = app.messages.length - 1;
+  let mark = app.messages.length;
   const appendSince = () => {
     for (const m of app.messages.slice(mark)) app.store.append(m);
   };
@@ -44,6 +28,29 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
   let reason: 'completed' | 'aborted' | 'error' = 'completed';
   let errorMessage: string | undefined;
   try {
+    // 轮前上下文治理：摘要失败才退裁剪；用户停止不改历史，也不追加本轮输入。
+    if (estimateTokens(app.messages) > app.config.contextLimit * 0.8) {
+      try {
+        const { savedTokens } = await compactContext(app, {
+          signal: hooks.signal,
+          onUsage: (usage) => emit({ type: 'usage', ...usage }),
+        });
+        emit({ type: 'compact', savedTokens });
+      } catch (error) {
+        if (hooks.signal?.aborted || (error as Error).name === 'AbortError') throw error;
+        const candidate = app.messages.map((message) => ({ ...message }));
+        const cut = trimContext(candidate, app.config.contextLimit);
+        if (cut.trimmed > 0) {
+          app.store.checkpoint?.(candidate);
+          app.messages.splice(0, app.messages.length, ...candidate);
+          emit({ type: 'trimmed', count: cut.trimmed });
+        }
+      }
+    }
+    hooks.signal?.throwIfAborted();
+    emit({ type: 'user', text: line });
+    app.messages.push({ role: 'user', content: line });
+    mark = app.messages.length - 1;
     await runTurn(app.messages, {
       provider: app.provider,
       tools: app.registry.tools(),
@@ -64,10 +71,11 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
       errorMessage = err.message;
     }
     // 中断可能留下"有工具调用、无回应"的断尾，补占位保证消息序列对 API 合法
-    const last = app.messages.findLast((message) => message.role === 'assistant' && message.tool_calls?.length);
+    const lastIndex = app.messages.findLastIndex((message, index) => index >= mark && message.role === 'assistant' && message.tool_calls?.length);
+    const last = app.messages[lastIndex];
     if (last?.role === 'assistant' && last.tool_calls) {
       const answered = new Set(
-        app.messages.filter((m) => m.role === 'tool').map((m) => m.tool_call_id)
+        app.messages.slice(lastIndex + 1).filter((m) => m.role === 'tool').map((m) => m.tool_call_id)
       );
       for (const tc of last.tool_calls) {
         if (!answered.has(tc.id)) {

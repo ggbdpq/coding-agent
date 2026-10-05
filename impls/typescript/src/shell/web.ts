@@ -110,7 +110,7 @@ export async function startWeb(app: App): Promise<void> {
     });
   }
 
-  function replaceActivity(events: Record<string, unknown>[]) {
+  function replaceActivity(events: Record<string, unknown>[], persist = true) {
     activity.length = 0; usage = { prompt_tokens: 0, completion_tokens: 0 };
     status = 'idle'; turnId = null; storageError = undefined;
     for (const event of events) {
@@ -121,7 +121,7 @@ export async function startWeb(app: App): Promise<void> {
       }
       if (event.type === 'turn_start') turnId = String(event.id);
       if (event.type === 'turn_end') status = String(event.reason);
-      activity.push(event); store.appendActivity(event);
+      activity.push(event); if (persist) store.appendActivity(event);
     }
     const lastStart = events.findLastIndex((event) => event.type === 'turn_start');
     const lastEnd = events.findLastIndex((event) => event.type === 'turn_end');
@@ -154,23 +154,25 @@ export async function startWeb(app: App): Promise<void> {
         if (event.type === 'tool_result') { flush(); tail.push({ role: 'tool', tool_call_id: String(event.call_id), content: String(event.output ?? event.summary ?? '') }); }
       }
       flush();
-      const answered = new Set(tail.filter((message) => message.role === 'tool').map((message) => message.tool_call_id));
-      for (const message of tail) {
-        for (const call of message.tool_calls ?? []) {
-          if (!answered.has(call.id)) tail.push({ role: 'tool', tool_call_id: call.id, content: '（服务中断，执行结果未知；请先检查文件或命令结果）' });
-        }
+      const lastBatch = tail.findLastIndex((message) => message.role === 'assistant' && message.tool_calls?.length);
+      const answered = new Set(tail.slice(lastBatch + 1).filter((message) => message.role === 'tool').map((message) => message.tool_call_id));
+      for (const call of tail[lastBatch]?.tool_calls ?? []) {
+        if (!answered.has(call.id)) tail.push({ role: 'tool', tool_call_id: call.id, content: '（服务中断，执行结果未知；请先检查文件或命令结果）' });
       }
       // 消息落盘与终态事件之间也可能退出，已有本轮消息时替换断尾，避免重复目标。
-      const userCount = history.activity.filter((event) => event.type === 'user').length;
-      if (userCount === messages.filter((message) => message.role === 'user').length && tail[0]?.content === messages.findLast((message) => message.role === 'user')?.content) {
+      if (history.pendingTurnPersisted) {
         messages.splice(messages.findLastIndex((message) => message.role === 'user'));
       }
       messages.push(...tail);
     }
+    const events = history.activity.length ? [...history.activity] : fromMessages(messages);
+    if (lastStart > lastEnd) {
+      events.push({ type: 'turn_end', reason: 'aborted', error: '服务重启，上轮执行已中断', sessionId: id,
+        seq: events.reduce((latest, event) => Math.max(latest, Number(event.seq) || 0), seq) + 1 });
+    }
+    app.startSession({ sessionId: id, resumedFrom: history.file.split(/[\\/]/).pop(), yolo: app.config.approval === 'never' }, { messages, activity: events });
     resetModes(); app.resetMessages(); app.messages.push(...messages);
-    app.startSession({ sessionId: id, resumedFrom: history.file.split(/[\\/]/).pop() });
-    messages.forEach((message) => store.append(message));
-    replaceActivity(history.activity.length ? history.activity : fromMessages(messages));
+    replaceActivity(events, false);
   }
 
   function resetModes() {
@@ -394,6 +396,35 @@ export async function startWeb(app: App): Promise<void> {
       Object.assign(app.config, saveWebPreferences(app.config, body));
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
+    if (req.method === 'POST' && path === '/model/test') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能测试模型连接' }); return; }
+      if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
+        throw new ConfigInputError('请先保存有效的模型配置');
+      }
+      const previousStatus = status, controller = new AbortController();
+      const probeUsage = { prompt_tokens: 0, completion_tokens: 0 };
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 10000);
+      busy = true; status = 'running'; abort = controller; sendState();
+      const started = Date.now();
+      try {
+        // 固定探测不带项目内容或工具；测试用量单独返回，不计入会话。
+        const result = await app.provider.chat([{ role: 'user', content: 'Reply with OK.' }], {
+          signal: controller.signal,
+          onUsage: (value) => { probeUsage.prompt_tokens += value.prompt_tokens; probeUsage.completion_tokens += value.completion_tokens; },
+        });
+        controller.signal.throwIfAborted();
+        if (!result.message.content?.trim()) throw new Error('模型未返回文本，请检查模型与协议');
+        json(res, 200, { ok: true, elapsedMs: Date.now() - started, usage: probeUsage });
+      } catch (error) {
+        json(res, controller.signal.aborted ? (timedOut ? 408 : 499) : 502, {
+          error: controller.signal.aborted ? (timedOut ? '连接测试超时（10 秒）' : '已取消连接测试') : safeError((error as Error).message),
+        });
+      } finally {
+        clearTimeout(timer); busy = false; status = previousStatus; abort = null; sendState();
+      }
+      return;
+    }
     if (req.method === 'POST' && path === '/config') {
       if (busy) { json(res, 409, { error: '任务运行期间不能修改配置' }); return; }
       const next = saveWebConfig(app.config, body);
@@ -489,9 +520,14 @@ export async function startWeb(app: App): Promise<void> {
       }
       captureBuf = [];
       busy = true;
+      abort = new AbortController();
+      sendState();
       try {
         if (rawCmd === 'new') resetModes();
-        const outcome = await cmd.run(app, args);
+        const outcome = await cmd.run(app, args, {
+          signal: abort.signal,
+          onUsage: (usage) => bridgeEvent({ type: 'usage', ...usage }),
+        });
         const output = safeError((captureBuf ?? []).join('\n').replace(ANSI_RE, ''));
         if (rawCmd === 'new') replaceActivity([]);
         sendEvent({ type: 'command', output });
@@ -503,11 +539,12 @@ export async function startWeb(app: App): Promise<void> {
           yolo: app.yolo.value,
           state: snapshot(),
         });
-        sendState();
         if (outcome?.exit) setTimeout(() => process.exit(0), 200);
       } finally {
         captureBuf = null;
         busy = false;
+        abort = null;
+        sendState();
       }
       return;
     }

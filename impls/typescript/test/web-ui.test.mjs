@@ -1,15 +1,13 @@
 // 浏览器公共边界：真实页面经 HTTP/SSE 驱动，不访问页面内部函数。
-// 使用桌面自带 Playwright；可用 PLAYWRIGHT_MODULE 指向已有安装，不增加项目依赖。
+// 使用锁定的本地 Playwright 与 Chromium；两个环境变量可复用已有测试环境。
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { homedir } from 'node:os';
-import path from 'node:path';
 import test from 'node:test';
 
 const require = createRequire(import.meta.url);
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE ?? path.join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright'));
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
 const pageSource = () => readFileSync(new URL('../src/shell/web.html', import.meta.url), 'utf8');
 const initialState = (override = {}) => ({
   ready: true,
@@ -46,7 +44,7 @@ async function withPage(state, routes, verify, { initScript } = {}) {
     res.writeHead(404).end();
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
   try {
     const page = await browser.newPage(), errors = [];
     page.setDefaultTimeout(4000);
@@ -124,6 +122,186 @@ test('设置中心独立于工作区，七组可导航且模型保存后能返�
     await page.getByRole('button', { name: '返回工作区', exact: true }).click();
     assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).isVisible(), true);
     assert.equal(await page.getByText('updated-model · 自动识别协议', { exact: true }).isVisible(), true);
+  });
+});
+
+test('侧栏可以折叠展开，折叠后的主要入口可到达且窄屏不溢出', async () => {
+  await withPage(initialState(), {}, async (page) => {
+    const sidebar = page.getByRole('complementary', { name: '项目与会话', exact: true });
+    await page.getByRole('button', { name: '收起侧栏', exact: true }).click({ timeout: 2000 });
+    assert.equal(await sidebar.isVisible(), false);
+    assert.equal(await page.getByRole('button', { name: '展开侧栏', exact: true }).getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.getByRole('button', { name: '新任务', exact: true }).isVisible(), true);
+    await page.getByRole('button', { name: '搜索', exact: true }).click();
+    assert.equal(await sidebar.isVisible(), true);
+    assert.equal(await page.getByRole('textbox', { name: '搜索会话', exact: true }).evaluate((element) => document.activeElement === element), true);
+    await page.getByRole('button', { name: '收起侧栏', exact: true }).click();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('region', { name: '设置中心', exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    assert.equal(await sidebar.isVisible(), false, '返回工作区保留折叠状态');
+    await page.setViewportSize({ width: 390, height: 780 });
+    assert.equal(await page.getByRole('button', { name: '展开侧栏', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: '新任务', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: '设置', exact: true }).isVisible(), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+    await page.getByRole('button', { name: '展开侧栏', exact: true }).click();
+    assert.equal(await sidebar.isVisible(), true);
+  });
+});
+
+test('Cmd/Ctrl+N 复用新任务操作，从设置返回工作区并聚焦消息输入', async () => {
+  const state = initialState(); let tasks = 0;
+  await withPage(state, { '/session/new': () => {
+    state.currentSessionId = 'shortcut-' + ++tasks; state.title = '快捷键新任务 ' + tasks; state.activity = []; state.seq++;
+    return { ok: true, state };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    for (const [index, modifier] of ['Control', 'Meta'].entries()) {
+      await page.keyboard.press(modifier + '+n');
+      await page.getByRole('heading', { name: '快捷键新任务 ' + (index + 1), exact: true }).waitFor();
+      assert.equal(await page.getByRole('region', { name: '设置中心', exact: true }).isVisible(), false);
+      assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).evaluate((element) => document.activeElement === element), true);
+    }
+    assert.equal(tasks, 2);
+  });
+});
+
+test('Cmd/Ctrl+K 展开折叠的侧栏并聚焦会话搜索，也可从设置返回搜索', async () => {
+  await withPage(initialState({ sessions: [{ id: 's1', title: '排查错误', cwd: '/tmp/ui-project', mtime: 1 }] }), {}, async (page) => {
+    await page.getByRole('button', { name: '收起侧栏', exact: true }).click({ timeout: 2000 });
+    await page.keyboard.press('Control+k');
+    const search = page.getByRole('textbox', { name: '搜索会话', exact: true });
+    await search.waitFor();
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+    await search.fill('排查');
+    assert.equal(await page.getByRole('button', { name: '打开会话 排查错误', exact: true }).isVisible(), true);
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.keyboard.press('Meta+k');
+    assert.equal(await page.getByRole('region', { name: '设置中心', exact: true }).isVisible(), false);
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+  });
+});
+
+test('Cmd/Ctrl+, 打开设置中心，已在设置时不会覆盖未保存的模型草稿', async () => {
+  await withPage(initialState(), {}, async (page) => {
+    await page.getByRole('button', { name: '收起侧栏', exact: true }).click({ timeout: 2000 });
+    await page.keyboard.press('Control+,');
+    await page.getByRole('region', { name: '设置中心', exact: true }).waitFor();
+    await page.getByRole('navigation', { name: '设置分组', exact: true }).getByRole('button', { name: '模型', exact: true }).click();
+    await page.getByLabel('模型', { exact: true }).fill('unsaved-model');
+    await page.keyboard.press('Meta+,');
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'unsaved-model');
+    assert.equal(await page.getByRole('heading', { name: '模型', exact: true }).isVisible(), true);
+  });
+});
+
+test('Cmd/Ctrl+B 可折叠和展开侧栏，同时保持正在输入的消息', async () => {
+  await withPage(initialState(), {}, async (page) => {
+    const input = page.getByRole('textbox', { name: '消息', exact: true });
+    await input.fill('尚未发送的消息');
+    await input.press('Control+b');
+    assert.equal(await page.getByRole('complementary', { name: '项目与会话', exact: true }).isVisible(), false);
+    assert.equal(await input.inputValue(), '尚未发送的消息');
+    await input.press('Meta+b');
+    assert.equal(await page.getByRole('complementary', { name: '项目与会话', exact: true }).isVisible(), true);
+    assert.equal(await input.inputValue(), '尚未发送的消息');
+  });
+});
+
+test('新任务快捷键不能绕过审批等待或尚未同步后端状态的连接测试锁', async () => {
+  let newTasks = 0;
+  const approvalState = initialState({ title: '审批中的任务', busy: true, status: 'waiting_approval', pending: [{ type: 'permission', id: 'p1', tool: 'write', preview: '等待写入批准' }] });
+  await withPage(approvalState, { '/session/new': () => { newTasks++; return { state: approvalState }; } }, async (page) => {
+    await page.getByText('等待写入批准', { exact: true }).waitFor();
+    await page.keyboard.press('Control+n'); await page.keyboard.press('Meta+n');
+    assert.equal(newTasks, 0, '审批期间的快捷键不应发送新任务请求');
+    assert.equal(await page.getByRole('heading', { name: '审批中的任务', exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('等待写入批准', { exact: true }).isVisible(), true);
+  });
+  let finish;
+  await withPage(initialState(), {
+    '/model/test': async () => {
+      await new Promise((resolve) => { finish = resolve; });
+      return { ok: true, elapsedMs: 5, usage: { prompt_tokens: 1, completion_tokens: 1 } };
+    },
+    '/session/new': () => { newTasks++; return { state: initialState() }; },
+  }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click({ timeout: 2000 });
+    await page.getByLabel('模型', { exact: true }).fill('测试期间的草稿');
+    await page.getByRole('button', { name: '测试已保存的连接', exact: true }).click();
+    await page.getByText('正在测试已保存的连接…', { exact: true }).waitFor();
+    await page.keyboard.press('Control+n'); await page.keyboard.press('Meta+n');
+    await page.keyboard.press('Control+k'); await page.keyboard.press('Meta+,');
+    assert.equal(newTasks, 0, '本地测试锁应在收到后端 busy 状态前阻止新任务请求');
+    assert.equal(await page.getByRole('region', { name: '设置中心', exact: true }).isVisible(), true);
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), '测试期间的草稿');
+    finish();
+    await page.getByText('连接成功 · 5 ms · 输入 1 · 输出 1 Tokens', { exact: true }).waitFor();
+  });
+});
+
+test('模型连接测试只使用已保存配置，测试中禁用保存且成功显示耗时用量并保留草稿', async () => {
+  const state = initialState(); let finish, request;
+  await withPage(state, { '/model/test': async (body, { emit }) => {
+    request = body; state.busy = true; state.status = 'running'; state.seq++;
+    emit({ type: 'state', state });
+    await new Promise((resolve) => { finish = resolve; });
+    state.busy = false; state.status = 'idle'; state.seq++;
+    return { ok: true, elapsedMs: 123, usage: { prompt_tokens: 2, completion_tokens: 1 }, state };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click({ timeout: 2000 });
+    await page.getByLabel('模型', { exact: true }).fill('draft-model');
+    await page.getByLabel('API Key', { exact: true }).fill('unsaved-draft-key');
+    await page.getByRole('button', { name: '测试已保存的连接', exact: true }).click();
+    await page.getByText('正在测试已保存的连接…', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '测试已保存的连接', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '保存设置', exact: true }).isDisabled(), true);
+    assert.deepEqual(request, {}, '测试不发送模型设置草稿');
+    finish();
+    await page.getByText('连接成功 · 123 ms · 输入 2 · 输出 1 Tokens', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'draft-model');
+    assert.equal(await page.getByLabel('API Key', { exact: true }).inputValue(), 'unsaved-draft-key');
+    assert.equal(await page.getByRole('button', { name: '保存设置', exact: true }).isEnabled(), true);
+    assert.equal(state.activity.length, 0);
+  });
+});
+
+test('模型连接测试可取消，取消后恢复操作并保留未保存的模型草稿', async () => {
+  const state = initialState(); let cancel;
+  await withPage(state, {
+    '/model/test': async (_, { emit }) => {
+      state.busy = true; state.status = 'running'; state.seq++; emit({ type: 'state', state });
+      await new Promise((_, reject) => { cancel = () => reject(new Error('请求已中止')); });
+    },
+    '/abort': (_, { emit }) => {
+      state.busy = false; state.status = 'idle'; state.seq++; emit({ type: 'state', state });
+      cancel(); return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click({ timeout: 2000 });
+    await page.getByLabel('模型', { exact: true }).fill('draft-after-cancel');
+    await page.getByRole('button', { name: '测试已保存的连接', exact: true }).click();
+    await page.getByText('正在测试已保存的连接…', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '取消测试', exact: true }).click();
+    await page.getByText('已取消连接测试', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '测试已保存的连接', exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: '保存设置', exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: '取消测试', exact: true }).isVisible(), false);
+    assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'draft-after-cancel');
+  });
+});
+
+test('连接测试失败显示服务提供的错误，模型表单和已有会话仍可继续使用', async () => {
+  const state = initialState({ activity: [{ type: 'user', text: '已有任务', seq: 1 }, { type: 'text', delta: '已有回答', seq: 2 }], seq: 2 });
+  await withPage(state, { '/model/test': () => { throw new Error('连接失败：上游返回已脱敏错误'); } }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click({ timeout: 2000 });
+    await page.getByRole('button', { name: '测试已保存的连接', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: '连接失败：上游返回已脱敏错误' }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '测试已保存的连接', exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: '保存设置', exact: true }).isEnabled(), true);
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    assert.equal(await page.getByText('已有回答', { exact: true }).isVisible(), true);
   });
 });
 
@@ -275,6 +453,7 @@ test('缺少模型配置时能保存配置并开始聊天，API Key 不读回', 
     return { ok: true, state };
   } }, async (page) => {
     await page.getByRole('region', { name: '设置中心', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '测试已保存的连接', exact: true }).isDisabled(), true);
     assert.equal(await page.getByLabel('API Key', { exact: true }).getAttribute('type'), 'password');
     await page.getByLabel('API Key', { exact: true }).fill('test-key-not-for-display');
     await page.getByLabel('API 端点', { exact: true }).fill('http://127.0.0.1:8080/v1');
@@ -349,6 +528,7 @@ test('任务运行中可以浏览设置，修改控件保持禁用，返回后�
     assert.equal(await page.getByRole('checkbox', { name: 'Enter 发送消息', exact: true }).isDisabled(), true);
     await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '模型', exact: true }).click();
     assert.equal(await page.getByLabel('API 端点', { exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '测试已保存的连接', exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: '返回工作区', exact: true }).click();
     assert.equal(await page.getByText('等待批准写入', { exact: true }).isVisible(), true);
   });

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     tags: ["v*"]
   pull_request:
 
@@ -45,6 +45,27 @@ jobs:
             rust) cargo test ;;
             csharp) dotnet run --project tests ;;
           esac
+
+  typescript-ui:
+    name: TypeScript browser workbench
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: impls/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
+      - name: 安装锁定的开发依赖
+        run: pnpm install --frozen-lockfile
+      - name: 安装 Chromium 和系统依赖
+        run: pnpm exec playwright install --with-deps chromium
+      - name: 浏览器公共交互回归
+        run: pnpm run test:ui
 
   conformance:
     name: conformance suite (4 scenarios × 5 runtimes)
