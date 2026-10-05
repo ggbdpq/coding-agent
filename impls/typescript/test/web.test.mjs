@@ -51,6 +51,8 @@ async function harness(t, { cli = false, unconfigured = false, reuseDir = undefi
     const hasResult = body.messages.some((m) => m.role === 'tool');
     if (user === 'write' && !hasResult) {
       send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'write-1', function: { name: 'write', arguments: JSON.stringify({ file_path: 'result.txt', content: 'approved content' }) } }] } }] });
+    } else if (user === '沉淀' && !hasResult) {
+      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'memory-1', function: { name: 'memory_append', arguments: JSON.stringify({ content: '记住 pnpm' }) } }] } }] });
     } else if (user === 'slow tools' && !hasResult) {
       send({ choices: [{ delta: { tool_calls: [
         { index: 0, id: 'bash-1', function: { name: 'bash', arguments: '{"command":"sleep 30"}' } },
@@ -583,7 +585,6 @@ test('afterTurn 钩子：轮末以项目目录执行、输出回显会话、状�
   const pending = await h.event('permission');
   await h.post('permission', { id: pending.id, decision: 'allow' });
   await h.event('turn_end');
-  console.log('[DEBUG-n3p6] events:', JSON.stringify(h.events.map((e) => ({ t: e.type, o: e.output?.slice(0, 120) }))), '| cfgAfterTurn:', JSON.parse(readFileSync(path.join(h.dir, 'data', 'config.json'), 'utf8')).afterTurn);
   await until(() => existsSync(marker), '钩子写标记文件');
   assert.equal(readFileSync(marker, 'utf8').trim(), 'completed', '钩子环境变量携带轮次状态');
 });
@@ -612,4 +613,30 @@ test('afterTurn 配置经 config 端点持久化与校验', async (t) => {
   assert.equal(JSON.parse(readFileSync(h.dir + '/data/config.json', 'utf8')).afterTurn, 'echo done');
   const tooLong = await h.post('config', { afterTurn: 'x'.repeat(2001) });
   assert.equal(tooLong.status, 400);
+});
+
+test('记忆自动沉淀：模型经 memory_append 工具写入并注入后续轮次', async (t) => {
+  const h = await harness(t);
+  await h.post('send', { text: '沉淀' });
+  const deadline = Date.now() + 5000;
+  let approved = false;
+  while (Date.now() < deadline) {
+    const state = await h.state();
+    const pending = state.pending?.[0];
+    if (pending) {
+      assert.match(pending.preview, /追加到长期记忆/, '沉淀工具走逐次审批');
+      await h.post('permission', { id: pending.id, decision: 'allow' });
+      approved = true;
+    }
+    if (state.status === 'completed' && !state.busy) break;
+    await delay(20);
+  }
+  assert.equal(approved, true, '沉淀工具走逐次审批');
+  assert.equal(existsSync(path.join(h.dir, 'data', 'memory.md')), true, 'memory.md 真实写入');
+  await h.post('send', { text: '复述' });
+  await until(async () => {
+    const request = h.requests.at(-1);
+    return request && request.messages[0]?.content?.includes('记住 pnpm');
+  }, '下轮 system 注入新记忆');
+  assert.match(h.requests.at(-1).messages.at(-1).content ?? '', /记住 pnpm|已记录/, '会话含沉淀内容');
 });

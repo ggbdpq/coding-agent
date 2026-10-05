@@ -75,7 +75,7 @@ export function buildSystemPrompt(cwd: string, homeDir?: string, dataDir?: strin
   const global = readIfExists(path.join(globalDir, 'AGENTS.md'));
   if (global) parts.push('', '# 用户全局指令（~/.tcode/AGENTS.md）', global);
   const memory = readIfExists(path.join(globalDir, 'memory.md'));
-  if (memory) parts.push('', '# 长期记忆（memory.md，跨会话沉淀，供参考不必复述）', memory);
+  if (memory) parts.push('', '# 长期记忆（memory.md，跨会话沉淀，供参考不必复述；新增条目用 memory_append 工具追加）', memory);
   const project = readIfExists(path.join(path.resolve(cwd), 'AGENTS.md'));
   if (project) parts.push('', '# 项目指令（AGENTS.md）', project);
   const skills = skillIndex([

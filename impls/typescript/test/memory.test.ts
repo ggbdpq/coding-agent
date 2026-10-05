@@ -12,6 +12,9 @@ import type { App } from '../src/kernel/app.ts';
 
 function setup(t: TestContext) {
   const dir = mkdtempSync(path.join(tmpdir(), 'tcode-memory-'));
+  // 工具经 resolveTcodeDir（TCODE_DATA_DIR）解析路径，测试必须隔离真实用户目录
+  process.env.TCODE_DATA_DIR = dir;
+  t.after(() => { delete process.env.TCODE_DATA_DIR; });
   const registry = new Registry().registerAll(builtinPlugins);
   const app = { config: { tcodeDir: dir }, registry } as unknown as App;
   const memoryFile = path.join(dir, 'memory.md');
@@ -61,4 +64,23 @@ test('/memory clear 清空记忆', async (t) => {
   const memory = registry.commands().find((cmd) => cmd.name === 'memory');
   await memory!.run(app, ['clear']);
   assert.equal(existsSync(memoryFile), false, 'clear 后文件删除');
+});
+
+test('memory_append 工具：追加真实写入、空与超长拒绝、不覆盖既有内容', async (t) => {
+  const { dir, registry, memoryFile } = setup(t);
+  writeFileSync(memoryFile, '- 既有记忆\n');
+  const tool = registry.tools().find((plugin) => plugin.name === 'memory_append');
+  assert.ok(tool, 'memory_append 工具必须注册');
+  assert.equal(await tool.run({ content: '用户偏好 pnpm' }), '已记录到长期记忆（下轮对话注入）：用户偏好 pnpm');
+  assert.match(readFileSync(memoryFile, 'utf8'), /- 既有记忆[\s\S]*- 用户偏好 pnpm/, '追加不能覆盖既有内容');
+  assert.equal(tool.needsPermission, true, '写入用户全局文件须走审批');
+  assert.match(await tool.run({ content: '   ' }), /不能为空/);
+  assert.match(await tool.run({ content: 'x'.repeat(501) }), /500/);
+});
+
+test('memory_append 工具的注入说明进入系统提示词', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'tcode-mem-'));
+  writeFileSync(path.join(dir, 'memory.md'), '- 既有\n');
+  const prompt = buildSystemPrompt('/tmp/whatever', dir, dir);
+  assert.match(prompt, /memory_append/, '模型须知如何沉淀记忆');
 });

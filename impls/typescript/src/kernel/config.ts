@@ -163,8 +163,12 @@ function readJsonConfig(tcodeDir: string): FileConfig {
   }
 }
 
+export function resolveTcodeDir(): string {
+  return path.resolve(process.env.TCODE_DATA_DIR || path.join(homedir(), '.tcode'));
+}
+
 export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boolean } = {}): Config {
-  const tcodeDir = path.resolve(process.env.TCODE_DATA_DIR || path.join(homedir(), '.tcode'));
+  const tcodeDir = resolveTcodeDir();
   let file: FileConfig = {};
   let configError: string | undefined;
   try { file = readJsonConfig(tcodeDir); }

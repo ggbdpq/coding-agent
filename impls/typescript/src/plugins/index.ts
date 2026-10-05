@@ -10,6 +10,7 @@ import grepPlugin from './tools/grep.ts';
 import todoPlugin from './tools/todo.ts';
 import webFetchPlugin from './tools/webfetch.ts';
 import applyPatchPlugin from './tools/apply_patch.ts';
+import memoryAppendPlugin from './tools/memory_append.ts';
 import helpCommand from './commands/help.ts';
 import newCommand from './commands/new.ts';
 import resumeCommand from './commands/resume.ts';
@@ -37,6 +38,7 @@ export const builtinPlugins: Plugin[] = [
   todoPlugin,
   webFetchPlugin,
   applyPatchPlugin,
+  memoryAppendPlugin,
   // —— 命令（/help 列表按这里的顺序展示） ——
   helpCommand,
   newCommand,
