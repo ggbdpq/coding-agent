@@ -96,9 +96,12 @@ function readJsonConfig(tcodeDir: string): FileConfig {
       const ids = new Set<string>();
       for (const profile of fields.modelProfiles as ModelProfile[]) {
         if (!profile || typeof profile.id !== 'string' || !profile.id.trim() || typeof profile.name !== 'string' || !profile.name.trim() || ids.has(profile.id)) throw new Error();
-        if (typeof profile.apiKey !== 'string' || !profile.apiKey || typeof profile.baseUrl !== 'string' || !profile.baseUrl || typeof profile.model !== 'string' || !profile.model || !Number.isSafeInteger(profile.contextLimit)) throw new Error();
+        // apiKey 允许为空：导入的脱敏配置在原端点重新填写密钥前不可用（select 后错误可见）
+        if (typeof profile.apiKey !== 'string' || typeof profile.baseUrl !== 'string' || !profile.baseUrl || typeof profile.model !== 'string' || !profile.model || !Number.isSafeInteger(profile.contextLimit) || profile.contextLimit <= 0) throw new Error();
         if (profile.protocol !== undefined && !['openai', 'anthropic'].includes(profile.protocol)) throw new Error();
-        modelFields(profile, profile as unknown as Record<string, unknown>);
+        let parsedUrl: URL;
+        try { parsedUrl = new URL(profile.baseUrl); } catch { throw new Error(); }
+        if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) throw new Error();
         ids.add(profile.id);
       }
     }
@@ -337,4 +340,41 @@ export function deleteModelProfile(current: Config, id: unknown): Config {
   const modelProfiles = profiles.filter((entry) => entry.id !== profile.id);
   persistConfig(current, { modelProfiles });
   return { ...current, modelProfiles };
+}
+
+/** 导入模型配置：传入的密钥一律忽略（凭证须在原端点重新填写），重复端点与非法条目逐条报告并跳过；不激活、不改动活动配置。 */
+export function importModelProfiles(current: Config, input: unknown): { imported: number; skipped: string[]; config: Config } {
+  if (!Array.isArray(input) || input.length === 0 || input.length > 50) {
+    throw new ConfigInputError('导入内容须为 1–50 个模型配置的数组');
+  }
+  const normalize = (value: string) => value.replace(/\/+$/, '');
+  const existing = new Set<string>();
+  for (const profile of current.modelProfiles ?? []) existing.add(normalize(profile.baseUrl));
+  if (current.baseUrl) existing.add(normalize(current.baseUrl));
+  const modelProfiles = [...(current.modelProfiles ?? [])];
+  const skipped: string[] = [];
+  let imported = 0;
+  for (const raw of input) {
+    const entry = (raw ?? {}) as Record<string, unknown>;
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    const fail = (reason: string) => skipped.push(`${name || '未命名'}：${reason}`);
+    if (!name || name.length > 80) { fail('配置名称须为 1 至 80 个字符'); continue; }
+    if (typeof entry.baseUrl !== 'string') { fail('端点须为不含用户名和密码的 HTTP(S) 地址'); continue; }
+    const baseUrl = normalize(entry.baseUrl.trim());
+    let url: URL;
+    try { url = new URL(baseUrl); } catch { fail('端点须为不含用户名和密码的 HTTP(S) 地址'); continue; }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) { fail('端点须为不含用户名和密码的 HTTP(S) 地址'); continue; }
+    if (existing.has(baseUrl)) { fail('端点已存在'); continue; }
+    const model = typeof entry.model === 'string' ? entry.model.trim() : '';
+    if (!model) { fail('模型不能为空'); continue; }
+    const rawProtocol = typeof entry.protocol === 'string' && entry.protocol ? entry.protocol : 'auto';
+    if (!['auto', 'openai', 'anthropic'].includes(rawProtocol)) { fail('协议须为 auto、openai 或 anthropic'); continue; }
+    const contextLimit = Number(entry.contextLimit ?? current.contextLimit);
+    if (!Number.isSafeInteger(contextLimit) || contextLimit <= 0) { fail('上下文上限须为正整数'); continue; }
+    modelProfiles.push({ id: randomUUID(), name, baseUrl, model, apiKey: '', protocol: rawProtocol === 'auto' ? undefined : rawProtocol as Protocol, contextLimit });
+    existing.add(baseUrl);
+    imported++;
+  }
+  persistConfig(current, { modelProfiles });
+  return { imported, skipped, config: { ...current, modelProfiles } };
 }

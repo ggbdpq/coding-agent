@@ -233,7 +233,7 @@
     <section id="settings-model" data-settings="model" hidden>
   <h1>模型</h1>
   <p class="settings-description">请求发送到你配置的 API 端点。API Key 仅用于保存，不读回页面。</p>
-  <div class="settings-card"><h2>已保存的模型</h2><label>已保存模型配置<select id="settings-model-profile" aria-label="已保存模型配置"><option value="">当前模型 · 未命名配置</option></select></label><p id="model-profile-status" aria-live="polite"></p><div class="bar"><button id="model-profile-new">新建模型配置</button><button id="model-profile-cancel" hidden>取消新建</button></div><div id="model-profile-list" aria-label="已保存配置列表"></div></div>
+  <div class="settings-card"><h2>已保存的模型</h2><label>已保存模型配置<select id="settings-model-profile" aria-label="已保存模型配置"><option value="">当前模型 · 未命名配置</option></select></label><p id="model-profile-status" aria-live="polite"></p><div class="bar"><button id="model-profile-new">新建模型配置</button><button id="model-profile-cancel" hidden>取消新建</button><button id="model-export" title="导出全部命名配置为 JSON，不含 API Key">导出配置</button><button id="model-import" title="从导出的 JSON 文件导入；重复端点会跳过，导入后需重新填写密钥">导入配置</button><input type="file" id="model-import-file" accept="application/json,.json" hidden aria-label="选择配置文件"></div><div id="model-profile-list" aria-label="已保存配置列表"></div></div>
   <form id="settings-form">
     <label>配置名称<input id="config-profile-name" maxlength="80" autocomplete="off" placeholder="填写名称可保存到模型列表"></label>
     <label>API 端点<input id="config-base-url" name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
@@ -406,6 +406,7 @@
     else if (!editingModelProfileId && originalActiveModelProfileId !== (view?.activeModelProfileId || null)) label = '正在编辑未命名配置；当前使用' + (active?.name || '未命名配置');
     $('model-profile-status').textContent = newModelProfile ? '新配置 · 尚未保存' : label + (modelDraftDirty ? ' · 未保存的修改' : '');
     $('model-profile-new').disabled = navigationBlocked(); $('model-profile-cancel').disabled = navigationBlocked(); $('model-profile-cancel').hidden = !newModelProfile;
+    $('model-export').disabled = $('model-import').disabled = !connected || !!view?.busy || saving || changing;
     const list = document.createDocumentFragment();
     for (const profile of view?.modelProfiles || []) {
       const entry = row('capability-entry', undefined, list), bar = row('bar', undefined, entry);
@@ -466,6 +467,34 @@
   };
   $('model-profile-cancel').onclick = () => { if (!navigationBlocked()) { fillModelForm(); settingsFeedback(''); } };
   $('settings-form').oninput = () => { modelDraftDirty = true; modelKeyHint(); renderModelProfiles(); };
+  $('model-export').onclick = async () => {
+    if (!connected || view?.busy || saving || changing) return;
+    try {
+      const result = await api('/model-profiles/export');
+      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `tcode-model-profiles-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      settingsFeedback(`已导出 ${result.profiles.length} 个配置（不含 API Key）`);
+    } catch (error) { settingsFeedback(error.message, true); }
+  };
+  $('model-import').onclick = () => { if (!navigationBlocked()) $('model-import-file').click(); };
+  $('model-import-file').onchange = async () => {
+    const file = $('model-import-file').files?.[0];
+    $('model-import-file').value = '';
+    if (!file || navigationBlocked()) return;
+    changing = true; controls(); settingsFeedback('');
+    try {
+      let parsed;
+      try { parsed = JSON.parse(await file.text()); } catch { throw new Error('文件不是有效的 JSON'); }
+      const result = await api('/model-profiles/import', { profiles: Array.isArray(parsed) ? parsed : parsed.profiles });
+      applyState(result.state);
+      settingsFeedback(`已导入 ${result.imported} 个配置${result.skipped.length ? `；跳过 ${result.skipped.length} 个：${result.skipped.join('；')}` : ''}`);
+    } catch (error) { settingsFeedback(error.message, true); }
+    finally { changing = false; controls(); }
+  };
   $('model-discover').onclick = async () => {
     if (!connected || view?.busy || saving || changing) return;
     const button = $('model-discover');

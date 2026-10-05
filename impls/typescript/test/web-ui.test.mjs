@@ -1133,3 +1133,28 @@ test('模型设置可获取已保存配置的模型列表，模型输入保持�
     assert.equal(await page.getByLabel('模型', { exact: true }).inputValue(), 'custom-model', '候选列表不能锁死输入框');
   });
 });
+
+test('模型设置可导出脱敏 JSON 并导入配置文件，跳过原因可见', async () => {
+  const state = initialState();
+  await withPage(state, {
+    '/model-profiles/export': () => ({ exportedAt: '2026-10-05T00:00:00Z', profiles: [{ name: '已保存', baseUrl: 'https://a.example/v1', model: 'm', protocol: 'openai', contextLimit: 1000, hasApiKey: true }] }),
+    '/model-profiles/import': (body) => {
+      assert.deepEqual(body.profiles.map((profile) => profile.name), ['朋友分享的配置']);
+      state.modelProfiles.push({ id: 'imported-1', name: '朋友分享的配置', baseUrl: 'https://b.example/v1', model: 'm2', protocol: 'openai', contextLimit: 2000, hasApiKey: false });
+      state.seq++; return { ok: true, imported: 1, skipped: ['重复端点：端点已存在'], state };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '模型设置', exact: true }).click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: '导出配置', exact: true }).click();
+    const download = await downloadPromise;
+    assert.match(download.suggestedFilename(), /^tcode-model-profiles-\d{4}-\d{2}-\d{2}\.json$/);
+    await page.getByText('已导出 1 个配置（不含 API Key）', { exact: true }).waitFor();
+    await page.getByLabel('选择配置文件', { exact: true }).setInputFiles({
+      name: 'share.json', mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify({ profiles: [{ name: '朋友分享的配置', baseUrl: 'https://b.example/v1', model: 'm2', protocol: 'openai', contextLimit: 2000 }] })),
+    });
+    await page.getByText('已导入 1 个配置；跳过 1 个：重复端点：端点已存在', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '删除配置 朋友分享的配置', exact: true }).waitFor();
+  });
+});

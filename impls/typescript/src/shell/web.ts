@@ -10,7 +10,7 @@ import { createPermissionGate, type PermissionDecision } from '../core/permissio
 import { runUserTurn } from '../core/turn.ts';
 import type { AgentEvent } from '../kernel/types.ts';
 import { VERSION, selectProvider, type App } from '../kernel/app.ts';
-import { saveWebConfig, saveModelProfile, selectModelProfile, deleteModelProfile, saveWorkspace, saveProjectArchive, removeProject, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
+import { saveWebConfig, saveModelProfile, selectModelProfile, deleteModelProfile, importModelProfiles, saveWorkspace, saveProjectArchive, removeProject, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
 import { SessionStore } from '../core/session.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
@@ -560,6 +560,21 @@ export async function startWeb(app: App): Promise<void> {
       const next = saveModelProfile(app.config, body, (candidate) => { provider = modelProvider(candidate); });
       Object.assign(app.config, next); app.provider = provider;
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'GET' && path === '/model-profiles/export') {
+      // 结构上不含密钥：只有 hasApiKey 标记，导出文件可安全分享
+      json(res, 200, { exportedAt: new Date().toISOString(),
+        profiles: (app.config.modelProfiles ?? []).map((profile) => ({
+          name: profile.name, baseUrl: profile.baseUrl, model: profile.model,
+          protocol: profile.protocol ?? 'auto', contextLimit: profile.contextLimit, hasApiKey: !!profile.apiKey,
+        })) });
+      return;
+    }
+    if (req.method === 'POST' && path === '/model-profiles/import') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能导入模型配置' }); return; }
+      const report = importModelProfiles(app.config, body.profiles);
+      Object.assign(app.config, report.config);
+      json(res, 200, { ok: true, imported: report.imported, skipped: report.skipped, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/config') {
       if (busy) { json(res, 409, { error: '任务运行期间不能修改配置' }); return; }

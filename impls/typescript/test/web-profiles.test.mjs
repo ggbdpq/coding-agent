@@ -107,6 +107,7 @@ async function fixture(t, { originalKey = 'profile-original-key', secondKey = 'p
   return { root, data, workspace, configFile, endpoint, requests, events, originalKey, secondKey,
     state: async () => (await fetch(url + 'state')).json(),
     post: async (route, body = {}) => { const response = await fetch(url + route, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); const text = await response.text(); let parsed; try { parsed = JSON.parse(text); } catch { parsed = { error: text }; } return { status: response.status, body: parsed }; },
+    get: async (route) => { const response = await fetch(url + route); const text = await response.text(); let parsed; try { parsed = JSON.parse(text); } catch { parsed = { error: text }; } return { status: response.status, body: parsed }; },
     restart: async (overrides) => { await stop(); await start(overrides); },
   };
 }
@@ -423,4 +424,54 @@ test('删除非活动模型配置持久化且不影响活动配置，活动与�
   assert.equal((await h.post('model-profiles/delete', { id: null })).status, 400);
   await h.restart();
   assert.equal((await h.state()).modelProfiles.length, 1, '重启后删除仍生效');
+});
+
+// Slice 7：导出结构上不含任何密钥；导入忽略传入密钥、跳过重复端点、不激活不改动活动配置。
+test('导出模型配置为脱敏 JSON：含 hasApiKey 标记，不含任何密钥明文', async (t) => {
+  const h = await fixture(t);
+  await h.post('model-profiles/save', currentProfile(h));
+  await h.post('model-profiles/save', secondProfile(h));
+  const disk = readFileSync(h.configFile, 'utf8');
+  const response = await h.get('model-profiles/export');
+  assert.equal(response.status, 200);
+  assert.ok(response.body.exportedAt);
+  assert.equal(response.body.profiles.length, 2);
+  const first = response.body.profiles.find((profile) => profile.name === '本地 OpenAI');
+  assert.deepEqual(first, { name: '本地 OpenAI', baseUrl: h.endpoint + '/openai', model: 'original-model', protocol: 'openai', contextLimit: 40000, hasApiKey: true });
+  noKeys(response.body);
+  assert.equal(readFileSync(h.configFile, 'utf8'), disk, '导出不能改变配置');
+});
+
+test('导入校验：忽略传入密钥、跳过重复端点与非法条目、不激活不改变活动配置，持久化且重启生效', async (t) => {
+  const h = await fixture(t);
+  const first = await h.post('model-profiles/save', currentProfile(h));
+  const activeId = first.body.state.activeModelProfileId;
+  const before = await h.state();
+  const response = await h.post('model-profiles/import', { profiles: [
+    { name: '重复端点', baseUrl: h.endpoint + '/openai/', model: 'x', protocol: 'openai', contextLimit: 1000 },
+    { name: '新端点配置', baseUrl: h.endpoint + '/fresh', model: 'fresh-model', protocol: 'openai', contextLimit: 20000, apiKey: 'must-be-ignored' },
+    { name: '坏地址', baseUrl: 'ftp://bad', model: 'y', protocol: 'openai', contextLimit: 1000 },
+    { name: '', baseUrl: h.endpoint + '/anon', model: 'z', protocol: 'openai', contextLimit: 1000 },
+  ] });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.imported, 1);
+  assert.deepEqual(response.body.skipped, ['重复端点：端点已存在', '坏地址：端点须为不含用户名和密码的 HTTP(S) 地址', '未命名：配置名称须为 1 至 80 个字符']);
+  const state = response.body.state;
+  const imported = state.modelProfiles.find((profile) => profile.name === '新端点配置');
+  assert.ok(imported); assert.equal(imported.hasApiKey, false, '传入的密钥必须被忽略');
+  assert.equal(state.modelProfiles.length, before.modelProfiles.length + 1);
+  assert.equal(state.activeModelProfileId, activeId, '导入不能改变活动配置');
+  assert.equal(state.config.model, 'original-model');
+  const persisted = JSON.parse(readFileSync(h.configFile, 'utf8'));
+  assert.equal(persisted.modelProfiles.length, state.modelProfiles.length);
+  assert.equal(JSON.stringify(persisted).includes('must-be-ignored'), false, '密钥不能落盘');
+  await h.restart();
+  assert.equal((await h.state()).modelProfiles.some((profile) => profile.name === '新端点配置'), true);
+});
+
+test('导入非数组或超过 50 条拒绝', async (t) => {
+  const h = await fixture(t);
+  assert.equal((await h.post('model-profiles/import', { profiles: 'nope' })).status, 400);
+  const fiftyOne = Array.from({ length: 51 }, (_, i) => ({ name: `配置 ${i}`, baseUrl: `${h.endpoint}/p${i}`, model: 'm', protocol: 'openai', contextLimit: 1000 }));
+  assert.equal((await h.post('model-profiles/import', { profiles: fiftyOne })).status, 400);
 });
