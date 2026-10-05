@@ -2,7 +2,7 @@
 // 语义（无人值守）：以免审批模式在当前项目运行完整 agent 轮，不占主会话；
 // 结果、Token 用量与会话过程留存本机可回查；运行中可停止，重启后标记中断、可继续。
 // 第一片边界：仅支持当前项目（工具的路径解析依赖进程 cwd），不做定时调度。
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { runUserTurn } from './turn.ts';
@@ -46,6 +46,7 @@ export class AutomationRunner {
   private readonly dir: string;
   private readonly now: () => number;
   private readonly running = new Map<string, RunningState>();
+  private readonly finishedCallbacks = new Map<string, (task: AutomationTask) => void>();
 
   constructor(tcodeDir: string, now: () => number = () => Date.now()) {
     this.now = now;
@@ -120,8 +121,10 @@ export class AutomationRunner {
     return true;
   }
 
-  /** 后台执行；调用方自行捕获异常。continueTask=在同一会话上下文里追加继续指令。 */
-  async execute(app: App, id: string, continueTask = false): Promise<void> {
+  /** 后台执行；调用方自行捕获异常。continueTask=在同一会话上下文里追加继续指令；onFinished=终态回调（供通知）。 */
+  async execute(app: App, id: string, options: { continueTask?: boolean; onFinished?: (task: AutomationTask) => void } = {}): Promise<void> {
+    const continueTask = options.continueTask === true;
+    const onFinished = options.onFinished;
     const task = this.get(id);
     if (!task || this.running.has(id)) return;
     const store = new SessionStore(path.join(this.dir, id, 'sessions'));
@@ -137,6 +140,7 @@ export class AutomationRunner {
     if (!messages.length) messages.push({ role: 'system', content: buildSystemPrompt(task.workspace, undefined, this.tcodeDir) });
     messages.push({ role: 'user', content: continueTask ? '继续完成该任务；若无法继续，说明已完成的阶段与阻碍。' : task.prompt });
     this.running.set(id, { task, controller, messages });
+    if (onFinished) this.finishedCallbacks.set(id, onFinished);
     this.save({ ...task, status: 'running', sessionId: store.currentId ?? task.sessionId, resultText: undefined, error: undefined });
     let promptTokens = 0, completionTokens = 0;
     try {
@@ -157,7 +161,18 @@ export class AutomationRunner {
         : { status: 'error', error: (error as Error).message });
     } finally {
       this.running.delete(id);
+      this.finishedCallbacks.delete(id);
     }
+  }
+
+  /** 删除已结束的任务：任务记录与会话目录一并清理；运行中返回 'running' */
+  remove(id: string): 'removed' | 'running' | 'missing' {
+    if (this.running.has(id)) return 'running';
+    const file = path.join(this.dir, id + '.json');
+    if (!existsSync(file)) return 'missing';
+    unlinkSync(file);
+    rmSync(path.join(this.dir, id), { recursive: true, force: true });
+    return 'removed';
   }
 
   isRunning(id: string): boolean {
@@ -171,6 +186,7 @@ export class AutomationRunner {
     // 周期任务完成后按间隔推进下次触发；一次性任务不进入调度
     if (task.intervalMinutes) next.nextRunAt = this.now() + task.intervalMinutes * 60_000;
     this.save(next);
+    this.finishedCallbacks.get(id)?.(next);
   }
 
   private save(task: AutomationTask): void {

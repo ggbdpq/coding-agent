@@ -575,6 +575,16 @@ export async function startWeb(app: App): Promise<void> {
     if (req.method === 'GET' && path === '/automations') {
       json(res, 200, { automations: automations.list() }); return;
     }
+    const broadcastAutomation = (payload: Record<string, unknown>) => {
+      const line = `data: ${JSON.stringify({ ...payload, seq: ++seq })}\n\n`;
+      for (const res of sseClients) res.write(line);
+    };
+    const runAutomation = (id: string, continueTask = false) => {
+      void automations.execute(app, id, { continueTask, onFinished: (task) => {
+        if (task.status === 'interrupted') return;
+        broadcastAutomation({ type: 'automation', id, name: task.name, status: task.status, resultText: task.resultText });
+      } }).then(() => broadcastAutomation({ type: 'automation', id, status: automations.get(id)?.status })).catch(() => {});
+    };
     if (req.method === 'POST' && path === '/automations') {
       if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
         throw new ConfigInputError('请先保存有效的模型配置');
@@ -591,10 +601,7 @@ export async function startWeb(app: App): Promise<void> {
         throw new ConfigInputError('重复执行间隔须为 5–525600 分钟的整数');
       }
       const task = automations.create({ name, prompt, workspace: app.config.workspace ?? process.cwd(), intervalMinutes });
-      void automations.execute(app, task.id).then(() => {
-        const line = `data: ${JSON.stringify({ type: 'automation', id: task.id, status: automations.get(task.id)?.status, seq: ++seq })}\n\n`;
-        for (const res of sseClients) res.write(line);
-      }).catch(() => {});
+      runAutomation(task.id);
       json(res, 200, { ok: true, id: task.id }); return;
     }
     if (req.method === 'POST' && path === '/automations/schedule') {
@@ -608,6 +615,12 @@ export async function startWeb(app: App): Promise<void> {
       if (!automations.stop(String(body.id ?? ''))) { json(res, 404, { error: '没有正在运行的自动化任务' }); return; }
       json(res, 200, { ok: true }); return;
     }
+    if (req.method === 'POST' && path === '/automations/delete') {
+      const outcome = automations.remove(String(body.id ?? ''));
+      if (outcome === 'running') { json(res, 409, { error: '任务正在运行，停止后才能删除' }); return; }
+      if (outcome === 'missing') { json(res, 404, { error: '没有这个自动化任务' }); return; }
+      json(res, 200, { ok: true }); return;
+    }
     if (req.method === 'POST' && path === '/automations/resume') {
       if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
         throw new ConfigInputError('请先保存有效的模型配置');
@@ -617,10 +630,7 @@ export async function startWeb(app: App): Promise<void> {
       if (!task) { json(res, 404, { error: '没有这个自动化任务' }); return; }
       if (automations.isRunning(id)) { json(res, 409, { error: '该任务正在运行' }); return; }
       if (task.status === 'completed') { json(res, 409, { error: '任务已完成，无需继续' }); return; }
-      void automations.execute(app, id, true).then(() => {
-        const line = `data: ${JSON.stringify({ type: 'automation', id, status: automations.get(id)?.status, seq: ++seq })}\n\n`;
-        for (const res of sseClients) res.write(line);
-      }).catch(() => {});
+      runAutomation(id, true);
       json(res, 200, { ok: true }); return;
     }
     if (req.method === 'GET' && path === '/usage/balance') {

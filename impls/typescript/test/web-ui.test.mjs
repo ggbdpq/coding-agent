@@ -1180,11 +1180,11 @@ test('用量页展示账户余额并可刷新，失败信息留在卡片内', as
   });
 });
 
-test('自动化设置可创建任务、查看状态与结果、停止与继续', async () => {
+test('自动化设置可创建任务、查看状态与结果、停止与继续、删除', async () => {
   const state = initialState();
-  let stopped = false, paused = true;
+  let stopped = false, paused = true, removed = false;
   await withPage(state, {
-    '/automations': () => ({ automations: [{
+    '/automations': () => ({ automations: removed ? [] : [{
       id: 'a1', name: '夜间检查', workspace: '/tmp/ui-project', prompt: '做点什么',
       status: stopped ? 'stopped' : 'running', createdAt: 1,
       intervalMinutes: 30, paused, nextRunAt: Date.now() + 30 * 60_000,
@@ -1192,6 +1192,7 @@ test('自动化设置可创建任务、查看状态与结果、停止与继续',
     '/automations/stop': () => { stopped = true; return { ok: true }; },
     '/automations/resume': () => { stopped = false; return { ok: true }; },
     '/automations/schedule': (body) => { paused = body.paused; return { ok: true }; },
+    '/automations/delete': () => { removed = true; state.seq++; return { ok: true }; },
   }, async (page) => {
     await page.getByRole('button', { name: '设置', exact: true }).click();
     const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
@@ -1211,6 +1212,22 @@ test('自动化设置可创建任务、查看状态与结果、停止与继续',
     await page.getByRole('button', { name: '运行任务', exact: true }).click();
     await page.waitForFunction(() => document.getElementById('automation-name').value === '', undefined, { timeout: 3000 });
     await page.getByText('夜间检查', { exact: true }).waitFor();
+  });
+});
+
+test('自动化设置可删除已停止的任务（清理任务与会话记录）', async () => {
+  const state = initialState();
+  let removed = false;
+  await withPage(state, {
+    '/automations': () => ({ automations: removed ? [] : [{ id: 'a1', name: '夜间检查', workspace: '/tmp/ui-project', prompt: '做点什么', status: 'stopped', createdAt: 1 }] }),
+    '/automations/delete': () => { removed = true; return { ok: true }; },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await navigation.getByRole('button', { name: '自动化', exact: true }).click();
+    await page.getByText('夜间检查', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '删除任务 夜间检查', exact: true }).click();
+    await page.getByText('尚无任务；填写上方表单即可在当前项目后台运行一条自动化任务', { exact: true }).waitFor();
   });
 });
 
@@ -1251,5 +1268,13 @@ test('命令页可管理 MCP 服务器：添加、测试连接与启停', async 
     await page.getByText('连接成功，工具：echo', { exact: true }).waitFor();
     await page.getByRole('button', { name: '停用 demo', exact: true }).click();
     await page.getByText('demo（已停用）', { exact: true }).waitFor();
+  });
+});
+
+test('自动化任务结束时工作区顶部出现通知', async () => {
+  const state = initialState();
+  await withPage(state, {}, async (page, { streams }) => {
+    for (const stream of streams) stream.write(`data: ${JSON.stringify({ type: 'automation', name: '夜间检查', status: 'completed', seq: 99 })}\n\n`);
+    await page.getByText('自动化任务「夜间检查」已完成', { exact: true }).waitFor();
   });
 });

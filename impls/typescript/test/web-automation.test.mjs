@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,4 +141,28 @@ test('周期任务可暂停与恢复调度', async (t) => {
   const after = (await h.list()).body.automations.find((task) => task.id === id);
   assert.equal(after.paused, false);
   assert.equal(after.nextRunAt, before, '暂停期间 nextRunAt 不被改动');
+});
+
+test('已结束的任务可删除：任务记录与会话目录一并清理', async (t) => {
+  const h = await fixture(t);
+  const created = await h.post('automations', { name: '要删除的任务', prompt: '写 result.txt 内容为 automation done' });
+  const id = created.body.id;
+  await until(async () => (await h.list()).body.automations.find((task) => task.id === id)?.status === 'completed');
+  assert.equal(existsSync(path.join(h.data, 'automations', id + '.json')), true);
+  assert.equal(existsSync(path.join(h.data, 'automations', id, 'sessions')), true, '会话目录已留存');
+  assert.equal((await h.post('automations/delete', { id })).status, 200);
+  assert.equal(existsSync(path.join(h.data, 'automations', id + '.json')), false, '任务记录被清理');
+  assert.equal(existsSync(path.join(h.data, 'automations', id)), false, '会话目录被清理');
+  assert.equal((await h.list()).body.automations.length, 0);
+  assert.equal((await h.post('automations/delete', { id })).status, 404, '重复删除返回 404');
+});
+
+test('运行中的任务拒绝删除', async (t) => {
+  const h = await fixture(t, { mode: 'hang' });
+  const created = await h.post('automations', { name: '运行中不可删', prompt: '慢慢做' });
+  const id = created.body.id;
+  await until(async () => (await h.list()).body.automations.find((task) => task.id === id)?.status === 'running');
+  assert.equal((await h.post('automations/delete', { id })).status, 409);
+  assert.equal((await h.post('automations/delete', { id: 'no-such' })).status, 404);
+  assert.equal((await h.list()).body.automations.length, 1);
 });

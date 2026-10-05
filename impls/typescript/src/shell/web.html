@@ -1028,6 +1028,12 @@
         else { action.textContent = '已完成'; action.disabled = true; }
         action.disabled ||= navigationBlocked();
         bar.append(action);
+        if (task.status !== 'running') {
+          const remove = document.createElement('button'); remove.textContent = '删除';
+          remove.setAttribute('aria-label', '删除任务 ' + task.name);
+          remove.onclick = () => void taskAction('/automations/delete', task.id);
+          bar.append(remove);
+        }
         if (task.intervalMinutes) {
           const schedule = document.createElement('button');
           schedule.textContent = task.paused ? '恢复调度' : '暂停调度';
@@ -1230,7 +1236,15 @@
       const ev = JSON.parse(data);
       if (ev.type === 'hello' || ev.type === 'state') { if (ev.state) applyState(ev.state); return; }
       if (ev.type === 'error' || ev.type === 'aborted') return;
-      if (ev.type === 'automation') { if (settingsSection === 'automation') void renderAutomations(); return; }
+      if (ev.type === 'automation') {
+        const labels = { completed: '已完成', stopped: '已停止', error: '失败' };
+        if (ev.name && labels[ev.status]) {
+          $('notice').textContent = `自动化任务「${ev.name}」${labels[ev.status]}`;
+          $('notice').hidden = false;
+        }
+        if (settingsSection === 'automation') void renderAutomations();
+        return;
+      }
       if (!view || (ev.seq !== undefined && ev.seq <= lastSeq)) return;
       if (ev.seq !== undefined) lastSeq = ev.seq;
       view.activity.push(ev);
