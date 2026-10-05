@@ -394,6 +394,25 @@ test('常规设置可归档非当前项目，刷新后可恢复导航且项目�
   });
 });
 
+test('项目管理可移除非当前项目记录，历史保留在本机，当前项目无移除按钮', async () => {
+  const other = { path: '/tmp/another-project', name: 'another-project', available: true, sessionCount: 2 };
+  const state = initialState({ projects: [initialState().projects[0], other] });
+  await withPage(state, {
+    '/projects/remove': ({ workspace }) => {
+      assert.equal(workspace, other.path);
+      state.projects = state.projects.filter((project) => project.path !== workspace);
+      state.seq++; return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    assert.equal(await page.getByRole('button', { name: '移除记录 ui-project', exact: true }).count(), 0, '当前项目无移除按钮');
+    await page.getByRole('button', { name: '移除记录 another-project', exact: true }).click();
+    await page.getByText('已移除项目记录，历史会话保留在本机', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '打开项目 another-project', exact: true }).count(), 0, '移除后项目退出导航');
+    assert.equal(await page.getByRole('button', { name: '移除记录 another-project', exact: true }).count(), 0, '移除后按钮消失');
+  });
+});
+
 test('所有项目搜索展示项目归属与正文摘录，可打开归档会话且不可用目录不能打开', async () => {
   const state = initialState({ seq: 9, sessions: [{ id: 's1', title: '当前项目关键词', cwd: '/tmp/ui-project', mtime: 1 }] });
   let searches = 0, selected;

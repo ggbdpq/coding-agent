@@ -230,6 +230,17 @@ export function saveProjectArchive(current: Config, directory: string, archived:
   return { ...current, projects, archivedProjects };
 }
 
+/** 移除项目只删导航记录（最近＋归档列表）；会话历史保留在数据目录，重新打开目录即可恢复。 */
+export function removeProject(current: Config, directory: string): Config {
+  if (![...(current.projects ?? []), ...(current.archivedProjects ?? [])].includes(directory)) {
+    throw new ConfigInputError('项目不在本地项目列表中');
+  }
+  const projects = (current.projects ?? []).filter((project) => project !== directory);
+  const archivedProjects = (current.archivedProjects ?? []).filter((project) => project !== directory);
+  persistConfig(current, { projects, archivedProjects });
+  return { ...current, projects, archivedProjects };
+}
+
 function recentProjects(current: Config, workspace: string): string[] {
   return [...new Set([workspace, current.workspace ?? process.cwd(), ...(current.projects ?? [])].filter(Boolean))];
 }

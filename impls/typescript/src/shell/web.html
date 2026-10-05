@@ -454,6 +454,10 @@
           const button = document.createElement('button'); button.textContent = archived ? '恢复项目' : '归档项目';
           button.setAttribute('aria-label', button.textContent + ' ' + project.name); button.disabled = navigationBlocked();
           button.onclick = () => archiveProject(project.path, !archived); bar.append(button);
+          const remove = document.createElement('button'); remove.textContent = '移除记录';
+          remove.title = '从导航移除该项目的记录；会话历史保留在本机，重新打开目录可恢复';
+          remove.setAttribute('aria-label', '移除记录 ' + project.name); remove.disabled = navigationBlocked();
+          remove.onclick = () => removeProjectRecord(project.path); bar.append(remove);
         }
         row('settings-path', project.path, entry);
         row('dim', [current ? '当前项目，先切换项目后归档' : archived ? '已归档' : '已打开', project.available ? `${project.sessionCount || 0} 个会话` : '目录不可用'].join(' · '), entry);
@@ -466,6 +470,13 @@
     if (navigationBlocked() || workspace === view.config?.workspace) return;
     changing = true; controls(); settingsFeedback('');
     try { const result = await api('/projects/archive', { workspace, archived }); applyState(result.state); void searchSessions(); settingsFeedback(archived ? '项目已归档，历史会话保留' : '项目已恢复到导航'); }
+    catch (error) { settingsFeedback(error.message, true); }
+    finally { changing = false; controls(); }
+  }
+  async function removeProjectRecord(workspace) {
+    if (navigationBlocked() || workspace === view.config?.workspace) return;
+    changing = true; controls(); settingsFeedback('');
+    try { const result = await api('/projects/remove', { workspace }); applyState(result.state); void searchSessions(); settingsFeedback('已移除项目记录，历史会话保留在本机'); }
     catch (error) { settingsFeedback(error.message, true); }
     finally { changing = false; controls(); }
   }

@@ -104,6 +104,25 @@ test('合法配置中独立保存的归档项目恢复后进入活动导航并�
   assert.equal((await h.state()).projects.some((project) => project.path === h.b), true);
 });
 
+test('项目移除只删导航记录：历史文件保留，重开目录恢复导航与会话，当前项目拒绝移除', async (t) => {
+  const h = await fixture(t, { sessions: [{ id: 'beta-history', project: 'beta' }] });
+  const original = readFileSync(h.files[0], 'utf8');
+  const removed = await h.post('projects/remove', { workspace: h.b });
+  assert.equal(removed.status, 200);
+  const state = (await removed.json()).state;
+  assert.equal(state.projects.some((p) => p.path === h.b), false);
+  assert.equal(state.archivedProjects.some((p) => p.path === h.b), false);
+  assert.equal(JSON.parse(readFileSync(h.configFile, 'utf8')).projects.includes(h.b), false, '移除必须持久化');
+  assert.equal(readFileSync(h.files[0], 'utf8'), original, '移除不能删除会话历史文件');
+  assert.equal((await h.post('projects/archive', { workspace: h.b, archived: true })).status, 400, '已移除项目不在列表，不能归档');
+  assert.equal((await h.post('workspace', { workspace: h.b })).status, 200);
+  const reopened = await h.state();
+  assert.equal(reopened.projects.some((p) => p.path === h.b), true, '重开目录恢复导航');
+  assert.equal(reopened.sessions.some((s) => s.id === 'beta-history'), true, '会话重新可见');
+  assert.equal((await h.post('projects/remove', { workspace: h.b })).status, 409, '当前项目不能移除');
+  assert.equal((await h.post('projects/remove', { workspace: '/nonexistent-tcode-project' })).status, 400);
+});
+
 test('跨项目搜索标题和原始对话正文，含归档项目并按会话与项目去重', async (t) => {
   const h = await fixture(t, { sessions: [
     { id: 'same-id', user: 'alpha Needle 内容', answer: '旧回答' },

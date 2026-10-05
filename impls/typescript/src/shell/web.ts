@@ -10,7 +10,7 @@ import { createPermissionGate, type PermissionDecision } from '../core/permissio
 import { runUserTurn } from '../core/turn.ts';
 import type { AgentEvent } from '../kernel/types.ts';
 import { VERSION, selectProvider, type App } from '../kernel/app.ts';
-import { saveWebConfig, saveModelProfile, selectModelProfile, saveWorkspace, saveProjectArchive, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
+import { saveWebConfig, saveModelProfile, selectModelProfile, saveWorkspace, saveProjectArchive, removeProject, saveWebPreferences, ConfigInputError } from '../kernel/config.ts';
 import { SessionStore } from '../core/session.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
@@ -465,6 +465,17 @@ export async function startWeb(app: App): Promise<void> {
       try { directory = realpathSync(directory); } catch {}
       if (body.archived && directory === app.config.workspace) { json(res, 409, { error: '当前项目不能归档，请先切换项目' }); return; }
       Object.assign(app.config, saveProjectArchive(app.config, directory, body.archived));
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/projects/remove') {
+      if (busy) { json(res, 409, { error: '任务运行期间不能移除项目' }); return; }
+      if (typeof body.workspace !== 'string' || !nodePath.isAbsolute(body.workspace)) {
+        throw new ConfigInputError('项目须为绝对路径');
+      }
+      let directory = nodePath.resolve(body.workspace);
+      try { directory = realpathSync(directory); } catch {}
+      if (directory === app.config.workspace) { json(res, 409, { error: '当前项目不能移除，请先切换项目' }); return; }
+      Object.assign(app.config, removeProject(app.config, directory));
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/workspace/pick') {
