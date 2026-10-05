@@ -20,7 +20,7 @@ export function setSessionCwd(cwd: string | null): void {
   sessionCwd = cwd ? path.resolve(cwd) : null;
 }
 
-function baseCwd(): string {
+export function baseCwd(): string {
   return sessionCwd ?? process.cwd();
 }
 

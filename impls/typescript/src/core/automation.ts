@@ -8,6 +8,7 @@ import path from 'node:path';
 import { runUserTurn } from './turn.ts';
 import { SessionStore } from './session.ts';
 import { buildSystemPrompt } from './systemprompt.ts';
+import { setSessionCwd } from '../plugins/tools/pathguard.ts';
 import type { App } from '../kernel/app.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 
@@ -143,7 +144,15 @@ export class AutomationRunner {
     if (onFinished) this.finishedCallbacks.set(id, onFinished);
     this.save({ ...task, status: 'running', sessionId: store.currentId ?? task.sessionId, resultText: undefined, error: undefined });
     let promptTokens = 0, completionTokens = 0;
+    // 工具的路径解析与命令执行以任务工作目录为基准；退出恢复主会话基准
+    const previousCwd = process.cwd();
+    let cwdSwitched = false;
     try {
+      if (path.resolve(task.workspace) !== previousCwd) {
+        process.chdir(task.workspace);
+        setSessionCwd(task.workspace);
+        cwdSwitched = true;
+      }
       await runUserTurn({ ...app, store, messages, yolo: { value: true }, planMode: { value: false } } as App,
         messages.at(-1)!.content ?? '', {
         check: async () => true, // 无人值守：自动化任务以免审批模式运行（创建时明示）
@@ -160,6 +169,10 @@ export class AutomationRunner {
         ? { status: 'stopped', error: '已停止' }
         : { status: 'error', error: (error as Error).message });
     } finally {
+      if (cwdSwitched) {
+        process.chdir(previousCwd);
+        setSessionCwd(previousCwd);
+      }
       this.running.delete(id);
       this.finishedCallbacks.delete(id);
     }

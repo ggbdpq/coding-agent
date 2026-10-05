@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolvePath, isWriteTrusted, setSessionCwd } from '../src/plugins/tools/pathguard.ts';
 
@@ -46,4 +46,19 @@ test('setSessionCwd(null) 回落进程 cwd，行为与旧版一致', () => {
   setSessionCwd(null);
   const expected = path.resolve('from-cwd.txt');
   assert.equal(resolvePath('from-cwd.txt').abs, expected);
+});
+
+test('bash 工具的执行目录跟随会话工作目录', async () => {
+  const { execFileSync } = await import('node:child_process');
+  // 编译 bash 工具并直接调用其 run（走真实 spawn）
+  const { default: bashPlugin } = await import('../src/plugins/tools/bash.ts');
+  const sessionDir = ws('bash-session');
+  mkdirSync(sessionDir, { recursive: true });
+  setSessionCwd(sessionDir);
+  const output = await (bashPlugin.run as (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string>)({ command: 'pwd' });
+  assert.match(String(output), new RegExp(sessionDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'bash 的 pwd 应为会话工作目录');
+  setSessionCwd(null);
+  const fallback = await (bashPlugin.run as (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string>)({ command: 'pwd' });
+  assert.doesNotMatch(String(fallback), /tcode-cwd-/, '回落后不再使用上一会话目录');
+  void execFileSync;
 });

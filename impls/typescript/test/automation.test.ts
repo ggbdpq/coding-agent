@@ -2,12 +2,14 @@
 // HTTP/CLI 全链路回归在 web-automation.test.mjs。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import type { TestContext } from 'node:test';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AutomationRunner, type AutomationTask } from '../src/core/automation.ts';
 import { SessionStore } from '../src/core/session.ts';
+import writePlugin from '../src/plugins/tools/write.ts';
+import { buildSystemPrompt } from '../src/core/systemprompt.ts';
 import type { App } from '../src/kernel/app.ts';
 
 function setup(t: TestContext, now: () => number) {
@@ -21,10 +23,14 @@ function setup(t: TestContext, now: () => number) {
       chat: async (messages: Array<{ role: string; content?: string | null }>) => {
         requests.push({ messages });
         if (blocked) await blocked;
+        const hasToolResult = messages.some((m) => m.role === 'tool');
+        if (!hasToolResult && messages.findLast((m) => m.role === 'user')?.content?.includes('写入')) {
+          return { message: { role: 'assistant', content: null, tool_calls: [{ id: 'write-1', type: 'function', function: { name: 'write', arguments: JSON.stringify({ file_path: 'out/hello.txt', content: 'hello' }) } }] } };
+        }
         return { message: { role: 'assistant', content: '调度完成' } };
       },
     },
-    registry: { tools: () => [], commands: () => [] },
+    registry: { tools: () => [writePlugin], commands: () => [] },
     config: { tcodeDir: dir, contextLimit: 100000, apiKey: 'k', baseUrl: 'http://127.0.0.1:9/v1', model: 'm' },
     messages: [] as unknown[],
     store: new SessionStore(path.join(dir, 'main-sessions')),
@@ -121,4 +127,19 @@ test('运行中的任务不会被调度重复触发；无间隔的任务不参�
   await waitDone(runner, plain.id);
   await plainExecution;
   assert.equal(runner.get(plain.id)!.nextRunAt, undefined, '无间隔任务不进入调度');
+});
+
+test('自动化任务以任务工作目录为工具基准：文件写入任务目录，结束后恢复主会话基准', async (t) => {
+  let clock = 4_000_000;
+  const { runner, app, dir } = setup(t, () => clock);
+  const taskWorkspace = path.join(dir, 'auto-ws');
+  mkdirSync(taskWorkspace, { recursive: true });
+  const previousCwd = process.cwd();
+  const task = runner.create({ name: '写文件任务', prompt: '把 hello 写入 out/hello.txt', workspace: taskWorkspace });
+  runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: clock - 1, paused: false });
+  await runner.tick(app);
+  await waitDone(runner, task.id);
+  assert.equal(existsSync(path.join(taskWorkspace, 'out', 'hello.txt')), true, '文件写入任务工作目录');
+  assert.equal(process.cwd(), previousCwd, '执行后恢复主会话基准');
+  assert.equal(existsSync(path.join(previousCwd, 'out')), false, '不能写进主会话目录');
 });

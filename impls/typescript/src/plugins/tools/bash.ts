@@ -2,6 +2,7 @@
 // win32 优先用 Git Bash（模型常发 unix 命令），只认显式路径，避免误中 System32 的 WSL bash；
 // 都没有就退回 cmd。安全边界：执行前经权限确认，确认界面展示完整命令。
 import { spawn } from 'node:child_process';
+import { baseCwd } from './pathguard.ts';
 import { existsSync } from 'node:fs';
 import { definePlugin } from '../../kernel/plugin.ts';
 
@@ -44,7 +45,7 @@ export default definePlugin({
     required: ['command'],
   },
   needsPermission: true,
-  preview: (a) => `执行命令（cwd=${process.cwd()}）\n$ ${String(a.command ?? '')}`,
+  preview: (a) => `执行命令（cwd=${baseCwd()}）\n$ ${String(a.command ?? '')}`,
   async run(args, signal) {
     const command = String(args.command ?? '');
     if (!command.trim()) return '错误：缺少 command';
@@ -56,7 +57,7 @@ export default definePlugin({
 
     return await new Promise<string>((resolve) => {
       const child = spawn(file, [...shellArgs, command], {
-        cwd: process.cwd(),
+        cwd: baseCwd(),
         windowsHide: true,
       });
       let out = '';
