@@ -104,7 +104,7 @@ test('项目导航可切换已打开项目，同时展示该项目会话并提�
   });
 });
 
-test('设置中心独立于工作区，七组可导航且模型保存后能返回工作区', async () => {
+test('设置中心独立于工作区，八组可导航且模型保存后能返回工作区', async () => {
   const state = initialState();
   await withPage(state, { '/config': (body) => {
     state.config = { ...state.config, ...body }; delete state.config.apiKey; state.seq++;
@@ -112,7 +112,7 @@ test('设置中心独立于工作区，七组可导航且模型保存后能返�
   } }, async (page) => {
     await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
     const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
-    for (const name of ['常规', '模型', '权限', '外观', '用量', '技能', '命令']) {
+    for (const name of ['常规', '模型', '权限', '外观', '用量', '自动化', '技能', '命令']) {
       assert.equal(await navigation.getByRole('button', { name, exact: true }).isVisible(), true);
     }
     assert.equal(await page.getByText('/tmp/ui-data', { exact: true }).isVisible(), true);
@@ -1175,5 +1175,30 @@ test('用量页展示账户余额并可刷新，失败信息留在卡片内', as
     await page.getByRole('button', { name: '查询余额', exact: true }).click();
     await page.getByText('查询失败', { exact: true }).waitFor();
     await page.getByText('HTTP 401：invalid key', { exact: true }).waitFor();
+  });
+});
+
+test('自动化设置可创建任务、查看状态与结果、停止与继续', async () => {
+  const state = initialState();
+  let stopped = false;
+  await withPage(state, {
+    '/automations': () => ({ automations: [stopped ? { id: 'a1', name: '夜间检查', workspace: '/tmp/ui-project', prompt: '做点什么', status: 'stopped', createdAt: 1 } : { id: 'a1', name: '夜间检查', workspace: '/tmp/ui-project', prompt: '做点什么', status: 'running', createdAt: 1 }] }),
+    '/automations/stop': () => { stopped = true; return { ok: true }; },
+    '/automations/resume': () => { stopped = false; return { ok: true }; },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await navigation.getByRole('button', { name: '自动化', exact: true }).click();
+    await page.getByText('夜间检查', { exact: true }).waitFor();
+    await page.getByText('运行中', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '停止', exact: true }).click();
+    await page.getByText('已停止', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '继续', exact: true }).click();
+    await page.getByText('运行中', { exact: true }).waitFor();
+    await page.getByLabel('任务名称', { exact: true }).fill('新任务');
+    await page.getByLabel('任务提示词', { exact: true }).fill('把报告写入 report.md');
+    await page.getByRole('button', { name: '运行任务', exact: true }).click();
+    await page.waitForFunction(() => document.getElementById('automation-name').value === '', undefined, { timeout: 3000 });
+    await page.getByText('夜间检查', { exact: true }).waitFor();
   });
 });

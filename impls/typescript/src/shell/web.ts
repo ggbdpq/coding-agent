@@ -17,6 +17,7 @@ import { definePlugin } from '../kernel/plugin.ts';
 import { appendJournal, journalError, loadJournal, resetJournal, saveJournal, setFileJournalSink } from '../plugins/tools/filejournal.ts';
 import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type ChangesResult } from './webgit.ts';
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
+import { AutomationRunner } from '../core/automation.ts';
 import { fetchBalance, listModels } from '../providers/models.ts';
 import { pickWorkspace } from './workspacepicker.ts';
 
@@ -102,6 +103,9 @@ export async function startWeb(app: App): Promise<void> {
 
   let busy = false;
   let abort: AbortController | null = null;
+
+  // 自动化任务：隔离会话后台执行，定义与状态持久化在数据目录 automations/
+  const automations = new AutomationRunner(app.config.tcodeDir);
 
   // 写前快照日志：记录本轮 agent 通过 edit/write/apply_patch 修改的文件原文，支撑"撤销本轮修改"。
   // bash 写入无法归因，不在快照范围；日志按会话落盘，重启后仍可撤销上一轮。
@@ -512,6 +516,46 @@ export async function startWeb(app: App): Promise<void> {
         clearTimeout(timer);
       }
       return;
+    }
+    if (req.method === 'GET' && path === '/automations') {
+      json(res, 200, { automations: automations.list() }); return;
+    }
+    if (req.method === 'POST' && path === '/automations') {
+      if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
+        throw new ConfigInputError('请先保存有效的模型配置');
+      }
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
+      if (!name || name.length > 80) throw new ConfigInputError('任务名称须为 1–80 个字符');
+      if (!prompt || prompt.length > 20000) throw new ConfigInputError('任务提示词须为 1–20000 个字符');
+      if (body.workspace !== undefined && body.workspace !== app.config.workspace) {
+        throw new ConfigInputError('自动化任务当前仅支持在当前项目运行');
+      }
+      const task = automations.create({ name, prompt, workspace: app.config.workspace ?? process.cwd() });
+      void automations.execute(app, task.id).then(() => {
+        const line = `data: ${JSON.stringify({ type: 'automation', id: task.id, status: automations.get(task.id)?.status, seq: ++seq })}\n\n`;
+        for (const res of sseClients) res.write(line);
+      }).catch(() => {});
+      json(res, 200, { ok: true, id: task.id }); return;
+    }
+    if (req.method === 'POST' && path === '/automations/stop') {
+      if (!automations.stop(String(body.id ?? ''))) { json(res, 404, { error: '没有正在运行的自动化任务' }); return; }
+      json(res, 200, { ok: true }); return;
+    }
+    if (req.method === 'POST' && path === '/automations/resume') {
+      if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
+        throw new ConfigInputError('请先保存有效的模型配置');
+      }
+      const id = String(body.id ?? '');
+      const task = automations.get(id);
+      if (!task) { json(res, 404, { error: '没有这个自动化任务' }); return; }
+      if (automations.isRunning(id)) { json(res, 409, { error: '该任务正在运行' }); return; }
+      if (task.status === 'completed') { json(res, 409, { error: '任务已完成，无需继续' }); return; }
+      void automations.execute(app, id, true).then(() => {
+        const line = `data: ${JSON.stringify({ type: 'automation', id, status: automations.get(id)?.status, seq: ++seq })}\n\n`;
+        for (const res of sseClients) res.write(line);
+      }).catch(() => {});
+      json(res, 200, { ok: true }); return;
     }
     if (req.method === 'GET' && path === '/usage/balance') {
       if (busy) { json(res, 409, { error: '任务运行期间不能查询账户余额' }); return; }

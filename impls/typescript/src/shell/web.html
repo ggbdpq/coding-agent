@@ -218,7 +218,7 @@
     <button id="settings-close" class="nav-button" aria-label="返回工作区">← 返回工作区</button><h2>设置</h2>
     <nav aria-label="设置分组">
       <button data-section="general">常规</button><button data-section="model">模型</button><button data-section="permissions">权限</button>
-      <button data-section="appearance">外观</button><button data-section="usage">用量</button><button data-section="skills">技能</button><button data-section="commands">命令</button>
+      <button data-section="appearance">外观</button><button data-section="usage">用量</button><button data-section="automation">自动化</button><button data-section="skills">技能</button><button data-section="commands">命令</button>
     </nav>
   </aside>
   <main class="settings-main">
@@ -258,6 +258,16 @@
     </section>
     <section data-settings="appearance" hidden><h1>外观</h1><p class="settings-description">外观偏好保存在本地，适用于所有项目。</p><form id="appearance-form"><label>主题<select id="theme" aria-label="主题"><option value="system">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></label><label>消息字号<select id="font-size" aria-label="消息字号"><option value="14">小 · 14 px</option><option value="16">默认 · 16 px</option><option value="18">大 · 18 px</option></select></label><div class="settings-actions"><button class="primary" type="submit">保存外观设置</button></div></form></section>
     <section data-settings="usage" hidden><h1>用量</h1><p class="settings-description">本地已记录的会话用量。仅包含模型返回并写入会话的 Token 统计，不等同于账户剩余额度或云端账单。</p><div class="settings-card"><h2>账户余额</h2><p>从当前已保存配置的端点查询账户余额；仅 OpenAI 兼容端点支持，不影响本地统计，也不是账单。</p><div id="balance-info" class="usage-total">—</div><p id="balance-meta" class="settings-description"></p><div class="bar"><button id="balance-refresh">查询余额</button></div></div><div class="settings-card"><h2>已记录的会话用量</h2><div id="usage-total" class="usage-total">—</div><div class="usage-split"><span id="usage-input"></span><span id="usage-output"></span></div><p id="usage-scope"></p><button id="usage-refresh" aria-label="刷新用量">刷新</button></div></section>
+    <section data-settings="automation" hidden>
+      <h1>自动化</h1><p class="settings-description">在当前项目后台运行一条任务：使用已保存的模型在隔离会话中以免审批模式执行（无人值守，请勿在提示词里要求执行不可逆操作）。结果与会话过程留存本机。</p>
+      <form id="automation-form" class="settings-card"><h2>新建任务</h2>
+        <label>任务名称<input id="automation-name" required maxlength="80" placeholder="夜间检查" autocomplete="off"></label>
+        <label>任务提示词<textarea id="automation-prompt" required rows="4" placeholder="要自动完成的事，例如：检查未使用的依赖并把报告写入 report.md"></textarea></label>
+        <div id="automation-error" role="alert"></div>
+        <div class="settings-actions"><button type="submit" class="primary">运行任务</button></div>
+      </form>
+      <div class="settings-card"><div class="bar"><h2>任务列表</h2><button id="automation-refresh" aria-label="刷新任务列表">刷新</button></div><div id="automation-list"></div></div>
+    </section>
     <section data-settings="skills" hidden>
       <h1>技能</h1><p class="settings-description">技能以 Markdown 文件保存。全局技能适用于所有项目，项目技能保存在当前项目的 .tcode/skills/。</p>
       <div class="settings-card"><div class="bar"><h2>可用技能</h2><button id="skill-new">新建技能</button></div><div id="skill-list"></div></div>
@@ -814,6 +824,7 @@
     const preferences = view.preferences || { theme: 'system', fontSize: 16, enterToSend: true };
     $('theme').value = preferences.theme; $('font-size').value = String(preferences.fontSize); $('enter-to-send').checked = preferences.enterToSend;
     if (section === 'usage') { void loadUsage(); void loadBalance(); }
+    if (section === 'automation') void renderAutomations();
     if (section === 'commands') renderCommands();
     if (section === 'skills') { skillRequest++; $('skill-form').hidden = true; renderSkills(); }
   }
@@ -919,6 +930,54 @@
     }
   }
   $('balance-refresh').onclick = loadBalance;
+  let automationRequest = 0;
+  async function renderAutomations() {
+    const request = ++automationRequest;
+    $('automation-refresh').disabled = true;
+    try {
+      const result = await api('/automations');
+      if (request !== automationRequest || settingsSection !== 'automation') return;
+      const fragment = document.createDocumentFragment();
+      for (const task of result.automations) {
+        const entry = row('capability-entry', undefined, fragment), bar = row('bar', undefined, entry);
+        const name = document.createElement('code'); name.textContent = task.name;
+        const statusLabels = { running: '运行中', completed: '已完成', stopped: '已停止', error: '失败', interrupted: '已中断' };
+        const chip = document.createElement('span'); chip.className = 'diff-chip'; chip.textContent = statusLabels[task.status] || task.status;
+        bar.append(name, chip);
+        const action = document.createElement('button');
+        if (task.status === 'running') { action.textContent = '停止'; action.onclick = () => void taskAction('/automations/stop', task.id); }
+        else if (task.status !== 'completed') { action.textContent = '继续'; action.onclick = () => void taskAction('/automations/resume', task.id); }
+        else { action.textContent = '已完成'; action.disabled = true; }
+        action.disabled ||= navigationBlocked();
+        bar.append(action);
+        if (task.resultText) row('session-excerpt', task.resultText, entry);
+        if (task.error) row('error', task.error, entry);
+        row('dim', new Date(task.createdAt).toLocaleString(), entry);
+      }
+      if (!fragment.childNodes.length) row('dim', '尚无任务；填写上方表单即可在当前项目后台运行一条自动化任务', fragment);
+      $('automation-list').replaceChildren(fragment);
+    } catch (error) { if (request === automationRequest) { $('automation-list').replaceChildren(); row('error', error.message, $('automation-list')); } }
+    finally { if (request === automationRequest) $('automation-refresh').disabled = false; }
+  }
+  async function taskAction(route, id) {
+    if (navigationBlocked()) return;
+    $('automation-error').textContent = '';
+    try { await api(route, { id }); await renderAutomations(); }
+    catch (error) { $('automation-error').textContent = error.message; }
+  }
+  $('automation-refresh').onclick = () => void renderAutomations();
+  $('automation-form').onsubmit = async (event) => {
+    event.preventDefault();
+    if (navigationBlocked()) return;
+    $('automation-error').textContent = '';
+    saving = true; controls();
+    try {
+      await api('/automations', { name: $('automation-name').value, prompt: $('automation-prompt').value, workspace: view.config?.workspace });
+      $('automation-name').value = ''; $('automation-prompt').value = '';
+      await renderAutomations();
+    } catch (error) { $('automation-error').textContent = error.message; }
+    finally { saving = false; controls(); }
+  };
   function applyPreferences() {
     const preferences = view?.preferences || { theme: 'system', fontSize: 16, enterToSend: true };
     document.documentElement.dataset.color = preferences.theme === 'system' ? (systemTheme.matches ? 'dark' : 'light') : preferences.theme;
@@ -1082,6 +1141,7 @@
       const ev = JSON.parse(data);
       if (ev.type === 'hello' || ev.type === 'state') { if (ev.state) applyState(ev.state); return; }
       if (ev.type === 'error' || ev.type === 'aborted') return;
+      if (ev.type === 'automation') { if (settingsSection === 'automation') void renderAutomations(); return; }
       if (!view || (ev.seq !== undefined && ev.seq <= lastSeq)) return;
       if (ev.seq !== undefined) lastSeq = ev.seq;
       view.activity.push(ev);
@@ -1092,7 +1152,7 @@
         view.usage.prompt_tokens += ev.prompt_tokens || 0; view.usage.completion_tokens += ev.completion_tokens || 0;
       }
       controls(); renderLog();
-      if (ev.type === 'turn_end' && !$('diff-panel').hidden) void loadDiff();
+      if (ev.type === 'turn_end' && !$('diff-panel').hidden) void loadChanges();
     } catch (error) { showError(new Error('无法同步会话状态：' + error.message)); }
   };
   controls();
