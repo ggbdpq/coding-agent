@@ -74,6 +74,8 @@ export interface McpServerConfig {
   enabled: boolean;
   /** 信任此服务器：其工具免逐次审批直接执行（白名单语义，蓝图 R4） */
   trusted?: boolean;
+  /** 按工具粒度免审批白名单（工具名列表）；trusted 整服务器优先 */
+  trustedTools?: string[];
 }
 
 interface FileConfig {
@@ -147,6 +149,7 @@ function readJsonConfig(tcodeDir: string): FileConfig {
         if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some((arg) => typeof arg !== 'string'))) throw new Error();
         if (server.env !== undefined && (typeof server.env !== 'object' || server.env === null || Object.values(server.env).some((value) => typeof value !== 'string'))) throw new Error();
         if (server.trusted !== undefined && server.trusted !== true && server.trusted !== false) throw new Error();
+        if (server.trustedTools !== undefined && (!Array.isArray(server.trustedTools) || server.trustedTools.some((tool) => typeof tool !== 'string' || !tool))) throw new Error();
         ids.add(server.id);
       }
     }
@@ -476,8 +479,13 @@ export function saveMcpServer(current: Config, input: Record<string, unknown>): 
   }
   const enabled = input.enabled === true;
   const trusted = input.trusted === true;
+  let trustedTools: string[] | undefined;
+  if (input.trustedTools !== undefined) {
+    if (!Array.isArray(input.trustedTools) || input.trustedTools.some((tool) => typeof tool !== 'string' || !tool.trim())) throw new ConfigInputError('免审批工具须为非空工具名列表');
+    trustedTools = [...new Set((input.trustedTools as string[]).map((tool) => tool.trim()))];
+  }
   const index = servers.findIndex((server) => server.id === id);
-  const server: McpServerConfig = { id, name, command, ...(url ? { url } : {}), ...(args ? { args } : {}), ...(env ? { env } : {}), enabled, ...(trusted ? { trusted: true } : {}) };
+  const server: McpServerConfig = { id, name, command, ...(url ? { url } : {}), ...(args ? { args } : {}), ...(env ? { env } : {}), enabled, ...(trusted ? { trusted: true } : {}), ...(trustedTools ? { trustedTools } : {}) };
   if (index >= 0) servers[index] = server; else servers.push(server);
   persistConfig(current, { mcpServers: servers });
   return { ...current, mcpServers: servers };

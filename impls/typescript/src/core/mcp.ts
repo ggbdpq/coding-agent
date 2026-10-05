@@ -18,6 +18,8 @@ export interface McpServerConfig {
   enabled: boolean;
   /** 信任此服务器：工具免逐次审批 */
   trusted?: boolean;
+  /** 按工具粒度免审批白名单；trusted 整服务器优先 */
+  trustedTools?: string[];
 }
 
 interface McpTool { name: string; description?: string; inputSchema?: Record<string, unknown>; }
@@ -332,8 +334,8 @@ export class McpManager {
       description: `${tool.description || `MCP 工具 ${tool.name}`}（来自 MCP 服务器 ${server.name}）`,
       parameters: schema,
       needsPermission: true,
-      // 信任的服务器整体免审批（用户显式开启），复用蓝图 R4 的 skipPermission 白名单机制
-      skipPermission: server.trusted ? () => true : undefined,
+      // 信任的服务器整体免审批，或按工具白名单；复用蓝图 R4 的 skipPermission 机制
+      skipPermission: server.trusted || (server.trustedTools ?? []).includes(tool.name) ? () => true : undefined,
       preview: (args) => `MCP ${server.name}.${tool.name}\n${JSON.stringify(args ?? {}).slice(0, 2000)}`,
       run: async (args) => {
         const connection = await this.ensureConnected(server, cwd);

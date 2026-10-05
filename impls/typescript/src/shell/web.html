@@ -286,6 +286,7 @@
           <label>启动参数（JSON 数组，可选）<input id="mcp-args" placeholder='["server.mjs","--port","3000"]' autocomplete="off"></label>
           <label class="inline-check"><input id="mcp-enabled" type="checkbox" checked> 启用（工具加入会话）</label>
           <label class="inline-check"><input id="mcp-trusted" type="checkbox"> 免审批（信任此服务器，其工具不再逐次确认）</label>
+          <label>免审批工具（逗号分隔的工具名；勾选免审批时忽略）<input id="mcp-trusted-tools" placeholder="echo,search" autocomplete="off"></label>
           <div class="bar"><button type="button" id="mcp-cancel" hidden>取消</button><button type="button" class="primary" id="mcp-save">保存</button></div>
         </form></div></section>
   </main>
@@ -971,6 +972,7 @@
     $('mcp-args').value = server?.args ? JSON.stringify(server.args) : '';
     $('mcp-enabled').checked = server?.enabled ?? true;
     $('mcp-trusted').checked = server?.trusted ?? false;
+    $('mcp-trusted-tools').value = (server?.trustedTools ?? []).join(',');
     $('mcp-form').hidden = false; $('mcp-cancel').hidden = false; $('mcp-error').textContent = '';
   }
   $('mcp-new').onclick = () => { if (!connected || view?.busy || saving || changing) return; fillMcpForm(null); };
@@ -987,6 +989,7 @@
         ...(editingMcpId ? { id: editingMcpId } : {}),
         name: $('mcp-name').value.trim(), command: $('mcp-command').value.trim(),
         ...(args ? { args } : {}), enabled: $('mcp-enabled').checked, trusted: $('mcp-trusted').checked,
+        ...(($('mcp-trusted').checked ? false : $('mcp-trusted-tools').value.trim()) ? { trustedTools: $('mcp-trusted-tools').value.split(',').map((tool) => tool.trim()).filter(Boolean) } : {}),
       });
       applyState(result.state); editingMcpId = null;
       $('mcp-form').hidden = true; $('mcp-cancel').hidden = true;

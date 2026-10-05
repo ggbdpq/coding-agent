@@ -1237,7 +1237,7 @@ test('命令页可管理 MCP 服务器：添加、测试连接与启停', async 
   let tested = 0;
   await withPage(state, {
     '/mcp/servers': (body) => {
-      const server = { id: body.id || 'srv-1', name: body.name, command: body.command, args: body.args, enabled: body.enabled, trusted: body.trusted };
+      const server = { id: body.id || 'srv-1', name: body.name, command: body.command, args: body.args, enabled: body.enabled, trusted: body.trusted, trustedTools: body.trustedTools };
       if (body.id) servers = servers.map((entry) => (entry.id === body.id ? { ...entry, ...server } : entry));
       else servers.push(server);
       state.capabilities.mcpServers = servers; state.seq++;
@@ -1265,11 +1265,17 @@ test('命令页可管理 MCP 服务器：添加、测试连接与启停', async 
     await page.getByRole('checkbox', { name: '免审批（信任此服务器，其工具不再逐次确认）', exact: true }).check();
     await page.getByRole('button', { name: '保存', exact: true }).click();
     assert.equal(servers[0].trusted, true, '信任标记须提交到后端');
+    await page.getByRole('button', { name: '添加服务器', exact: true }).click();
+    await page.getByLabel('名称（字母、数字、下划线、连字符）', { exact: true }).fill('partial');
+    await page.getByLabel('启动命令', { exact: true }).fill('node');
+    await page.getByLabel('免审批工具（逗号分隔的工具名；勾选免审批时忽略）', { exact: true }).fill('echo, search');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    assert.deepEqual(servers.find((entry) => entry.name === 'partial')?.trustedTools, ['echo', 'search'], '按工具白名单须提交到后端');
     await page.getByText('免审批', { exact: true }).waitFor();
     await page.getByRole('button', { name: '测试 MCP 服务器 demo', exact: true }).click();
     await page.getByText('连接成功，工具：echo', { exact: true }).waitFor();
     await page.getByRole('button', { name: '停用 demo', exact: true }).click();
-    await page.getByText('已停用', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '启用 demo', exact: true }).waitFor();
   });
 });
 

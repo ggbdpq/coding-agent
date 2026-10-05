@@ -27,8 +27,8 @@ process.stdin.on('data', (chunk) => {
     if (!line.trim()) continue;
     let msg; try { msg = JSON.parse(line); } catch { continue; }
     if (msg.method === 'initialize') respond(msg, { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'fake', version: '1.0.0' } });
-    else if (msg.method === 'tools/list') respond(msg, { tools: [{ name: 'echo', description: '回显文本', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }] });
-    else if (msg.method === 'tools/call') respond(msg, { content: [{ type: 'text', text: 'echo:' + (msg.params?.arguments?.text ?? '') }] });
+    else if (msg.method === 'tools/list') respond(msg, { tools: [{ name: 'echo', description: '回显文本', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }, { name: 'slow', description: '慢速工具', inputSchema: { type: 'object' } }] });
+    else if (msg.method === 'tools/call') respond(msg, { content: [{ type: 'text', text: msg.params?.name === 'slow' ? 'slow done' : 'echo:' + (msg.params?.arguments?.text ?? '') }] });
     else if (msg.method === 'resources/list') respond(msg, { resources: [{ uri: 'file:///config', name: '服务配置', description: '当前配置内容' }] });
     else if (msg.method === 'resources/read') respond(msg, { contents: [{ uri: msg.params?.uri, text: '配置内容正文' }] });
     else if (msg.method === 'prompts/list') respond(msg, { prompts: [{ name: 'greet', description: '生成问候', arguments: [{ name: 'who' }] }] });
@@ -38,7 +38,7 @@ process.stdin.on('data', (chunk) => {
 process.stdin.resume();
 `;
 
-async function fixture(t, { enabled = true, transport = 'stdio', trusted = false } = {}) {
+async function fixture(t, { enabled = true, transport = 'stdio', trusted = false, trustedTools } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tcode-mcp-')));
   const data = path.join(root, 'data'), workspace = path.join(root, 'project');
   for (const directory of [data, workspace]) mkdirSync(directory);
@@ -51,8 +51,8 @@ async function fixture(t, { enabled = true, transport = 'stdio', trusted = false
       const msg = JSON.parse(raw);
       const respond = (result) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result })); };
       if (msg.method === 'initialize') { res.writeHead(200, { 'content-type': 'application/json', 'mcp-session-id': 'sess-http-1' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'fake-http', version: '1.0.0' } } })); }
-      else if (msg.method === 'tools/list') respond({ tools: [{ name: 'echo', description: '回显文本', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }] });
-      else if (msg.method === 'tools/call') respond({ content: [{ type: 'text', text: 'echo:' + (msg.params?.arguments?.text ?? '') }] });
+      else if (msg.method === 'tools/list') respond({ tools: [{ name: 'echo', description: '回显文本', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }, { name: 'slow', description: '慢速工具', inputSchema: { type: 'object' } }] });
+      else if (msg.method === 'tools/call') respond({ content: [{ type: 'text', text: msg.params?.name === 'slow' ? 'slow done' : 'echo:' + (msg.params?.arguments?.text ?? '') }] });
       else if (msg.method === 'resources/list') respond({ resources: [{ uri: 'file:///config', name: '服务配置', description: '当前配置内容' }] });
       else if (msg.method === 'resources/read') respond({ contents: [{ uri: msg.params?.uri, text: '配置内容正文' }] });
       else if (msg.method === 'prompts/list') respond({ prompts: [{ name: 'greet', description: '生成问候', arguments: [{ name: 'who' }] }] });
@@ -75,6 +75,8 @@ async function fixture(t, { enabled = true, transport = 'stdio', trusted = false
       send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: `${prefix}__read_resource`, arguments: JSON.stringify({ uri: 'file:///config' }) } }] } }] });
     } else if (user.includes('提示词') && !toolAfterUser) {
       send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: `${prefix}__get_prompt`, arguments: JSON.stringify({ name: 'greet', arguments: { who: '世界' } }) } }] } }] });
+    } else if (user.includes('慢') && !toolAfterUser) {
+      send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: `${prefix}__slow`, arguments: JSON.stringify({}) } }] } }] });
     } else if (!hasToolResult) {
       send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-call-1', function: { name: `${prefix}__echo`, arguments: JSON.stringify({ text: 'hi' }) } }] } }] });
     } else {
@@ -88,8 +90,8 @@ async function fixture(t, { enabled = true, transport = 'stdio', trusted = false
     apiKey: 'mcp-key', baseUrl: `http://127.0.0.1:${provider.address().port}/v1`, model: 'mcp-model',
     protocol: 'openai', contextLimit: 40000, workspace, approval: 'normal', allowWriteDirs: [workspace],
     ...(enabled ? { mcpServers: [transport === 'http'
-      ? { id: 'srv-http', name: 'httponly', url: `http://127.0.0.1:${provider.address().port}/mcp`, enabled: true, ...(trusted ? { trusted: true } : {}) }
-      : { id: 'srv-demo', name: 'demo', command: process.execPath, args: [fakeServerPath], enabled: true, ...(trusted ? { trusted: true } : {}) }] } : {}),
+      ? { id: 'srv-http', name: 'httponly', url: `http://127.0.0.1:${provider.address().port}/mcp`, enabled: true, ...(trusted ? { trusted: true } : {}), ...(trustedTools ? { trustedTools } : {}) }
+      : { id: 'srv-demo', name: 'demo', command: process.execPath, args: [fakeServerPath], enabled: true, ...(trusted ? { trusted: true } : {}), ...(trustedTools ? { trustedTools } : {}) }] } : {}),
   }));
   const env = { ...process.env, TCODE_DATA_DIR: data };
   for (const key of ['TCODE_API_KEY', 'TCODE_BASE_URL', 'TCODE_MODEL', 'TCODE_PROTOCOL', 'TCODE_APPROVAL']) delete env[key];
@@ -142,7 +144,7 @@ test('MCP 服务器配置持久化、连接测试列出工具，重启后仍可�
   assert.equal(persisted.mcpServers[0].enabled, true);
   const test = await h.post('mcp/test', { id: 'srv-demo' });
   assert.equal(test.status, 200);
-  assert.deepEqual(test.body.tools, ['echo']);
+  assert.deepEqual(test.body.tools.sort(), ['echo', 'slow']);
   await h.restart();
   await until(async () => (await h.state()).capabilities.tools.some((tool) => tool.name === 'mcp__demo__echo'), '重启后工具桥接');
   const state = await h.state();
@@ -207,10 +209,48 @@ test('HTTP Streamable 传输：连接测试列出工具、桥接调用经审批�
   const listed = (await h.state()).capabilities.tools;
   const probe = await h.post('mcp/test', { id: 'srv-http' });
   assert.equal(probe.status, 200);
-  assert.deepEqual(probe.body.tools, ['echo']);
+  assert.deepEqual(probe.body.tools.sort(), ['echo', 'slow']);
   const state = await approvedTurn(h);
   assert.match(state.messages.at(-1).content, /echo:hi/, 'HTTP 工具调用结果回传模型');
   assert.equal((await h.post('mcp/servers', { name: 'bad-url', url: 'ftp://x/mcp', enabled: true })).status, 400);
+});
+
+test('trustedTools 白名单：名单内工具免审批，名单外仍逐次审批，持久化', async (t) => {
+  const h = await fixture(t, { transport: 'http', trustedTools: ['echo'] });
+  const persisted = JSON.parse(readFileSync(h.configFile, 'utf8'));
+  assert.deepEqual(persisted.mcpServers[0].trustedTools, ['echo']);
+  await until(async () => (await h.state()).capabilities.tools.some((tool) => tool.name === 'mcp__httponly__slow'), '工具桥接');
+
+  await h.post('send', { text: '用 echo 回个话' });
+  const deadline = Date.now() + 5000;
+  let echoDone = false;
+  while (Date.now() < deadline) {
+    const state = await h.state();
+    assert.deepEqual(state.pending, [], '名单内工具不能出现审批等待');
+    if (state.status === 'completed' && !state.busy) { echoDone = true; break; }
+    await delay(20);
+  }
+  assert.equal(echoDone, true, 'echo 轮完成');
+  assert.match((await h.state()).messages.at(-1).content, /echo:hi/);
+
+  await h.post('send', { text: '跑慢工具' });
+  let slowApproved = false;
+  const deadline2 = Date.now() + 5000;
+  while (Date.now() < deadline2) {
+    const state = await h.state();
+    const pending = state.pending?.[0];
+    if (pending) {
+      slowApproved = true;
+      assert.match(pending.preview, /slow/, '名单外工具的审批预览');
+      await h.post('permission', { id: pending.id, decision: 'allow' });
+    }
+    if (state.status === 'completed' && !state.busy) break;
+    await delay(20);
+  }
+  assert.equal(slowApproved, true, '名单外工具仍需逐次审批');
+  assert.match((await h.state()).messages.at(-1).content, /slow done/);
+  await h.restart();
+  assert.deepEqual(JSON.parse(readFileSync(h.configFile, 'utf8')).mcpServers[0].trustedTools, ['echo'], '重启后白名单仍在');
 });
 
 test('资源与提示词桥接：聚合工具读取资源正文、获取提示词模板', async (t) => {
