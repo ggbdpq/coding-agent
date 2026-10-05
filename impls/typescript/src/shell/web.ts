@@ -20,6 +20,7 @@ import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type Changes
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
 import { AutomationRunner } from '../core/automation.ts';
 import { McpManager } from '../core/mcp.ts';
+import { MCP_CATALOG } from '../core/mcp_catalog.ts';
 import { fetchBalance, listModels } from '../providers/models.ts';
 import { pickWorkspace } from './workspacepicker.ts';
 
@@ -558,6 +559,10 @@ export async function startWeb(app: App): Promise<void> {
       } finally {
         clearTimeout(timer);
       }
+      return;
+    }
+    if (req.method === 'GET' && path === '/mcp/catalog') {
+      json(res, 200, { catalog: MCP_CATALOG });
       return;
     }
     if (req.method === 'POST' && path === '/mcp/servers') {

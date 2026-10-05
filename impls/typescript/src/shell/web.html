@@ -282,7 +282,7 @@
     </section>
     <section data-settings="commands" hidden><h1>命令</h1><p class="settings-description">命令作用于当前会话。填入后可以补充参数，再发送执行。</p><div class="settings-card"><h2>可用命令</h2><div id="command-list"></div></div><div class="settings-card"><h2>可用工具</h2><p>模型可调用的本地工具，执行时遵循当前权限设置。</p><div id="tool-list"></div></div>
       <div class="settings-card"><div class="bar"><h2>长期记忆</h2><div class="bar"><button id="memory-save" class="primary">保存记忆</button><button id="memory-clear">清空</button></div></div><p>memory.md 的内容会注入每轮对话（跨会话、跨项目）。编辑后点击保存；清空不可恢复。</p><textarea id="memory-editor" rows="8" aria-label="长期记忆（memory.md）" placeholder="长期记忆为空。例如：用户偏好 pnpm；回答要简短" spellcheck="false"></textarea></div>
-      <div class="settings-card"><div class="bar"><h2>外部工具（MCP）</h2><button id="mcp-new">添加服务器</button></div><p>通过 stdio 运行本地 MCP 服务器；其工具以 mcp__名称__工具 的形式加入会话，调用前逐次审批。</p><div id="mcp-error" role="alert"></div><div id="mcp-list"></div>
+      <div class="settings-card"><div class="bar"><h2>外部工具（MCP）</h2><div class="bar"><button id="mcp-catalog" title="从内置精选目录预填表单">从目录添加</button><button id="mcp-new">添加服务器</button></div></div><p>通过 stdio 运行本地 MCP 服务器；其工具以 mcp__名称__工具 的形式加入会话，调用前逐次审批。</p><div id="mcp-catalog-list" hidden></div><div id="mcp-error" role="alert"></div><div id="mcp-list"></div>
         <form id="mcp-form" hidden><h2 id="mcp-form-title">添加 MCP 服务器</h2>
           <label>名称（字母、数字、下划线、连字符）<input id="mcp-name" required maxlength="40" pattern="[a-zA-Z0-9_-]+" autocomplete="off"></label>
           <label>启动命令<input id="mcp-command" required placeholder="node" autocomplete="off"></label>
@@ -1006,6 +1006,36 @@
     $('mcp-form').hidden = false; $('mcp-cancel').hidden = false; $('mcp-error').textContent = '';
   }
   $('mcp-new').onclick = () => { if (!connected || view?.busy || saving || changing) return; fillMcpForm(null); };
+  $('mcp-catalog').onclick = async () => {
+    if (!connected || view?.busy || saving || changing) return;
+    const list = $('mcp-catalog-list');
+    if (!list.hidden) { list.hidden = true; return; }
+    mcpFeedback('');
+    try {
+      const result = await api('/mcp/catalog');
+      list.replaceChildren(...result.catalog.map((entry) => {
+        const item = row('capability-entry', undefined, list), bar = row('bar', undefined, item);
+        const name = document.createElement('code'); name.textContent = entry.name;
+        bar.append(name);
+        const use = document.createElement('button'); use.textContent = '使用'; use.setAttribute('aria-label', '使用 ' + entry.name);
+        use.onclick = () => {
+          editingMcpId = null;
+          $('mcp-form-title').textContent = '添加 MCP 服务器（目录：' + entry.name + '）';
+          $('mcp-name').value = entry.name; $('mcp-command').value = entry.command;
+          $('mcp-args').value = JSON.stringify(entry.args);
+          $('mcp-enabled').checked = true; $('mcp-trusted').checked = false; $('mcp-trusted-tools').value = '';
+          $('mcp-form').hidden = false; $('mcp-cancel').hidden = false;
+          list.hidden = true; mcpFeedback('已预填目录条目，占位参数与密钥请按需修改后保存');
+          $('mcp-form').scrollIntoView({ block: 'nearest' });
+        };
+        bar.append(use);
+        row('settings-path', entry.description, item);
+        row('settings-path', [entry.command, ...entry.args].join(' '), item);
+        return item;
+      }));
+      list.hidden = false;
+    } catch (error) { mcpFeedback(error.message, true); }
+  };
   $('mcp-cancel').onclick = () => { $('mcp-form').hidden = true; $('mcp-cancel').hidden = true; editingMcpId = null; };
   $('mcp-save').onclick = async () => {
     if (!connected || view?.busy || saving || changing) return;

@@ -296,3 +296,15 @@ test('资源与提示词清单注入系统提示词', async (t) => {
   assert.match(system, /file:\/\/\/config — 服务配置/, '资源清单注入系统提示词');
   assert.match(system, /greet — 生成问候/, '提示词清单注入系统提示词');
 });
+
+test('MCP 目录：内置条目可查询供建表单预填', async (t) => {
+  const h = await fixture(t);
+  const catalog = await h.get('mcp/catalog');
+  assert.equal(catalog.status, 200);
+  assert.ok(Array.isArray(catalog.body.catalog) && catalog.body.catalog.length >= 3, '内置目录至少 3 个条目');
+  for (const entry of catalog.body.catalog) {
+    assert.ok(entry.name && entry.command && entry.description, '条目须含名称/命令/描述');
+  }
+  assert.equal(catalog.body.catalog.some((entry) => entry.name === 'filesystem'), true, '含官方 filesystem 参考实现');
+  assert.equal(JSON.stringify(catalog.body).includes('rm -rf'), false);
+});

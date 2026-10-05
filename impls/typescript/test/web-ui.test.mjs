@@ -1310,3 +1310,28 @@ test('命令页可编辑与清空长期记忆', async () => {
     assert.equal(await editor.inputValue(), '');
   });
 });
+
+test('命令页可从内置目录预填 MCP 服务器表单', async () => {
+  const state = initialState();
+  const saved = [];
+  await withPage(state, {
+    '/mcp/catalog': () => ({ catalog: [
+      { name: 'filesystem', description: '文件系统访问（官方参考实现）', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '<目录路径>'] },
+    ] }),
+    '/mcp/servers': (body) => { saved.push(body); state.capabilities.mcpServers = [{ id: 'srv-1', ...body }]; state.seq++; return { ok: true, state }; },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await navigation.getByRole('button', { name: '命令', exact: true }).click();
+    await page.getByRole('button', { name: '从目录添加', exact: true }).click();
+    await page.getByText('文件系统访问（官方参考实现）', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '使用 filesystem', exact: true }).click();
+    assert.equal(await page.getByLabel('名称（字母、数字、下划线、连字符）', { exact: true }).inputValue(), 'filesystem');
+    assert.equal(await page.getByLabel('启动命令', { exact: true }).inputValue(), 'npx');
+    assert.equal(await page.getByLabel(/启动参数/, { exact: false }).inputValue(), JSON.stringify(['-y', '@modelcontextprotocol/server-filesystem', '<目录路径>']));
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.getByText('demo（免审批）', { exact: true }).waitFor().catch(() => {});
+    await page.waitForFunction(() => document.getElementById('mcp-list').textContent.includes('filesystem'), undefined, { timeout: 3000 });
+    assert.deepEqual(JSON.parse(JSON.stringify(saved[0])), { name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '<目录路径>'], enabled: true, trusted: false });
+  });
+});
