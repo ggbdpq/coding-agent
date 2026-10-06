@@ -1364,3 +1364,86 @@ test('自动化列表展示 worktree 路径与分支合并引导', async () => {
     await page.getByText(/git merge tcode-a1b2c3d4/, { exact: false }).waitFor();
   });
 });
+
+test('worktree 清理失败后刷新部分完成状态，保留错误并可重试剩余分支', async () => {
+  const state = initialState(), calls = [];
+  const task = {
+    id: 'a1b2c3d4', name: 'worktree 任务', workspace: '/tmp/ui-project', prompt: '做点什么',
+    status: 'stopped', createdAt: 1, intervalMinutes: 30, paused: true,
+    worktreePath: '/repo/.tcode-worktrees/a1b2c3d4', branch: 'tcode-a1b2c3d4', worktreeCleanupPending: true,
+  };
+  let listed = 0;
+  await withPage(state, {
+    '/automations': () => { listed++; return { automations: [task] }; },
+    '/automations/worktree/remove': (body) => {
+      calls.push(body);
+      if (calls.length === 1) {
+        delete task.worktreePath; task.worktreeCleanupPending = true;
+        throw new Error('worktree 已移除，但分支删除失败，请重试');
+      }
+      delete task.worktreeCleanupPending; delete task.branch;
+      return { ok: true };
+    },
+  }, async (page, { emit }) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分组', exact: true }).getByRole('button', { name: '自动化', exact: true }).click();
+    const remove = page.getByRole('button', { name: '删除任务 worktree 任务', exact: true });
+    await remove.waitFor();
+    assert.equal(await remove.isDisabled(), true);
+    await page.getByText('先清理 worktree 和分支，再删除任务记录', { exact: true }).waitFor();
+    await page.getByText('worktree：/repo/.tcode-worktrees/a1b2c3d4', { exact: true }).waitFor();
+    assert.equal(await page.getByText('worktree 已移除，分支待清理：tcode-a1b2c3d4', { exact: true }).count(), 0);
+    await page.getByRole('button', { name: '重试清理 worktree 任务', exact: true }).click();
+    await page.getByText('worktree 已移除，分支待清理：tcode-a1b2c3d4', { exact: true }).waitFor();
+    await page.getByText('worktree 已移除，但分支删除失败，请重试', { exact: true }).waitFor();
+    assert.equal(await page.getByText('worktree：/repo/.tcode-worktrees/a1b2c3d4', { exact: true }).count(), 0);
+    assert.ok(listed >= 2, '失败后必须重新读取任务资源状态');
+    state.busy = true; state.seq++; emit({ type: 'state', state });
+    await page.getByRole('button', { name: '运行任务', exact: true }).and(page.locator(':disabled')).waitFor();
+    state.busy = false; state.seq++; emit({ type: 'state', state });
+    await page.getByRole('button', { name: '运行任务', exact: true }).and(page.locator(':enabled')).waitFor();
+    assert.equal(await page.getByRole('button', { name: '继续', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '恢复调度', exact: true }).isDisabled(), true);
+    assert.equal(await remove.isDisabled(), true, '状态同步不应解除剩余分支的删除保护');
+    await page.getByRole('button', { name: '重试清理 worktree 任务', exact: true }).click();
+    await remove.and(page.locator(':enabled')).waitFor();
+    assert.deepEqual(calls, [{ id: task.id, mode: 'merged' }, { id: task.id, mode: 'merged' }]);
+    assert.equal(await page.locator('#automation-error').textContent(), '');
+    assert.equal(await page.getByRole('button', { name: '继续', exact: true }).isDisabled(), false);
+    assert.equal(await page.getByRole('button', { name: '恢复调度', exact: true }).isDisabled(), false);
+  });
+});
+
+test('丢弃 worktree 须显式确认，运行中和导航锁定时不得清理', async () => {
+  const state = initialState(), calls = [];
+  const completed = { id: 'done-id', name: '已结束任务', status: 'completed', createdAt: 1, worktreePath: '/repo/wt/done', branch: 'tcode-done-id' };
+  const running = { id: 'running-id', name: '运行任务', status: 'running', createdAt: 1, worktreePath: '/repo/wt/running', branch: 'tcode-running-' };
+  await withPage(state, {
+    '/automations': () => ({ automations: [completed, running] }),
+    '/automations/worktree/remove': (body) => { calls.push(body); delete completed.worktreePath; return { ok: true }; },
+  }, async (page, { emit }) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分组', exact: true }).getByRole('button', { name: '自动化', exact: true }).click();
+    const discard = page.getByRole('button', { name: '丢弃 worktree 已结束任务', exact: true });
+    await discard.waitFor();
+    assert.equal(await page.getByRole('button', { name: '清理 worktree 运行任务', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '丢弃 worktree 运行任务', exact: true }).isDisabled(), true);
+    state.busy = true; state.seq++; emit({ type: 'state', state });
+    await discard.and(page.locator(':disabled')).waitFor();
+    state.busy = false; state.seq++; emit({ type: 'state', state });
+    await discard.and(page.locator(':enabled')).waitFor();
+    assert.equal(await page.getByRole('button', { name: '清理 worktree 运行任务', exact: true }).isDisabled(), true, 'SSE 解锁不应解除运行中清理保护');
+    const cancelled = page.waitForEvent('dialog');
+    const cancelledClick = discard.click();
+    const first = await cancelled;
+    assert.match(first.message(), /未合并的修改会被删除/);
+    await first.dismiss(); await cancelledClick;
+    assert.deepEqual(calls, []);
+    const confirmed = page.waitForEvent('dialog');
+    const confirmedClick = discard.click();
+    await (await confirmed).accept(); await confirmedClick;
+    await page.getByRole('button', { name: '删除任务 已结束任务', exact: true }).and(page.locator(':enabled')).waitFor();
+    assert.deepEqual(calls, [{ id: 'done-id', mode: 'discard' }]);
+    assert.equal(await page.getByRole('button', { name: '已完成', exact: true }).isDisabled(), true);
+  });
+});

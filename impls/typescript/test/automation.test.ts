@@ -133,6 +133,28 @@ test('运行中的任务不会被调度重复触发；无间隔的任务不参�
   assert.equal(runner.get(plain.id)!.nextRunAt, undefined, '无间隔任务不进入调度');
 });
 
+test('execute 公共入口拒绝并发执行另一任务且不修改其会话记录', async (t) => {
+  const { runner, app, requests, block, release, workspace } = setup(t, () => 3_100_000);
+  const first = runner.create({ name: '正在执行', prompt: '慢慢做', workspace });
+  const other = runner.create({ name: '等待执行', prompt: '稍后做', workspace });
+  const before = runner.get(other.id);
+  block();
+  const execution = runner.execute(app, first.id);
+  let attempted = Promise.resolve();
+  try {
+    await waitRunning(runner, first.id);
+    assert.equal(requests.length, 1, '第一任务的模型请求确实挂起');
+    attempted = runner.execute(app, other.id);
+    assert.equal(runner.isRunning(other.id), false, '第二任务不能进入模型等待，避免等待拒绝时死锁');
+    await assert.rejects(attempted, /自动化任务.*运行/);
+    assert.deepEqual(runner.get(other.id), before, '拒绝不能新建会话或改写任务');
+    assert.equal(requests.length, 1);
+  } finally { release(); await Promise.allSettled([execution, attempted]); }
+  await runner.execute(app, other.id);
+  assert.equal(runner.get(other.id)!.status, 'completed');
+  assert.equal(requests.length, 2, '前一任务结束后仍可执行');
+});
+
 test('自动化任务以任务工作目录为工具基准：文件写入任务目录，结束后恢复主会话基准', async (t) => {
   let clock = 4_000_000;
   const { runner, app, dir } = setup(t, () => clock);
@@ -182,6 +204,7 @@ test('worktree 任务：在独立 git worktree 中执行，主工作区不受影
 
   const done = runner.get(task.id)!;
   assert.equal(done.status, 'completed');
+  assert.ok(done.sessionId, 'worktree 准备不能覆盖本轮会话标识');
   const wtPath = done.worktreePath!;
   assert.ok(wtPath && wtPath.includes('worktree'), '任务记录 worktree 路径');
   assert.equal(existsSync(path.join(wtPath, 'out', 'hello.txt')), true, '文件写入 worktree 而非主工作区');
@@ -192,14 +215,101 @@ test('worktree 任务：在独立 git worktree 中执行，主工作区不受影
   assert.match(worktrees, /tcode-/, 'worktree 保留供审查');
 });
 
-test('非 git 目录的 worktree 任务报错可见', async (t) => {
-  const { runner, app, workspace } = setup(t, () => 7_000_000);
+test('非 git 目录的 worktree 准备失败释放运行状态，修复工作区后可执行另一任务', async (t) => {
+  const { runner, app, workspace, requests } = setup(t, () => 7_000_000);
   const task = runner.create({ name: '无 git', prompt: '做点什么', workspace, worktree: true });
   runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: 7_000_000 - 1, paused: false });
   await runner.tick(app);
   const done = await waitDone(runner, task.id);
   assert.equal(done.status, 'error');
   assert.match(done.error ?? '', /worktree|git/i, '错误说明 worktree 创建失败原因');
+  assert.equal(runner.isRunning(task.id), false, '准备失败须释放该任务的运行状态');
+  assert.equal(runner.anyRunning(), false, '准备失败不能继续占用后台执行入口');
+  assert.equal(requests.length, 0, '准备失败不能调用模型');
+
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace });
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const next = runner.create({ name: '恢复后的任务', prompt: '做点检查', workspace, worktree: true });
+  await runner.execute(app, next.id);
+  assert.equal(runner.get(next.id)!.status, 'completed', '失败后另一个任务仍可执行');
+  assert.equal(requests.length, 1);
+  assert.equal(runner.anyRunning(), false);
+});
+
+test('worktree 重试准备成功后保留本轮 running、sessionId 与已清空的错误', async (t) => {
+  const { runner, app, workspace, dir, requests, block, release } = setup(t, () => 7_100_000);
+  const task = runner.create({ name: '准备后重试', prompt: '做点检查', workspace, worktree: true });
+  await runner.execute(app, task.id);
+  const failed = runner.get(task.id)!;
+  assert.equal(failed.status, 'error');
+  assert.ok(failed.error);
+  assert.ok(failed.sessionId, '首次尝试已创建会话');
+
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace });
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  // 重启 runner 后重试错误任务，不借助内部字段清除旧运行状态。
+  const restarted = new AutomationRunner(dir, () => 7_100_000);
+  block();
+  const execution = restarted.execute(app, task.id);
+  let activeSessionId: string | undefined;
+  try {
+    await waitRunning(restarted, task.id);
+    assert.equal(requests.length, 1, '模型已经调用且仍被屏障阻塞');
+    const running = restarted.get(task.id)!;
+    assert.equal(running.status, 'running', 'worktree 准备不能恢复旧 error 状态');
+    assert.equal(running.error, undefined, '本轮必须清空上轮错误');
+    assert.ok(running.sessionId, 'worktree 准备不能覆盖本轮会话标识');
+    assert.notEqual(running.sessionId, failed.sessionId, '重试使用新会话，不能恢复上轮 sessionId');
+    activeSessionId = running.sessionId;
+    assert.ok(existsSync(path.join(dir, 'automations', task.id, 'sessions', activeSessionId)), '会话标识指向真实会话文件');
+    assert.ok(running.worktreePath && existsSync(running.worktreePath), '真实 worktree 已创建');
+  } finally {
+    release();
+    await execution;
+  }
+  const done = restarted.get(task.id)!;
+  assert.equal(done.status, 'completed');
+  assert.equal(done.error, undefined);
+  assert.equal(done.sessionId, activeSessionId, '终态仍归属本轮会话');
+  assert.equal(restarted.anyRunning(), false);
+});
+
+test('tick 在前一任务挂起后重读排队任务，不恢复已删除任务或覆盖暂停', async (t) => {
+  for (const action of ['delete', 'pause'] as const) await t.test(action, async (t) => {
+    let clock = 7_200_000;
+    const { runner, app, workspace, requests, block, release } = setup(t, () => clock);
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace });
+    git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+    writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
+    git('add', '.'); git('commit', '-m', 'init');
+    const queued = runner.create({ name: '排队 B', prompt: '检查 B', workspace });
+    runner.setSchedule(queued.id, { intervalMinutes: 10, nextRunAt: clock - 1, paused: false });
+    clock++;
+    const first = runner.create({ name: '阻塞 A', prompt: '检查 A', workspace });
+    runner.setSchedule(first.id, { intervalMinutes: 10, nextRunAt: clock - 1, paused: false });
+    assert.equal(runner.list()[0]!.id, first.id, 'A 按创建时间排在 B 前面');
+    block();
+    const execution = runner.tick(app);
+    try {
+      await waitRunning(runner, first.id);
+      assert.equal(requests.length, 1, 'A 已调用模型且仍挂起');
+      assert.equal(runner.isRunning(queued.id), false, 'B 尚未执行');
+      if (action === 'delete') assert.equal(runner.remove(queued.id), 'removed');
+      else runner.setSchedule(queued.id, { paused: true });
+    } finally {
+      release();
+      await execution;
+    }
+    if (action === 'delete') assert.equal(runner.get(queued.id), undefined, '旧 due 快照不能复活已删除的 B');
+    else assert.equal(runner.get(queued.id)!.paused, true, '旧 due 快照不能覆盖 B 的暂停设置');
+    assert.equal(requests.length, 1, 'B 不应发起模型请求');
+    assert.equal(runner.get(first.id)!.status, 'completed');
+    assert.equal(runner.anyRunning(), false);
+  });
 });
 
 test('worktree 清理：丢弃模式移除 worktree 与分支并清空任务记录', async (t) => {
@@ -251,7 +361,7 @@ test('worktree 清理 merged 模式要求分支已合并，未合并报错可见
 });
 
 test('运行中的任务拒绝清理 worktree', async (t) => {
-  const { runner, app, block, release, workspace } = setup(t, () => 10_000_000);
+  const { runner, app, block, release, workspace, requests } = setup(t, () => 10_000_000);
   const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace });
   git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
   writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
@@ -261,9 +371,16 @@ test('运行中的任务拒绝清理 worktree', async (t) => {
   runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: 10_000_000 - 1, paused: false });
   // tick 会 await execute；provider 被 block 时不能 await tick，否则死锁
   const execution = runner.tick(app);
-  await waitRunning(runner, task.id);
-  assert.equal(runner.removeWorktree(task.id, 'discard'), 'running');
-  runner.stop(task.id);
-  release();
-  await execution;
+  try {
+    await waitRunning(runner, task.id);
+    assert.equal(requests.length, 1, '模型已实际调用且仍被阻塞，不能只检查 running 标记');
+    const worktreePath = runner.get(task.id)!.worktreePath!;
+    assert.ok(existsSync(worktreePath), '运行中 worktree 真实存在');
+    assert.equal(runner.removeWorktree(task.id, 'discard'), 'running');
+    assert.ok(existsSync(worktreePath), '拒绝清理后目录仍保留');
+  } finally {
+    runner.stop(task.id);
+    release();
+    await execution;
+  }
 });

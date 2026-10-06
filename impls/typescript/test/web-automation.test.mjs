@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync, existsSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,7 @@ async function until(check) {
   throw new Error('等待自动化任务状态超时');
 }
 
-async function fixture(t, { mode = 'ok', configured = true } = {}) {
+async function fixture(t, { mode = 'ok', configured = true, hangRequests = [1] } = {}) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'tcode-auto-')));
   const data = path.join(root, 'data'), workspace = path.join(root, 'project');
   for (const directory of [data, workspace]) mkdirSync(directory);
@@ -30,7 +30,7 @@ async function fixture(t, { mode = 'ok', configured = true } = {}) {
     if (mode === 'error') { res.writeHead(401).end('invalid key automation-key'); return; }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (value) => res.write(`data: ${JSON.stringify(value)}\n\n`);
-    if (mode === 'hang' && requests.length === 1) { res.write(': waiting\n\n'); return; }
+    if (mode === 'hang' && hangRequests.includes(requests.length)) { res.write(': waiting\n\n'); return; }
     const hasToolResult = body.messages.some((m) => m.role === 'tool');
     if (!hasToolResult) {
       send({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'auto-1', function: { name: 'write', arguments: JSON.stringify({ file_path: 'result.txt', content: 'automation done' }) } }] } }] });
@@ -98,6 +98,7 @@ test('服务重启后运行中任务标记中断，可继续执行到完成', as
   const created = await h.post('automations', { name: '跨重启任务', prompt: '分两步做' });
   const id = created.body.id;
   await until(async () => (await h.list()).body.automations?.find((task) => task.id === id && task.status === 'running'));
+  await until(() => h.requests.length === 1); // 确认已挂在模型响应，避免恢复请求成为 fixture 的首次挂起请求
   const runningRequests = h.requests.length;
   await h.restart();
   const after = (await h.list()).body.automations.find((task) => task.id === id);
@@ -211,4 +212,285 @@ test('worktree 清理端点：discard 移除目录与分支，未合并 merged �
   assert.equal(removed.status, 200);
   assert.equal(existsSync(wtPath), false, 'worktree 已移除');
   assert.equal(existsSync(wtPath), false, 'worktree 已移除');
+});
+
+test('merged 清理固化失败时保留未提交产出，故障解除后可合并并重试', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const created = await h.post('automations', { name: '固化失败', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  const branch = task.branch, wtPath = task.worktreePath;
+  const tip = git('rev-parse', branch);
+  const lock = path.resolve(wtPath, git('-C', wtPath, 'rev-parse', '--git-path', 'index.lock'));
+  writeFileSync(lock, 'test lock', { flag: 'wx' });
+  t.after(() => { if (existsSync(lock)) unlinkSync(lock); });
+
+  const failed = await h.post('automations/worktree/remove', { id, mode: 'merged' });
+  assert.equal(failed.status, 500, '固化失败必须报错，不能强删后返回成功');
+  assert.equal(readFileSync(path.join(wtPath, 'result.txt'), 'utf8'), 'automation done');
+  assert.equal(git('rev-parse', branch), tip, '失败不能推进或删除分支');
+  assert.equal((await h.list()).body.automations.find((entry) => entry.id === id).worktreePath, wtPath);
+  unlinkSync(lock);
+
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 409);
+  assert.equal(existsSync(wtPath), true, '固化成功但未合并时仍保留目录');
+  git('merge', branch);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 200);
+  assert.equal(readFileSync(path.join(h.workspace, 'result.txt'), 'utf8'), 'automation done');
+});
+
+for (const mode of ['merged', 'discard']) test(`${mode}：目录已移除但分支删除失败时可见剩余资源，重启后重试不产生空提交`, async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const created = await h.post('automations', { name: '分支删除失败', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  const branch = task.branch, wtPath = task.worktreePath;
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 409);
+  git('merge', branch);
+  const tip = git('rev-parse', branch);
+  const lock = path.resolve(h.workspace, git('rev-parse', '--git-path', `refs/heads/${branch}.lock`));
+  writeFileSync(lock, 'test lock', { flag: 'wx' });
+  t.after(() => { if (existsSync(lock)) unlinkSync(lock); });
+
+  assert.equal((await h.post('automations/worktree/remove', { id, mode })).status, 500);
+  assert.equal(existsSync(wtPath), false, '目录已成功移除');
+  const pending = (await h.list()).body.automations.find((entry) => entry.id === id);
+  assert.equal(pending.worktreePath, undefined, '不能继续展示不存在的目录');
+  assert.equal(pending.worktreeCleanupPending, true);
+  assert.equal(pending.branch, branch, '剩余分支仍可审查和重试');
+  assert.equal(git('rev-parse', branch), tip);
+  assert.equal((await h.post('automations/delete', { id })).status, 409, '普通删除不能遗失剩余资源的记录');
+  assert.equal((await h.post('automations/schedule', { id, paused: false })).status, 409);
+  await h.restart();
+  assert.equal((await h.list()).body.automations.find((entry) => entry.id === id).worktreeCleanupPending, true);
+  unlinkSync(lock);
+
+  assert.equal((await h.post('automations/worktree/remove', { id, mode })).status, 200);
+  assert.equal(git('rev-parse', 'HEAD'), tip, '重试不能通过新空提交破坏已合并前提');
+  assert.equal(git('branch', '--list', branch), '');
+  const done = (await h.list()).body.automations.find((entry) => entry.id === id);
+  assert.equal(done.worktreeCleanupPending, undefined);
+  assert.equal(done.branch, undefined);
+  assert.equal((await h.post('automations/delete', { id })).status, 200);
+});
+
+test('清理模式必须显式有效，普通删除不能绕过未提交产出的保护', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const created = await h.post('automations', { name: '保护产出', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  for (const mode of [undefined, 'typo', null]) {
+    assert.equal((await h.post('automations/worktree/remove', { id, mode })).status, 400);
+    assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  }
+  assert.equal((await h.post('automations/delete', { id })).status, 409);
+  assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  assert.ok(git('branch', '--list', task.branch));
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'discard' })).status, 200);
+  assert.equal(git('branch', '--list', task.branch), '');
+  assert.equal((await h.post('automations/delete', { id })).status, 200);
+});
+
+test('任务分支不自动跟踪主分支，已有 upstream 的安全删除限制在移除目录前检查', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  git('config', 'branch.autoSetupMerge', 'always');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  git('branch', '--no-track', 'older-upstream');
+  const created = await h.post('automations', { name: '跟踪设置', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  assert.equal(git('for-each-ref', '--format=%(upstream)', `refs/heads/${task.branch}`), '', '创建必须独立于用户自动跟踪配置');
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 409);
+  git('merge', task.branch);
+  git('branch', '--set-upstream-to=older-upstream', task.branch);
+  const failed = await h.post('automations/worktree/remove', { id, mode: 'merged' });
+  assert.equal(failed.status, 409);
+  assert.match(failed.body.error, /upstream|上游/);
+  assert.equal(existsSync(task.worktreePath), true, 'HEAD 已合并但 upstream 未合并时仍保留目录');
+  assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  assert.equal((await h.list()).body.automations.find((entry) => entry.id === id).worktreeCleanupPending, undefined, '预检拒绝不能进入部分清理状态');
+  git('branch', '--unset-upstream', task.branch);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 200);
+});
+
+test('worktree 锁定时丢弃失败可见，解锁重试后目录和分支才清空', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const created = await h.post('automations', { name: '锁定目录', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  git('worktree', 'lock', task.worktreePath);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'discard' })).status, 500);
+  assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  assert.ok(git('branch', '--list', task.branch));
+  const pending = (await h.list()).body.automations.find((entry) => entry.id === id);
+  assert.equal(pending.worktreePath, task.worktreePath);
+  assert.equal(pending.worktreeCleanupPending, true);
+  assert.equal((await h.post('automations/delete', { id })).status, 409);
+  git('worktree', 'unlock', task.worktreePath);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'discard' })).status, 200);
+  assert.equal(existsSync(task.worktreePath), false);
+  assert.equal(git('branch', '--list', task.branch), '');
+});
+
+test('损坏的路径引用不能清理外部目录，缺失引用也不能绕过真实 worktree 删除保护', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const created = await h.post('automations', { name: '损坏记录', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  const record = path.join(h.data, 'automations', id + '.json');
+  writeFileSync(record, JSON.stringify({ ...task, worktreePath: h.workspace }));
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'discard' })).status, 500);
+  assert.equal(readFileSync(path.join(h.workspace, 'base.txt'), 'utf8'), 'base\n');
+  assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  writeFileSync(record, JSON.stringify({ ...task, worktreePath: undefined }));
+  assert.equal((await h.post('automations/delete', { id })).status, 409);
+  assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'discard' })).status, 200, '依据固定任务位置找到遗漏资源');
+  assert.equal(existsSync(task.worktreePath), false);
+  assert.equal(git('branch', '--list', task.branch), '');
+});
+
+test('用户隐藏未跟踪文件时安全清理仍固化产出，提交 hook 新增文件也必须保留', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  git('config', 'status.showUntrackedFiles', 'no');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const created = await h.post('automations', { name: '隐藏未跟踪文件', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 409, '隐藏的产出也必须固化并要求合并');
+  assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  git('merge', task.branch);
+  const hook = path.resolve(h.workspace, git('rev-parse', '--git-path', 'hooks/post-commit'));
+  const quotedWorkspace = "'" + h.workspace.replaceAll("'", "'\\''") + "'";
+  writeFileSync(hook, `#!/bin/sh\nprintf "late output" > late-output.txt\nunset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR\ngit -C ${quotedWorkspace} merge ${task.branch}\n`, { mode: 0o755 });
+  t.after(() => { if (existsSync(hook)) unlinkSync(hook); });
+  writeFileSync(path.join(task.worktreePath, 'result.txt'), 'updated');
+  // hook 将新提交合入主分支，但留下新产出；祖先检查通过也不能删除这些字节。
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 500);
+  assert.equal(readFileSync(path.join(task.worktreePath, 'late-output.txt'), 'utf8'), 'late output');
+  assert.equal(readFileSync(path.join(h.workspace, 'result.txt'), 'utf8'), 'updated');
+  unlinkSync(hook);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 409);
+  git('merge', task.branch);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 200);
+  assert.equal(readFileSync(path.join(h.workspace, 'late-output.txt'), 'utf8'), 'late output');
+});
+
+test('安全清理保留被忽略的唯一产出，不强制提交忽略内容，显式丢弃才移除', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(h.workspace, '.gitignore'), 'result.txt\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const created = await h.post('automations', { name: '忽略产出', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  const tip = git('rev-parse', task.branch);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 500);
+  assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  assert.equal(git('rev-parse', task.branch), tip, '忽略文件不能被自动强制加入提交');
+  assert.equal((await h.list()).body.automations.find((entry) => entry.id === id).worktreeCleanupPending, undefined);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'discard' })).status, 200);
+  assert.equal(existsSync(task.worktreePath), false);
+  assert.equal(git('branch', '--list', task.branch), '');
+});
+
+test('worktree 创建命令部分失败仍保留资源记录，拒绝重跑并可显式清理', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const hook = path.resolve(h.workspace, git('rev-parse', '--git-path', 'hooks/post-checkout'));
+  writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  t.after(() => { if (existsSync(hook)) unlinkSync(hook); });
+  const created = await h.post('automations', { name: '部分创建失败', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'error'));
+  assert.equal(h.requests.length, 0, '准备失败不能调用模型');
+  assert.equal(task.worktreeCleanupPending, true);
+  assert.equal(existsSync(task.worktreePath), true);
+  assert.ok(git('branch', '--list', task.branch));
+  assert.equal((await h.post('automations/resume', { id })).status, 409);
+  assert.equal((await h.post('automations/delete', { id })).status, 409);
+  unlinkSync(hook);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'discard' })).status, 200);
+  assert.equal(existsSync(task.worktreePath), false);
+  assert.equal(git('branch', '--list', task.branch), '');
+  const next = await h.post('automations', { name: '后续任务', prompt: '继续使用主工作区' });
+  assert.equal(next.status, 200, '准备失败后全局运行状态必须释放');
+  await until(async () => (await h.list()).body.automations.find((entry) => entry.id === next.body.id && entry.status === 'completed'));
+});
+
+test('继续任务与创建任务均不能绕过主会话或另一自动化的互斥', async (t) => {
+  const h = await fixture(t, { mode: 'hang', hangRequests: [1, 2] });
+  const record = { id: 'previous-task', name: '旧任务', prompt: '继续使用', workspace: h.workspace, status: 'interrupted', createdAt: 1 };
+  const file = path.join(h.data, 'automations', record.id + '.json');
+  writeFileSync(file, JSON.stringify(record));
+  assert.equal((await h.post('send', { text: '挂起的主会话' })).status, 200);
+  await until(() => h.requests.length === 1);
+  assert.equal((await h.post('automations', { name: '抢占主会话', prompt: '也执行' })).status, 409);
+  assert.equal((await h.post('automations/resume', { id: record.id })).status, 409);
+  assert.equal(h.requests.length, 1);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), record);
+  assert.equal((await h.post('abort')).status, 200);
+  await until(async () => !(await h.state()).busy);
+  const first = await h.post('automations', { name: '占用任务', prompt: '慢慢做' });
+  assert.equal(first.status, 200);
+  const id = first.body.id;
+  await until(() => h.requests.length === 2);
+  assert.equal((await h.post('automations/resume', { id: record.id })).status, 409);
+  assert.equal(h.requests.length, 2);
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), record);
+  assert.equal((await h.post('automations/stop', { id })).status, 200);
+  await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'stopped'));
+  assert.equal((await h.post('automations/resume', { id: record.id })).status, 200);
+  await until(async () => (await h.list()).body.automations.find((entry) => entry.id === record.id && entry.status === 'completed'));
+});
+
+test('任务分支引用缺失时安全清理拒绝重建提交，显式丢弃仍可清理', async (t) => {
+  const h = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: h.workspace, encoding: 'utf8' }).trim();
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(h.workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const created = await h.post('automations', { name: '引用缺失', prompt: '写入 result.txt', worktree: true });
+  const id = created.body.id;
+  const task = await until(async () => (await h.list()).body.automations.find((entry) => entry.id === id && entry.status === 'completed'));
+  git('update-ref', '-d', `refs/heads/${task.branch}`);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'merged' })).status, 500);
+  assert.equal(readFileSync(path.join(task.worktreePath, 'result.txt'), 'utf8'), 'automation done');
+  assert.equal(git('branch', '--list', task.branch), '', '不能通过自动提交重建损坏的分支引用');
+  const retained = (await h.list()).body.automations.find((entry) => entry.id === id);
+  assert.equal(retained.worktreePath, task.worktreePath);
+  assert.equal(retained.worktreeCleanupPending, undefined);
+  assert.equal((await h.post('automations/worktree/remove', { id, mode: 'discard' })).status, 200);
+  assert.equal(existsSync(task.worktreePath), false);
+  assert.equal(git('branch', '--list', task.branch), '');
 });

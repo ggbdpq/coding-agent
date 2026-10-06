@@ -623,7 +623,7 @@ export async function startWeb(app: App): Promise<void> {
       json(res, 200, {
         automations: automations.list().map((task) => ({
           ...task,
-          branch: task.worktreePath ? `tcode-${task.id.slice(0, 8)}` : undefined,
+          branch: task.worktreePath || task.worktreeCleanupPending ? `tcode-${task.id.slice(0, 8)}` : undefined,
         })),
       }); return;
     }
@@ -638,6 +638,7 @@ export async function startWeb(app: App): Promise<void> {
       } }).then(() => broadcastAutomation({ type: 'automation', id, status: automations.get(id)?.status })).catch(() => {});
     };
     if (req.method === 'POST' && path === '/automations') {
+      if (busy) { json(res, 409, { error: '主会话正在运行，请等待完成或先停止' }); return; }
       if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {
         throw new ConfigInputError('请先保存有效的模型配置');
       }
@@ -660,8 +661,10 @@ export async function startWeb(app: App): Promise<void> {
     }
     if (req.method === 'POST' && path === '/automations/schedule') {
       const id = String(body.id ?? '');
-      if (!automations.get(id)) { json(res, 404, { error: '没有这个自动化任务' }); return; }
+      const task = automations.get(id);
+      if (!task) { json(res, 404, { error: '没有这个自动化任务' }); return; }
       if (typeof body.paused !== 'boolean') throw new ConfigInputError('paused 须为布尔值');
+      if (task.worktreeCleanupPending && !body.paused) { json(res, 409, { error: '请先完成 worktree 清理，再恢复调度' }); return; }
       automations.setSchedule(id, { paused: body.paused });
       json(res, 200, { ok: true }); return;
     }
@@ -672,17 +675,19 @@ export async function startWeb(app: App): Promise<void> {
     if (req.method === 'POST' && path === '/automations/delete') {
       const outcome = automations.remove(String(body.id ?? ''));
       if (outcome === 'running') { json(res, 409, { error: '任务正在运行，停止后才能删除' }); return; }
+      if (outcome === 'worktree') { json(res, 409, { error: '请先合并或显式丢弃并清理 worktree，再删除任务' }); return; }
       if (outcome === 'missing') { json(res, 404, { error: '没有这个自动化任务' }); return; }
       json(res, 200, { ok: true }); return;
     }
     if (req.method === 'POST' && path === '/automations/worktree/remove') {
       const id = String(body.id ?? '');
-      const mode = body.mode === 'merged' ? 'merged' : 'discard';
+      if (body.mode !== 'merged' && body.mode !== 'discard') throw new ConfigInputError('mode 须显式为 merged 或 discard');
+      const mode = body.mode;
       if (!automations.get(id)) { json(res, 404, { error: '没有这个自动化任务' }); return; }
       const outcome = automations.removeWorktree(id, mode);
       if (outcome === 'running') { json(res, 409, { error: '任务正在运行，结束后才能清理 worktree' }); return; }
       if (outcome === 'missing') { json(res, 404, { error: '该任务没有可清理的 worktree' }); return; }
-      if (outcome === 'not-merged') { json(res, 409, { error: mode === 'merged' ? '分支尚未合并，无法安全删除；请先合并分支或改用丢弃模式' : 'worktree 清理失败' }); return; }
+      if (outcome === 'not-merged') { json(res, 409, { error: '分支尚未包含在主工作区当前 HEAD 或配置的上游（upstream）中；请先合并，并检查上游设置后重试，或显式丢弃' }); return; }
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/automations/resume') {
@@ -692,8 +697,10 @@ export async function startWeb(app: App): Promise<void> {
       const id = String(body.id ?? '');
       const task = automations.get(id);
       if (!task) { json(res, 404, { error: '没有这个自动化任务' }); return; }
+      if (task.worktreeCleanupPending) { json(res, 409, { error: '请先完成 worktree 清理，再继续任务' }); return; }
       if (automations.isRunning(id)) { json(res, 409, { error: '该任务正在运行' }); return; }
       if (task.status === 'completed') { json(res, 409, { error: '任务已完成，无需继续' }); return; }
+      if (busy || automations.anyRunning()) { json(res, 409, { error: '主会话或另一自动化任务正在运行，请等待完成或先停止' }); return; }
       runAutomation(id, true);
       json(res, 200, { ok: true }); return;
     }
@@ -979,6 +986,7 @@ export async function startWeb(app: App): Promise<void> {
   ping.unref();
   // 周期任务调度推进；到期时后台执行并广播状态
   const scheduler = setInterval(() => {
+    if (busy) return;
     void automations.tick(app).then(() => {
       const line = `data: ${JSON.stringify({ type: 'automation', seq: ++seq })}\n\n`;
       for (const res of sseClients) res.write(line);

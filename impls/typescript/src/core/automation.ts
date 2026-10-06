@@ -1,8 +1,8 @@
 // 自动化任务：一条本地任务的持久化定义 + 隔离会话后台执行。
 // 语义（无人值守）：以免审批模式在当前项目运行完整 agent 轮，不占主会话；
 // 结果、Token 用量与会话过程留存本机可回查；运行中可停止，重启后标记中断、可继续。
-// 第一片边界：仅支持当前项目（工具的路径解析依赖进程 cwd），不做定时调度。
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+// 工具通过会话工作目录隔离；周期调度执行前重新读取任务，避免覆盖用户操作。
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -31,6 +31,8 @@ export interface AutomationTask {
   /** worktree 任务：在主工作区的独立 git worktree（分支 tcode-<id 前 8 位>）中执行 */
   worktree?: boolean;
   worktreePath?: string;
+  /** 清理已开始但资源尚未全部移除；重启后仍可重试，不能重新执行 */
+  worktreeCleanupPending?: boolean;
   /** 重复执行间隔（分钟）；缺省为一次性任务 */
   intervalMinutes?: number;
   /** 下次调度触发时间（epoch ms）；仅周期任务有 */
@@ -98,6 +100,7 @@ export class AutomationRunner {
   setSchedule(id: string, patch: { intervalMinutes?: number; nextRunAt?: number; paused?: boolean }): AutomationTask {
     const task = this.get(id);
     if (!task) throw new Error('没有这个自动化任务');
+    if (task.worktreeCleanupPending && patch.paused === false) throw new Error('请先完成 worktree 清理');
     const next: AutomationTask = { ...task };
     if (patch.intervalMinutes !== undefined) next.intervalMinutes = patch.intervalMinutes;
     if (patch.nextRunAt !== undefined) next.nextRunAt = patch.nextRunAt;
@@ -108,19 +111,20 @@ export class AutomationRunner {
 
   /** 调度推进：到期且未暂停的周期任务后台执行；暂停任务冻结并顺延 nextRunAt */
   async tick(app: App): Promise<void> {
-    const due: AutomationTask[] = [];
-    for (const task of this.list()) {
-      if (!task.intervalMinutes || this.isRunning(task.id)) continue;
+    if (this.anyRunning()) return;
+    const ids = this.list().map((task) => task.id);
+    for (const id of ids) {
+      if (this.anyRunning()) return;
+      // 上一任务执行期间，用户可能删除、暂停、清理或改期，不能写回旧快照。
+      const task = this.get(id);
+      if (!task?.intervalMinutes || task.worktreeCleanupPending) continue;
       if ((task.nextRunAt ?? 0) > this.now()) continue;
       if (task.paused) {
         this.save({ ...task, nextRunAt: this.now() + task.intervalMinutes * 60_000 });
         continue;
       }
-      due.push(task);
-    }
-    for (const task of due) {
       // 先推进再执行，避免执行期间被再次调度
-      this.save({ ...task, nextRunAt: this.now() + task.intervalMinutes! * 60_000 });
+      this.save({ ...task, nextRunAt: this.now() + task.intervalMinutes * 60_000 });
       await this.execute(app, task.id).catch(() => {});
     }
   }
@@ -136,8 +140,10 @@ export class AutomationRunner {
   async execute(app: App, id: string, options: { continueTask?: boolean; onFinished?: (task: AutomationTask) => void } = {}): Promise<void> {
     const continueTask = options.continueTask === true;
     const onFinished = options.onFinished;
-    const task = this.get(id);
+    let task = this.get(id);
     if (!task || this.running.has(id)) return;
+    if (this.anyRunning()) throw new Error('已有自动化任务正在运行，请等待完成或先停止');
+    if (task.worktreeCleanupPending) throw new Error('请先完成 worktree 清理');
     const store = new SessionStore(path.join(this.dir, id, 'sessions'));
     store.start(); // 生成任务会话文件；本轮消息由 runUserTurn 落盘，供回查
     const controller = new AbortController();
@@ -148,11 +154,10 @@ export class AutomationRunner {
         messages.push(...history.messages.filter((message) => message.role !== 'system'));
       } catch { /* 历史缺失则从系统提示重新开始 */ }
     }
-    if (!messages.length) messages.push({ role: 'system', content: buildSystemPrompt(task.worktreePath ?? task.workspace, undefined, this.tcodeDir) });
+    if (!messages.length) messages.push({ role: 'system', content: '' }); // 准备工作目录后填入系统提示
     messages.push({ role: 'user', content: continueTask ? '继续完成该任务；若无法继续，说明已完成的阶段与阻碍。' : task.prompt });
     this.running.set(id, { task, controller, messages });
     if (onFinished) this.finishedCallbacks.set(id, onFinished);
-    this.save({ ...task, status: 'running', sessionId: store.currentId ?? task.sessionId, resultText: undefined, error: undefined });
     let promptTokens = 0, completionTokens = 0;
     const executeTurn = async () => {
       try {
@@ -171,33 +176,58 @@ export class AutomationRunner {
         this.finish(id, aborted
           ? { status: 'stopped', error: '已停止' }
           : { status: 'error', error: (error as Error).message });
-      } finally {
-        this.running.delete(id);
-        this.finishedCallbacks.delete(id);
       }
     };
     // worktree 任务：在主工作区的独立 git worktree（分支 tcode-<id 前 8 位>）中执行，
     // 文件改动隔离在分支上，结束保留 worktree 供审查/合并；主工作区不受影响
-    let runDir = task.worktreePath ?? task.workspace;
-    if (task.worktree && !task.worktreePath) {
-      const branch = `tcode-${id.slice(0, 8)}`;
-      const wtDir = path.join(this.dir, id, 'worktree');
-      try {
-        execFileSync('git', ['worktree', 'add', wtDir, '-b', branch], { cwd: task.workspace, stdio: 'ignore', timeout: 10_000 });
-      } catch (error) {
-        this.finish(id, { status: 'error', error: `worktree 创建失败（工作区须为 git 仓库）：${String((error as { message?: string }).message ?? '')}` });
-        return;
-      }
-      task.worktreePath = wtDir;
+    try {
+      task = { ...task, status: 'running', sessionId: store.currentId ?? task.sessionId, finishedAt: undefined, resultText: undefined, error: undefined };
       this.save(task);
-      runDir = wtDir;
+      let runDir = task.workspace;
+      if (task.worktree || task.worktreePath) {
+        try {
+          const state = this.worktreeState(task);
+          if (state.registered) {
+            if (!existsSync(state.path)) throw new Error('worktree 目录缺失，请先清理剩余资源');
+            task = { ...task, worktreePath: state.path };
+            this.save(task);
+          } else {
+            if (state.branchExists) throw new Error('任务分支仍存在，请先清理剩余资源');
+            task = { ...task, worktreePath: state.path };
+            // 在 Git 创建前记录固定位置，失败或进程退出后仍能找到部分创建的资源。
+            this.save(task);
+            try {
+              this.git(task.workspace, ['worktree', 'add', '--no-track', state.path, '-b', `tcode-${id.slice(0, 8)}`]);
+            } catch (error) {
+              const leftover = this.worktreeState(task);
+              task = { ...task, worktreePath: leftover.registered ? state.path : undefined,
+                worktreeCleanupPending: leftover.registered || leftover.branchExists || undefined };
+              this.save(task);
+              throw error;
+            }
+          }
+          runDir = state.path;
+        } catch (error) {
+          this.finish(id, { status: 'error', error: `worktree 准备失败（工作区须为 git 仓库）：${(error as Error).message}` });
+          return;
+        }
+      }
+      if (messages[0]?.role === 'system') messages[0].content = buildSystemPrompt(runDir, undefined, this.tcodeDir);
+      await runWithSessionCwd(runDir, executeTurn);
+    } finally {
+      this.running.delete(id);
+      this.finishedCallbacks.delete(id);
     }
-    return runWithSessionCwd(runDir, executeTurn);
   }
 
-  /** 删除已结束的任务：任务记录与会话目录一并清理；运行中返回 'running' */
-  remove(id: string): 'removed' | 'running' | 'missing' {
+  /** 删除已结束的任务记录与会话；运行中或仍保留 worktree 时拒绝。 */
+  remove(id: string): 'removed' | 'running' | 'missing' | 'worktree' {
     if (this.running.has(id)) return 'running';
+    const task = this.get(id);
+    if (!task) return 'missing';
+    if (path.basename(id) !== id || id === '.' || id === '..') throw new Error('任务标识损坏，拒绝删除');
+    if (task?.worktreePath || task?.worktreeCleanupPending) return 'worktree';
+    if (existsSync(path.join(this.dir, id, 'worktree'))) return 'worktree';
     const file = path.join(this.dir, id + '.json');
     if (!existsSync(file)) return 'missing';
     unlinkSync(file);
@@ -209,42 +239,79 @@ export class AutomationRunner {
   removeWorktree(id: string, mode: 'discard' | 'merged'): 'removed' | 'running' | 'missing' | 'not-merged' {
     if (this.running.has(id)) return 'running';
     const task = this.get(id);
-    if (!task?.worktreePath) return 'missing';
+    if (!task || (!task.worktree && !task.worktreePath && !task.worktreeCleanupPending)) return 'missing';
     const branch = `tcode-${id.slice(0, 8)}`;
-    const GIT_TIMEOUT = 10_000;
-    // 顺序：先在 worktree 固化产出（有改动才提交，避免空提交让分支永远领先），
-    // merged 模式验证分支已并入主工作区 HEAD（未合并直接拒绝，worktree 与分支都保留
-    // ——删分支必须先解除 worktree 检出，事后再恢复太重，所以把检查放在动作之前），
-    // 再移除 worktree，最后按模式删分支。
-    try {
-      const status = execFileSync('git', ['-C', task.worktreePath, 'status', '--porcelain'], { encoding: 'utf8', timeout: GIT_TIMEOUT });
+    const state = this.worktreeState(task);
+    if (!state.registered && !state.branchExists && !task.worktreePath && !task.worktreeCleanupPending) return 'missing';
+    if (mode === 'merged' && state.registered && !state.branchExists) throw new Error('任务分支引用缺失，已保留 worktree；请修复引用或显式丢弃');
+    // merged 先固化产出再检查；discard 是显式丢弃，不依赖提交成功。
+    if (mode === 'merged' && state.registered) try {
+      const statusArgs = ['-C', state.path, 'status', '--porcelain', '--untracked-files=all', '--ignored=matching'];
+      const status = this.git(task.workspace, statusArgs);
+      if (status.split('\n').some((line) => line.startsWith('!! '))) throw new Error('worktree 含 Git 忽略的文件；请先处理这些文件或显式丢弃，不能自动提交或删除');
       if (status.trim()) {
-        execFileSync('git', ['-C', task.worktreePath, 'add', '-A'], { timeout: GIT_TIMEOUT });
-        execFileSync('git', ['-C', task.worktreePath, 'commit', '-m', 'tcode: 固化任务产出'], { stdio: 'ignore', timeout: GIT_TIMEOUT });
+        this.git(task.workspace, ['-C', state.path, 'add', '-A']);
+        this.git(task.workspace, ['-C', state.path, 'commit', '-m', 'tcode: 固化任务产出']);
+        // 提交 hook 可能产生新文件，不能让 clean 检查遗漏这些产出。
+        if (this.git(task.workspace, statusArgs).trim()) throw new Error('提交后 worktree 仍有文件变化，请检查后重试');
       }
-    } catch { /* 无改动或已提交 */ }
-    if (mode === 'merged') {
+    } catch (error) { throw new Error(`任务产出固化失败，未清理 worktree：${(error as Error).message}`); }
+    if (mode === 'merged' && state.branchExists) {
       try {
-        execFileSync('git', ['merge-base', '--is-ancestor', branch, 'HEAD'], { cwd: task.workspace, stdio: 'ignore', timeout: GIT_TIMEOUT });
-      } catch {
-        return 'not-merged';
+        this.git(task.workspace, ['merge-base', '--is-ancestor', branch, 'HEAD']);
+        // branch -d 优先验证配置的 upstream；提前采用同一限制，避免移除后才拒绝。
+        if (state.upstream) this.git(task.workspace, ['merge-base', '--is-ancestor', branch, state.upstream]);
+      } catch (error) {
+        if ((error as { status?: number }).status === 1) return 'not-merged';
+        throw error;
       }
     }
-    try {
-      execFileSync('git', ['worktree', 'remove', task.worktreePath], { cwd: task.workspace, stdio: 'ignore', timeout: GIT_TIMEOUT });
-    } catch {
-      try { execFileSync('git', ['worktree', 'remove', '--force', task.worktreePath], { cwd: task.workspace, stdio: 'ignore', timeout: GIT_TIMEOUT }); } catch {}
+    // 先持久化意图；每步失败均留有重试记录，重试从实际 Git 资源继续。
+    let pending = { ...task, worktreeCleanupPending: true, ...(task.intervalMinutes ? { paused: true } : {}) };
+    this.save(pending);
+    if (state.registered) {
+      try {
+        this.git(task.workspace, ['-c', 'status.showUntrackedFiles=all', 'worktree', 'remove', state.path]);
+      } catch (error) {
+        if (mode === 'merged') throw new Error(`worktree 移除失败，请检查目录后重试：${(error as Error).message}`);
+        this.git(task.workspace, ['worktree', 'remove', '--force', state.path]);
+      }
     }
-    try {
+    pending = { ...pending, worktreePath: undefined };
+    this.save(pending);
+    if (state.branchExists) {
       // merged 用 -d（安全删除，须已合并）；discard 用 -D 强删（丢弃改动）
-      execFileSync('git', ['branch', mode === 'merged' ? '-d' : '-D', branch], { cwd: task.workspace, stdio: 'ignore', timeout: GIT_TIMEOUT });
-    } catch {
-      if (mode === 'merged') return 'not-merged';
+      this.git(task.workspace, ['branch', mode === 'merged' ? '-d' : '-D', branch]);
     }
-    const servers = this.list();
-    const updated = servers.find((entry) => entry.id === id);
-    if (updated) this.save({ ...updated, worktreePath: undefined });
+    this.save({ ...pending, worktreeCleanupPending: undefined });
     return 'removed';
+  }
+
+  private git(workspace: string, args: string[]): string {
+    return execFileSync('git', args, { cwd: workspace, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] });
+  }
+
+  /** 固定位置与 Git 注册信息共同确认归属，不能仅凭 JSON 中的路径强删。 */
+  private worktreeState(task: AutomationTask): { path: string; registered: boolean; branchExists: boolean; upstream: string } {
+    if (path.basename(task.id) !== task.id || task.id === '.' || task.id === '..') throw new Error('任务标识损坏，拒绝清理');
+    const taskDir = path.join(realpathSync(this.dir), task.id);
+    const expected = path.join(taskDir, 'worktree');
+    if (existsSync(taskDir) && realpathSync(taskDir) !== taskDir) throw new Error('任务目录归属不符，拒绝清理');
+    if (task.worktreePath) {
+      const recorded = existsSync(task.worktreePath) ? realpathSync(task.worktreePath)
+        : path.join(realpathSync(path.dirname(task.worktreePath)), path.basename(task.worktreePath));
+      if (recorded !== expected) throw new Error('worktree 路径归属不符，拒绝清理');
+    }
+    const ref = `refs/heads/tcode-${task.id.slice(0, 8)}`;
+    const entries = this.git(task.workspace, ['worktree', 'list', '--porcelain', '-z']).split('\0\0').map((entry) => {
+      const fields = entry.split('\0');
+      return { path: fields.find((field) => field.startsWith('worktree '))?.slice(9), branch: fields.find((field) => field.startsWith('branch '))?.slice(7) };
+    });
+    const entry = entries.find((item) => item.path === expected);
+    if ((entry && entry.branch !== ref) || entries.some((item) => item.branch === ref && item.path !== expected)) throw new Error('worktree 分支归属不符，拒绝清理');
+    if (existsSync(expected) && !entry) throw new Error('目录不在 Git worktree 注册中，拒绝清理');
+    const branch = this.git(task.workspace, ['for-each-ref', '--format=%(refname) %(upstream)', ref]).trim().split('\n').find((line) => line.split(' ')[0] === ref);
+    return { path: expected, registered: !!entry, branchExists: branch !== undefined, upstream: branch?.slice(ref.length + 1) ?? '' };
   }
 
   isRunning(id: string): boolean {

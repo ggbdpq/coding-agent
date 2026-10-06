@@ -392,9 +392,10 @@
     renderModelProfiles();
     for (const field of $('settings-page').querySelectorAll('form input, form select, form textarea, form button')) field.disabled = !connected || !!view?.busy || saving || changing || connectionBusy;
     $('skill-new').disabled = !connected || !!view?.busy || saving || changing;
-    for (const button of document.querySelectorAll('#mcp-list button, #automation-list button, #mcp-new, #memory-save, #memory-clear')) {
+    for (const button of document.querySelectorAll('#mcp-list button, #mcp-new, #memory-save, #memory-clear')) {
       button.disabled = !connected || !!view?.busy || saving || changing;
     }
+    for (const button of document.querySelectorAll('#automation-list button')) button.disabled = navigationBlocked() || button.dataset.taskDisabled === 'true';
     $('skill-scope').disabled ||= editingSkill;
     $('settings-close').disabled = saving || changing || connectionBusy;
     for (const button of document.querySelectorAll('[data-section]')) button.disabled = saving || changing || connectionBusy;
@@ -1096,26 +1097,44 @@
         if (task.status === 'running') { action.textContent = '停止'; action.onclick = () => void taskAction('/automations/stop', task.id); }
         else if (task.status !== 'completed') { action.textContent = '继续'; action.onclick = () => void taskAction('/automations/resume', task.id); }
         else { action.textContent = '已完成'; action.disabled = true; }
+        action.dataset.taskDisabled = String(action.disabled || !!task.worktreeCleanupPending);
+        action.disabled ||= !!task.worktreeCleanupPending;
         action.disabled ||= navigationBlocked();
         bar.append(action);
+        const hasWorktree = !!task.worktreePath || !!task.worktreeCleanupPending;
         if (task.status !== 'running') {
           const remove = document.createElement('button'); remove.textContent = '删除';
           remove.setAttribute('aria-label', '删除任务 ' + task.name);
+          remove.dataset.taskDisabled = String(hasWorktree);
+          remove.disabled = hasWorktree || navigationBlocked();
           remove.onclick = () => void taskAction('/automations/delete', task.id);
           bar.append(remove);
         }
         if (task.intervalMinutes) {
           const schedule = document.createElement('button');
           schedule.textContent = task.paused ? '恢复调度' : '暂停调度';
-          schedule.disabled = navigationBlocked();
+          schedule.dataset.taskDisabled = String(!!task.paused && !!task.worktreeCleanupPending);
+          schedule.disabled = navigationBlocked() || schedule.dataset.taskDisabled === 'true';
           schedule.onclick = () => void taskAction('/automations/schedule', task.id, !task.paused);
           bar.append(schedule);
         }
         if (task.resultText) row('session-excerpt', task.resultText, entry);
         if (task.error) row('error', task.error, entry);
-        if (task.worktreePath) {
-          row('settings-path', `worktree：${task.worktreePath}`, entry);
-          row('dim', `合并引导：在主工作区执行 git merge ${task.branch || `tcode-${task.id.slice(0, 8)}`} 后，可用"清理 worktree"移除`, entry);
+        if (hasWorktree) {
+          const branch = task.branch || `tcode-${task.id.slice(0, 8)}`;
+          if (task.worktreeCleanupPending && !task.worktreePath) row('settings-path', `worktree 已移除，分支待清理：${branch}`, entry);
+          else row('settings-path', `worktree：${task.worktreePath}`, entry);
+          row('dim', `合并引导：先点击清理 worktree 保存产出；若提示未合并，在主工作区执行 git merge ${branch} 后重试清理`, entry);
+          row('dim', '先清理 worktree 和分支，再删除任务记录', entry);
+          for (const mode of ['merged', 'discard']) {
+            const cleanup = document.createElement('button');
+            cleanup.textContent = mode === 'discard' ? '丢弃 worktree' : task.worktreeCleanupPending ? '重试清理' : '清理 worktree';
+            cleanup.setAttribute('aria-label', cleanup.textContent + ' ' + task.name);
+            cleanup.dataset.taskDisabled = String(task.status === 'running');
+            cleanup.disabled = navigationBlocked() || task.status === 'running';
+            cleanup.onclick = () => void cleanupWorktree(task, mode);
+            bar.append(cleanup);
+          }
         }
         row('dim', [task.intervalMinutes ? `每 ${task.intervalMinutes} 分钟` : '', task.nextRunAt && !task.paused ? `下次 ${new Date(task.nextRunAt).toLocaleTimeString()}` : '', new Date(task.createdAt).toLocaleString()].filter(Boolean).join(' · '), entry);
       }
@@ -1129,6 +1148,15 @@
     $('automation-error').textContent = '';
     try { await api(route, extra === undefined ? { id } : { id, paused: extra }); await renderAutomations(); }
     catch (error) { $('automation-error').textContent = error.message; }
+  }
+  async function cleanupWorktree(task, mode) {
+    if (navigationBlocked() || task.status === 'running') return;
+    if (mode === 'discard' && !confirm(`丢弃任务「${task.name}」的 worktree 和分支？未合并的修改会被删除。`)) return;
+    $('automation-error').textContent = '';
+    saving = true; controls();
+    try { await api('/automations/worktree/remove', { id: task.id, mode }); }
+    catch (error) { $('automation-error').textContent = error.message; }
+    finally { await renderAutomations(); saving = false; controls(); }
   }
   $('automation-refresh').onclick = () => void renderAutomations();
   $('automation-form').onsubmit = async (event) => {
