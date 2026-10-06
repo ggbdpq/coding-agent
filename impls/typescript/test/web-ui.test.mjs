@@ -1347,3 +1347,20 @@ test('命令页可从内置目录预填 MCP 服务器表单', async () => {
     assert.deepEqual(JSON.parse(JSON.stringify(saved[0])), { name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '<目录路径>'], enabled: true, trusted: false });
   });
 });
+
+test('自动化列表展示 worktree 路径与分支合并引导', async () => {
+  const state = initialState();
+  await withPage(state, {
+    '/automations': () => ({ automations: [{
+      id: 'a1b2c3d4', name: 'worktree 任务', workspace: '/tmp/ui-project', prompt: '做点什么',
+      status: 'completed', createdAt: 1, worktree: true,
+      worktreePath: '/repo/.tcode-worktrees/a1b2c3d4', branch: 'tcode-a1b2c3d4',
+    }] }),
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const navigation = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await navigation.getByRole('button', { name: '自动化', exact: true }).click();
+    await page.getByText('worktree：/repo/.tcode-worktrees/a1b2c3d4', { exact: true }).waitFor();
+    await page.getByText(/git merge tcode-a1b2c3d4/, { exact: false }).waitFor();
+  });
+});

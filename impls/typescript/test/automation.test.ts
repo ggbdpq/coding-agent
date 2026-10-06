@@ -2,7 +2,8 @@
 // HTTP/CLI 全链路回归在 web-automation.test.mjs。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import type { TestContext } from 'node:test';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,8 @@ import type { App } from '../src/kernel/app.ts';
 
 function setup(t: TestContext, now: () => number) {
   const dir = mkdtempSync(path.join(tmpdir(), 'tcode-auto-sched-'));
+  const workspace = path.join(dir, 'workspace');
+  mkdirSync(workspace, { recursive: true });
   const runner = new AutomationRunner(dir, now);
   const requests: Array<{ messages: Array<{ role: string; content?: string | null }> }> = [];
   let blocked: Promise<void> | null = null;
@@ -40,7 +43,7 @@ function setup(t: TestContext, now: () => number) {
   } as unknown as App;
   t.after(() => { for (const task of runner.list()) if (task.status === 'running') runner.stop(task.id); });
   return {
-    runner, app, requests, dir,
+    runner, app, requests, dir, workspace,
     block: () => { blocked = new Promise((resolve) => { releaseBlocked = resolve; }); },
     release: () => releaseBlocked(),
   };
@@ -159,5 +162,108 @@ test('自动化执行期间主会话的路径基准不被任务工作目录干�
   assert.equal(resolvePath('probe.txt').abs, path.join(mainCwd, 'probe.txt'), '主会话路径基准不受自动化任务干扰');
   release();
   await waitDone(runner, task.id);
+  await execution;
+});
+
+test('worktree 任务：在独立 git worktree 中执行，主工作区不受影响，分支保留供审查', async (t) => {
+  const { runner, app, workspace, dir } = setup(t, () => 6_000_000);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace });
+  git('init');
+  git('config', 'user.email', 't@example.com');
+  git('config', 'user.name', 't');
+  writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
+  git('add', '.');
+  git('commit', '-m', 'init');
+
+  const task = runner.create({ name: 'worktree 任务', prompt: '把 hello 写入 wt-output.txt', workspace, worktree: true });
+  runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: 6_000_000 - 1, paused: false });
+  await runner.tick(app);
+  await waitDone(runner, task.id);
+
+  const done = runner.get(task.id)!;
+  assert.equal(done.status, 'completed');
+  const wtPath = done.worktreePath!;
+  assert.ok(wtPath && wtPath.includes('worktree'), '任务记录 worktree 路径');
+  assert.equal(existsSync(path.join(wtPath, 'out', 'hello.txt')), true, '文件写入 worktree 而非主工作区');
+  assert.equal(existsSync(path.join(workspace, 'out')), false, '主工作区不受影响');
+  const branches = execFileSync('git', ['branch', '--list', 'tcode-*'], { cwd: workspace }).toString();
+  assert.match(branches, /tcode-/, '任务分支保留供审查');
+  const worktrees = execFileSync('git', ['worktree', 'list'], { cwd: workspace }).toString();
+  assert.match(worktrees, /tcode-/, 'worktree 保留供审查');
+});
+
+test('非 git 目录的 worktree 任务报错可见', async (t) => {
+  const { runner, app, workspace } = setup(t, () => 7_000_000);
+  const task = runner.create({ name: '无 git', prompt: '做点什么', workspace, worktree: true });
+  runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: 7_000_000 - 1, paused: false });
+  await runner.tick(app);
+  const done = await waitDone(runner, task.id);
+  assert.equal(done.status, 'error');
+  assert.match(done.error ?? '', /worktree|git/i, '错误说明 worktree 创建失败原因');
+});
+
+test('worktree 清理：丢弃模式移除 worktree 与分支并清空任务记录', async (t) => {
+  const { runner, app, workspace, dir } = setup(t, () => 8_000_000);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace });
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+
+  const task = runner.create({ name: '清理目标', prompt: '写入 discard-me.txt', workspace, worktree: true });
+  runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: 8_000_000 - 1, paused: false });
+  await runner.tick(app);
+  const done = await waitDone(runner, task.id);
+  const wtPath = done.worktreePath!;
+  const branch = `tcode-${task.id.slice(0, 8)}`;
+  assert.equal(existsSync(path.join(wtPath, 'out', 'hello.txt')), true, '前置：任务已在 worktree 写文件');
+
+  const removed = await runner.removeWorktree(task.id, 'discard');
+  assert.equal(removed, 'removed');
+  assert.equal(existsSync(wtPath), false, 'worktree 目录已移除');
+  const branches = execFileSync('git', ['branch', '--list', branch], { cwd: workspace }).toString();
+  assert.equal(branches.trim(), '', '分支已删除');
+  assert.equal(runner.get(task.id)!.worktreePath, undefined, '任务记录已清空引用');
+  assert.equal(await runner.removeWorktree(task.id, 'discard'), 'missing', '重复清理返回 missing');
+});
+
+test('worktree 清理 merged 模式要求分支已合并，未合并报错可见', async (t) => {
+  const { runner, app, workspace } = setup(t, () => 9_000_000);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace });
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+
+  const task = runner.create({ name: '合并目标', prompt: '写入点什么', workspace, worktree: true });
+  runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: 9_000_000 - 1, paused: false });
+  await runner.tick(app);
+  await waitDone(runner, task.id);
+  const branch = `tcode-${task.id.slice(0, 8)}`;
+  const wtPath = runner.get(task.id)!.worktreePath!;
+  // 模拟模型在 worktree 提交：分支领先主分支一 commit（未合并）
+  git('-C', wtPath, 'add', '.'); git('-C', wtPath, 'commit', '-m', 'task work');
+  assert.equal(runner.removeWorktree(task.id, 'merged'), 'not-merged', '未合并分支拒绝安全删除');
+  assert.equal(existsSync(wtPath), true, '未合并时 worktree 目录保留');
+  assert.match(runner.get(task.id)!.worktreePath ?? '', /worktree/, '任务记录保留 worktree 路径');
+  // 模拟用户已合并分支到主分支：merge 后 -d 通过
+  git('merge', branch);
+  assert.equal(runner.removeWorktree(task.id, 'merged'), 'removed');
+  assert.equal(runner.get(task.id)!.worktreePath, undefined);
+});
+
+test('运行中的任务拒绝清理 worktree', async (t) => {
+  const { runner, app, block, release, workspace } = setup(t, () => 10_000_000);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace });
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  block();
+  const task = runner.create({ name: '运行中清理', prompt: '慢慢做', workspace, worktree: true });
+  runner.setSchedule(task.id, { intervalMinutes: 10, nextRunAt: 10_000_000 - 1, paused: false });
+  // tick 会 await execute；provider 被 block 时不能 await tick，否则死锁
+  const execution = runner.tick(app);
+  await waitRunning(runner, task.id);
+  assert.equal(runner.removeWorktree(task.id, 'discard'), 'running');
+  runner.stop(task.id);
+  release();
   await execution;
 });

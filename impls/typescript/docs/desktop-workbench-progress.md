@@ -22,6 +22,8 @@
 - 上一轮：定时调度——周期任务可选 5–525600 分钟间隔，完成推进 nextRunAt 并持久化；调度器每 30 秒推进（unref 不阻塞退出），到期后台执行、运行中不重复触发、暂停任务冻结并顺延；自动化页展示间隔与下次触发时间，可暂停/恢复调度。
 - 上一轮：MCP HTTP Streamable 传输——配置支持 url 端点（url/command 至少其一），无状态 POST 兼容 JSON 与 SSE 响应、透传 Mcp-Session-Id、DELETE 回收会话；修复 /mcp/test 端点 finally 漏恢复 busy 导致后续发送全部 409 的真 bug；自动化任务终态通知与删除清理（76d75ff）；账户用量行文档修正。
 - 本轮：MCP 权限粒度——服务器配置新增 trusted 标记（UI 勾选"免审批"），信任服务器的工具复用 skipPermission 白名单机制免逐次审批；未信任默认逐次审批不变。
+- 本轮：Worktree——自动化任务可选 `worktree: true`：执行前 `git worktree add` 独立检出（分支 `tcode-<id>`），任务在隔离检出中运行，主工作区不受影响；worktree 与分支保留供审查/合并，非 git 工作区报错可见。
+- 本轮：Worktree 清理与合并引导——自动化列表展示 worktree 路径与分支合并引导（`git merge tcode-<id>` 后可清理）；清理双模式 merged（安全删分支，未合并保留 409）与 discard（强删），清理前自动固化产出（add+commit --allow-empty）；git 调用带 10 秒超时防挂。
 - 上一轮：MCP 目录用户扩展文件——`<数据目录>/mcp-catalog.json` 与内置目录合并（同名覆盖、追加在后），格式坏回退内置且 catalogError 可见；beforeTurn 轮开始钩子（2864341）与进度文档行尾清整（9bb7d8d）。
 - 本轮：cwd 并发窗口最小收尾——自动化与主会话/第二自动化的互斥（全局单值基准下禁止并发轮次，防止路径错位），UI 提示指向自动化任务。
 - 本轮：cwd 解耦第二步——bash 工具 spawn 基准与自动化任务执行切换到会话工作目录（进入切换、退出恢复主会话基准），automation.test 假 provider 支持 write 工具分派以验证任务目录写入。
@@ -114,7 +116,7 @@
 | 2 | [ ] 模型配置维护 | 多组本地配置、命名、编辑、快捷切换、连接测试、非活动配置删除、模型发现与导入／导出均已完成。导出为脱敏 JSON（结构上不含密钥，仅 hasApiKey 标记）；导入忽略传入密钥、逐条校验并跳过重复端点与非法条目、不激活不改动活动配置；持久化 profile 允许空密钥（使用前须在原端点填写，错误可见）。 |
 | 3 | [x] 自动化任务 | 第一条本地任务闭环、定时调度与通知/清理已完成：设置 → 自动化创建（当前项目、以免审批的隔离会话运行），任务持久化在数据目录 `automations/`，运行中可停止、重启后标记中断可继续、结果与会话过程可回查；周期任务可选 5–525600 分钟间隔，调度每 30 秒推进、可暂停/恢复；任务终态在工作区顶部通知；已结束任务可删除（任务记录与会话目录一并清理），运行中拒绝删除。尚未做：非当前项目（依赖全局 cwd 状态所有权重构）。 |
 | 3 | [ ] 插件管理／市场与 MCP | MCP 服务器已完成 stdio 与 HTTP Streamable 两种传输的最小闭环：配置持久化（`config.json` 的 mcpServers，url 或 command 至少其一）、连接测试（initialize + tools/list）、启停与工具桥接（`mcp__名称__工具` 进工具列表，调用走逐次审批；按服务器信任免审批或按工具白名单（`trustedTools`）细粒度免审批，复用蓝图 R4 白名单机制）、删除回收进程；HTTP 透传 `Mcp-Session-Id`、兼容 JSON 与 SSE 响应；资源与提示词已桥接（连接时拉取清单，按服务器桥接 `read_resource`／`get_prompt` 聚合工具，描述内嵌清单供模型自主发现，调用走审批；连接测试响应含资源/提示词计数）。资源与提示词清单已注入系统提示词（`McpManager.promptSection` 经 `refreshSystemPrompt` 追加，预热完成与启停/配置变更时刷新）。安装市场最小形态已完成：内置静态目录（官方 filesystem/memory/everything/fetch 参考实现，无网络）+ "从目录添加"预填表单，且支持用户扩展目录 `<数据目录>/mcp-catalog.json`（同名覆盖内置、格式坏回退内置且错误可见）；真正的在线市场未做。 |
-| 按需 | [ ] Worktree、多任务／子智能体 | 全局 cwd 解耦三步已完成：pathguard 注入（`setSessionCwd` 主会话基准 + `runWithSessionCwd` 异步上下文隔离，AsyncLocalStorage 实现）、bash 工具与自动化任务跟随会话基准；**主会话与自动化任务并跑时路径基准互不干扰（并发隔离已验证）**。尚未做：Worktree 隔离、输入排队、按任务持有独立会话存储。 |
+| 按需 | [ ] Worktree、多任务／子智能体 | 全局 cwd 解耦三步 + worktree 生命周期已完成：pathguard 注入（`setSessionCwd` + `runWithSessionCwd` 异步上下文隔离）+ bash/自动化跟随会话基准；自动化任务可选 worktree（主工作区须为 git 仓库，任务在独立 worktree 分支 `tcode-<id>` 中执行，文件改动隔离在分支、worktree 与分支保留供审查/合并，非 git 仓库报错可见）；worktree 清理双模式：merged（安全删分支，须已合并否则保留 409）与 discard（强删分支丢弃改动）；清理前自动固化产出（add+commit）；自动化列表展示 worktree 路径与合并引导。尚未做：输入排队、真正的多会话 UI。 |
 | 按需 | [ ] 长期记忆、Hook | 长期记忆最小闭环、编辑 UI、自动沉淀与注入自动整理已完成：`<数据目录>/memory.md` 注入系统提示词（存在即注入），`/memory` 命令查看/追加/清空，命令页编辑/清空卡片，模型经 `memory_append` 工具沉淀（只追加、≤500 字符、走逐次审批，沉淀后下轮注入）；注入时自动整理（按行去重、超 200 条保留最新并提示省略，文件本身不动）。尚未做：Hook 其他事件点。 |
 
 审批和写白名单是应用层策略，不能作为 OS 沙箱。当前技能是 Markdown 文件约定，尚不是带资源、安装及生命周期的完整 Skill 包系统。模型密钥在 macOS 存入登录钥匙串（`config.json` 只留 `keyRef` 引用，不落明文；旧明文配置兼容读取、下次保存升级为引用）；`security` CLI 不可用或 `TCODE_KEYSTORE=off` 时回退明文保存，钥匙串引用失效时错误可见并可在设置重填。

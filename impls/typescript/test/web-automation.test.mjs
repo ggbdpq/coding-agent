@@ -3,7 +3,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, realpathSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -183,4 +184,31 @@ test('自动化运行期间与主会话轮次互斥：send 与第二个任务都
   await until(async () => (await h.list()).body.automations.find((task) => task.id === id)?.status === 'stopped');
   const after = await h.post('send', { text: '恢复正常' });
   assert.equal(after.status, 200, '停止后主会话恢复可用');
+});
+
+test('worktree 清理端点：discard 移除目录与分支，未合并 merged 被 409 拒绝', async (t) => {
+  const h = await fixture(t);
+  const workspace = h.workspace;
+  const git = (...args) => execFileSync('git', args, { cwd: workspace });
+  git('init'); git('config', 'user.email', 't@example.com'); git('config', 'user.name', 't');
+  writeFileSync(path.join(workspace, 'base.txt'), 'base\n');
+  git('add', '.'); git('commit', '-m', 'init');
+  const create = await h.post('automations', { name: 'wt 任务', prompt: '写入 result.txt 内容为 automation done', worktree: true });
+  assert.equal(create.status, 200);
+  const id = create.body.id;
+  await until(async () => (await h.list()).body.automations.find((task) => task.id === id)?.status === 'completed', '任务完成');
+  const wtPath = path.join(h.data, 'automations', id, 'worktree');
+  assert.equal(existsSync(path.join(wtPath, 'result.txt')), true, '任务写入 worktree');
+  // 任务产出有独立 commit：分支领先主分支，merged 模式被 409 拒绝（分支保留供合并）
+  const branch = `tcode-${id.slice(0, 8)}`;
+  execFileSync('git', ['-C', wtPath, 'add', '.']);
+  execFileSync('git', ['-C', wtPath, 'commit', '-m', 'task work']);
+  const mergedRejected = await h.post('automations/worktree/remove', { id, mode: 'merged' });
+  assert.equal(mergedRejected.status, 409, '未合并分支拒绝安全删除');
+  assert.equal(existsSync(wtPath), true, '未合并时 worktree 保留');
+  git('merge', branch);
+  const removed = await h.post('automations/worktree/remove', { id, mode: 'merged' });
+  assert.equal(removed.status, 200);
+  assert.equal(existsSync(wtPath), false, 'worktree 已移除');
+  assert.equal(existsSync(wtPath), false, 'worktree 已移除');
 });

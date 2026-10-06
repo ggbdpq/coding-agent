@@ -620,7 +620,12 @@ export async function startWeb(app: App): Promise<void> {
       return;
     }
     if (req.method === 'GET' && path === '/automations') {
-      json(res, 200, { automations: automations.list() }); return;
+      json(res, 200, {
+        automations: automations.list().map((task) => ({
+          ...task,
+          branch: task.worktreePath ? `tcode-${task.id.slice(0, 8)}` : undefined,
+        })),
+      }); return;
     }
     const broadcastAutomation = (payload: Record<string, unknown>) => {
       const line = `data: ${JSON.stringify({ ...payload, seq: ++seq })}\n\n`;
@@ -648,7 +653,8 @@ export async function startWeb(app: App): Promise<void> {
         throw new ConfigInputError('重复执行间隔须为 5–525600 分钟的整数');
       }
       if (automations.anyRunning()) { json(res, 409, { error: '已有自动化任务正在运行（与主会话共用工作目录基准），请等待完成或先停止' }); return; }
-      const task = automations.create({ name, prompt, workspace: app.config.workspace ?? process.cwd(), intervalMinutes });
+      const worktree = body.worktree === true;
+      const task = automations.create({ name, prompt, workspace: app.config.workspace ?? process.cwd(), intervalMinutes, worktree });
       runAutomation(task.id);
       json(res, 200, { ok: true, id: task.id }); return;
     }
@@ -668,6 +674,16 @@ export async function startWeb(app: App): Promise<void> {
       if (outcome === 'running') { json(res, 409, { error: '任务正在运行，停止后才能删除' }); return; }
       if (outcome === 'missing') { json(res, 404, { error: '没有这个自动化任务' }); return; }
       json(res, 200, { ok: true }); return;
+    }
+    if (req.method === 'POST' && path === '/automations/worktree/remove') {
+      const id = String(body.id ?? '');
+      const mode = body.mode === 'merged' ? 'merged' : 'discard';
+      if (!automations.get(id)) { json(res, 404, { error: '没有这个自动化任务' }); return; }
+      const outcome = automations.removeWorktree(id, mode);
+      if (outcome === 'running') { json(res, 409, { error: '任务正在运行，结束后才能清理 worktree' }); return; }
+      if (outcome === 'missing') { json(res, 404, { error: '该任务没有可清理的 worktree' }); return; }
+      if (outcome === 'not-merged') { json(res, 409, { error: mode === 'merged' ? '分支尚未合并，无法安全删除；请先合并分支或改用丢弃模式' : 'worktree 清理失败' }); return; }
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/automations/resume') {
       if (!app.config.apiKey || !app.config.baseUrl || !app.config.model) {

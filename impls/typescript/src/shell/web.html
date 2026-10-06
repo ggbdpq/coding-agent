@@ -1113,6 +1113,10 @@
         }
         if (task.resultText) row('session-excerpt', task.resultText, entry);
         if (task.error) row('error', task.error, entry);
+        if (task.worktreePath) {
+          row('settings-path', `worktree：${task.worktreePath}`, entry);
+          row('dim', `合并引导：在主工作区执行 git merge ${task.branch || `tcode-${task.id.slice(0, 8)}`} 后，可用"清理 worktree"移除`, entry);
+        }
         row('dim', [task.intervalMinutes ? `每 ${task.intervalMinutes} 分钟` : '', task.nextRunAt && !task.paused ? `下次 ${new Date(task.nextRunAt).toLocaleTimeString()}` : '', new Date(task.createdAt).toLocaleString()].filter(Boolean).join(' · '), entry);
       }
       if (!fragment.childNodes.length) row('dim', '尚无任务；填写上方表单即可在当前项目后台运行一条自动化任务', fragment);
