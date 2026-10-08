@@ -14,7 +14,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(fn, label) {
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) {
-    const value = fn();
+    const value = await fn();
     if (value) return value;
     await delay(10);
   }
@@ -25,6 +25,7 @@ async function harness(t, { cli = false, unconfigured = false, reuseDir = undefi
   const dir = reuseDir ?? mkdtempSync(path.join(tmpdir(), 'tcode-workbench-'));
   const workspace = path.join(dir, 'project');
   const requests = [];
+  const releases = new Map();
   mkdirSync(workspace, { recursive: true });
   if (configContent !== undefined) {
     mkdirSync(path.join(dir, 'data'), { recursive: true });
@@ -44,6 +45,8 @@ async function harness(t, { cli = false, unconfigured = false, reuseDir = undefi
       return;
     }
     const user = body.messages.findLast((m) => m.role === 'user')?.content ?? '';
+    if (['held success', 'held error'].includes(user)) await new Promise((resolve) => releases.set(user, resolve));
+    if (user === 'held error') { res.writeHead(400).end('deliberate queued failure'); return; }
     if (user === 'error') { res.writeHead(400).end('deliberate provider failure test-key'); return; }
     if (['slow', 'slow A', 'slow B'].includes(user)) { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(': wait\n\n'); return; }
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -71,8 +74,9 @@ async function harness(t, { cli = false, unconfigured = false, reuseDir = undefi
     TCODE_TEST_PROVIDER: endpoint, TCODE_API_KEY: unconfigured ? '' : 'test-key',
     TCODE_BASE_URL: unconfigured ? '' : endpoint, TCODE_MODEL: unconfigured ? '' : 'fake-model',
     TCODE_PROTOCOL: '', TCODE_APPROVAL: 'normal', TCODE_ALLOW_WRITE: '',
+    TCODE_KEYSTORE: 'off',
   };
-  const child = spawn(process.execPath, [cli ? 'bin/tcode.js' : 'test/web-fixture.mjs', ...(cli ? ['web'] : [])], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [path.join(root, cli ? 'bin/tcode.js' : 'test/web-fixture.mjs'), ...(cli ? ['web'] : [])], { cwd: cli ? workspace : root, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = '', stderr = '';
   child.stdout.on('data', (chunk) => stdout += chunk);
   child.stderr.on('data', (chunk) => stderr += chunk);
@@ -109,7 +113,7 @@ async function harness(t, { cli = false, unconfigured = false, reuseDir = undefi
   };
   const state = async () => (await fetch(url + 'state')).json();
   const event = (type, from = 0) => until(() => events.slice(from).find((value) => value.type === type), type);
-  return { url, post, state, event, events, workspace, dir, child, endpoint, streams, requests };
+  return { url, post, state, event, events, workspace, dir, child, endpoint, streams, requests, release: (text) => releases.get(text)?.() };
 }
 
 test('手动压缩的模型用量进入当前会话与统计，刷新、重启和重复恢复不双计', async (t) => {
@@ -596,6 +600,215 @@ test('afterTurn 钩子的 stdout 回显到会话', async (t) => {
   assert.match(echoed.output, /hook-ran/);
 });
 
+test('afterTurn 等待完成后才释放会话锁，延迟输出归属原会话', async (t) => {
+  const hook = `"${process.execPath}" -e "const fs=require('node:fs');fs.writeFileSync('hook-started','1');const timer=setInterval(()=>{if(fs.existsSync('hook-release')){clearInterval(timer);console.log('original-hook');}},10)"`;
+  const h = await harness(t, { cli: true, configContent: JSON.stringify({ afterTurn: hook }) });
+  t.after(() => writeFileSync(path.join(h.workspace, 'hook-release'), '1'));
+  const original = (await h.state()).currentSessionId;
+  await h.post('send', { text: '正常回答' });
+  const ended = await h.event('turn_end');
+  await until(() => existsSync(path.join(h.workspace, 'hook-started')), 'Hook 开始');
+  assert.equal((await h.state()).busy, true, '模型结束后仍需等待 Hook');
+  assert.equal(ended.busy, true, 'SSE 不能提前释放客户端锁');
+  assert.equal((await h.post('session/new', {})).status, 409);
+  writeFileSync(path.join(h.workspace, 'hook-release'), '1');
+  const output = await until(() => h.events.find((event) => event.type === 'command' && event.output?.includes('original-hook')), 'Hook 输出');
+  assert.equal(output.sessionId, original);
+  await until(async () => !(await h.state()).busy, 'Hook 完成');
+  assert.equal((await h.post('session/new', {})).status, 200);
+  assert.equal((await h.state()).activity.some((event) => event.output?.includes('original-hook')), false);
+});
+
+test('单条排队在完整轮次与 afterTurn 结束后串行执行，刷新可恢复且重试不重复执行', async (t) => {
+  const hook = `"${process.execPath}" -e "const fs=require('node:fs');fs.writeFileSync('hook-started','1');const timer=setInterval(()=>{if(fs.existsSync('hook-release')){clearInterval(timer);console.log('hook-finished');}},10)"`;
+  const h = await harness(t, { cli: true, configContent: JSON.stringify({ afterTurn: hook }) });
+  t.after(() => writeFileSync(path.join(h.workspace, 'hook-release'), '1'));
+  const original = (await h.state()).currentSessionId;
+  await h.post('send', { text: '首轮' });
+  await until(() => existsSync(path.join(h.workspace, 'hook-started')), '首轮 Hook 开始');
+  const owner = (await h.state()).queueOwner;
+  const queued = await h.post('queue', { ...owner, id: 'q-followup', text: '  后续任务  ' });
+  assert.equal(queued.status, 200);
+  assert.deepEqual(queued.body.state.queued, { id: 'q-followup', text: '后续任务', sessionId: original });
+  assert.deepEqual((await h.state()).queueOwner, owner);
+  assert.deepEqual((await h.state()).queued, queued.body.state.queued, '刷新恢复待执行输入');
+  await until(() => h.events.some((event) => event.type === 'state' && event.state.queued?.id === 'q-followup'), 'SSE 广播排队状态');
+  assert.equal((await h.post('queue', { ...owner, id: 'q-followup', text: '后续任务' })).status, 200, '提交重试幂等');
+  assert.equal((await h.post('queue', { ...owner, id: 'q-other', text: '另一条' })).status, 409, '单槽不覆盖已接受输入');
+  assert.equal((await h.post('session/new', {})).status, 409);
+  assert.equal(h.requests.length, 1, 'Hook 完成前不启动排队轮次');
+  const mark = h.events.length;
+  writeFileSync(path.join(h.workspace, 'hook-release'), '1');
+  await until(async () => !(await h.state()).busy, '两轮与 Hook 全部结束');
+  const state = await h.state();
+  assert.equal(state.queued, null);
+  assert.equal(state.queueOwner, null);
+  assert.equal(state.currentSessionId, original);
+  assert.deepEqual(h.requests.map((request) => request.messages.findLast((message) => message.role === 'user').content), ['首轮', '后续任务']);
+  assert.equal(h.events.slice(mark).findIndex((event) => event.type === 'command' && event.output?.includes('hook-finished')) < h.events.slice(mark).findIndex((event) => event.type === 'user' && event.text === '后续任务'), true);
+  const firstFollowup = h.events.findIndex((event) => event.type === 'user' && event.text === '后续任务');
+  assert.equal(h.events.slice(mark, firstFollowup).some((event) => event.type === 'state' && !event.state.busy), false, '两轮之间不释放执行锁');
+  assert.equal((await h.post('queue', { ...owner, id: 'q-followup', text: '后续任务' })).status, 200, '已消费输入的迟到重试不重新执行');
+  await delay(30); assert.equal(h.requests.length, 2);
+});
+
+test('排队只接受用户轮次，取消保留输入可复制且不执行，停止会一并清除排队', async (t) => {
+  const h = await harness(t);
+  assert.equal((await h.post('queue', { sessionId: 'none', turnId: 'none', id: 'q-idle', text: '不能执行' })).status, 409);
+  await h.post('send', { text: 'write' });
+  await h.event('permission');
+  const owner = (await h.state()).queueOwner;
+  assert.equal((await h.post('queue', { ...owner, id: 'q-empty', text: '  ' })).status, 400);
+  assert.equal((await h.post('queue', { ...owner, id: '../invalid', text: '不能执行' })).status, 400);
+  assert.equal((await h.post('queue', { ...owner, id: 'q-cancel', text: '待执行原文' })).status, 200);
+  assert.equal((await h.post('queue', { ...owner, id: 'q-cancel', text: '另一条原文' })).status, 409);
+  assert.equal((await h.post('queue/cancel', { id: 'q-wrong' })).status, 404);
+  assert.equal((await h.state()).queued.id, 'q-cancel', '错误 id 不得取消别人的输入');
+  assert.equal((await h.post('queue/cancel', { id: 'q-cancel' })).status, 200);
+  assert.equal((await h.post('queue/cancel', { id: 'q-cancel' })).status, 200, '取消网络重试幂等');
+  assert.equal((await h.state()).queued, null);
+  assert.ok(h.events.some((event) => event.type === 'command' && /用户取消排队\n待执行原文/.test(event.output)));
+  const permission = (await h.state()).pending[0];
+  await h.post('permission', { id: permission.id, decision: 'allow' });
+  await until(async () => !(await h.state()).busy, '写入轮次完成');
+  assert.equal(readFileSync(path.join(h.workspace, 'result.txt'), 'utf8'), 'approved content');
+  assert.equal(h.requests.some((request) => request.messages.findLast((message) => message.role === 'user')?.content === '待执行原文'), false);
+  assert.equal((await h.post('queue', { ...owner, id: 'q-cancel', text: '待执行原文' })).status, 200, '迟到重试不恢复被取消输入');
+  const mark = h.events.length;
+  await h.post('send', { text: 'slow' }); await h.event('turn_start', mark);
+  assert.equal((await h.post('queue', { ...(await h.state()).queueOwner, id: 'q-stop', text: '停止后禁止执行' })).status, 200);
+  await h.post('abort', {});
+  await until(async () => !(await h.state()).busy, '停止释放执行链');
+  assert.equal((await h.state()).queued, null);
+  assert.ok(h.events.some((event) => event.type === 'command' && /用户停止当前轮次\n停止后禁止执行/.test(event.output)));
+  assert.equal(h.requests.some((request) => request.messages.findLast((message) => message.role === 'user')?.content === '停止后禁止执行'), false);
+});
+
+test('模型与前后 Hook 出错时清空待执行输入并保留可复制原因，不能自动继续', async (t) => {
+  await t.test('模型错误', async (t) => {
+    const h = await harness(t);
+    await h.post('send', { text: 'held error' });
+    await until(() => h.requests.length === 1, '模型已开始');
+    assert.equal((await h.post('queue', { ...(await h.state()).queueOwner, id: 'q-error', text: '模型错误后不执行' })).status, 200);
+    h.release('held error');
+    await until(async () => !(await h.state()).busy, '错误释放锁');
+    assert.equal((await h.state()).status, 'error');
+    assert.equal((await h.state()).queued, null);
+    assert.equal(h.requests.length, 1);
+    assert.ok(h.events.some((event) => event.type === 'command' && /当前轮次出错.*\n模型错误后不执行/.test(event.output)));
+  });
+  for (const hookName of ['beforeTurn', 'afterTurn']) {
+    await t.test(hookName, async (t) => {
+      const hook = `"${process.execPath}" -e "const fs=require('node:fs');fs.writeFileSync('hook-started','1');const timer=setInterval(()=>{if(fs.existsSync('hook-release')){clearInterval(timer);process.exit(3);}},10)"`;
+      const h = await harness(t, { cli: true, configContent: JSON.stringify({ [hookName]: hook }) });
+      t.after(() => writeFileSync(path.join(h.workspace, 'hook-release'), '1'));
+      await h.post('send', { text: '正常回答' });
+      await until(() => existsSync(path.join(h.workspace, 'hook-started')), 'Hook 等待');
+      assert.equal((await h.post('queue', { ...(await h.state()).queueOwner, id: 'q-hook', text: 'Hook 错误后不执行' })).status, 200);
+      writeFileSync(path.join(h.workspace, 'hook-release'), '1');
+      await until(async () => !(await h.state()).busy, 'Hook 错误释放锁');
+      assert.equal((await h.state()).status, 'completed', 'Hook 错误沿用当前模型轮次继续契约');
+      assert.equal((await h.state()).queued, null);
+      assert.equal(h.requests.length, 1, '只执行当前轮次');
+      assert.ok(h.events.some((event) => event.type === 'command' && /钩子失败.*\nHook 错误后不执行/.test(event.output)));
+    });
+  }
+});
+
+test('排队归属锁定完整用户轮次，旧页面和旧回执不能误排入下一轮', async (t) => {
+  const h = await harness(t);
+  await h.post('send', { text: 'held success' });
+  await until(() => h.requests.length === 1, '首轮模型等待');
+  const owner = (await h.state()).queueOwner;
+  assert.equal((await h.post('queue', { ...owner, id: 'q-next', text: 'slow B' })).status, 200);
+  h.release('held success');
+  await until(() => h.requests.length === 2, '排队轮次模型开始');
+  const nextOwner = (await h.state()).queueOwner;
+  assert.notEqual(nextOwner.turnId, owner.turnId);
+  assert.equal(nextOwner.sessionId, owner.sessionId);
+  assert.equal((await h.post('queue', { ...owner, id: 'q-stale', text: '过时输入' })).status, 409);
+  assert.equal((await h.post('queue', { ...nextOwner, id: 'q-next', text: 'slow B' })).status, 409, '旧 id 不得借新 owner 重排');
+  assert.equal((await h.post('queue', { ...owner, sessionId: 'other-session', id: 'q-next', text: 'slow B' })).status, 409, '回执校验原会话');
+  assert.equal((await h.post('queue', { ...owner, id: 'q-next', text: 'slow B' })).status, 200, '原提交迟到重试只确认已接受');
+  assert.equal((await h.post('queue/cancel', { id: 'q-next' })).status, 404, '已执行输入不能假装取消成功');
+  assert.equal((await h.post('queue', { ...nextOwner, id: 'q-current', text: '当前轮次后续' })).status, 200);
+  await h.post('abort', {});
+  await until(async () => !(await h.state()).busy, '停止当前串行链');
+  assert.equal(h.requests.length, 2);
+});
+
+test('同轮取消多个排队输入后，迟到重试旧 id 不能复活并自动执行', async (t) => {
+  const h = await harness(t);
+  await h.post('send', { text: 'held success' });
+  await until(() => h.requests.length === 1, '当前模型等待');
+  const owner = (await h.state()).queueOwner;
+  for (const id of ['q-cancelled-A', 'q-cancelled-B']) {
+    assert.equal((await h.post('queue', { ...owner, id, text: `取消输入 ${id}` })).status, 200);
+    assert.equal((await h.post('queue/cancel', { id })).status, 200);
+  }
+  const late = await h.post('queue', { ...owner, id: 'q-cancelled-A', text: '取消输入 q-cancelled-A' });
+  assert.equal(late.status, 409, '旧回执被替换后仍不能重新接受已取消 id');
+  assert.equal((await h.state()).queued, null);
+  h.release('held success');
+  await until(async () => !(await h.state()).busy, '当前轮次结束');
+  assert.equal(h.requests.length, 1, '迟到请求不能成为新轮次');
+  assert.equal((await h.state()).messages.filter((message) => message.role === 'user').length, 1);
+});
+
+test('命令运行时不开放用户队列，进程重启不会恢复或执行内存队列', async (t) => {
+  const h = await harness(t, { summaryMode: 'slow' });
+  for (const text of ['历史一', '历史二', '历史三']) {
+    const mark = h.events.length;
+    await h.post('send', { text }); await h.event('turn_end', mark);
+    await until(async () => !(await h.state()).busy, '历史轮次结束');
+  }
+  const mark = h.events.length;
+  const compact = h.post('command', { line: '/compact' });
+  await h.event('usage', mark);
+  assert.equal((await h.state()).busy, true);
+  assert.equal((await h.state()).queueOwner, null);
+  assert.equal((await h.post('queue', { sessionId: (await h.state()).currentSessionId, turnId: 'command', id: 'q-command', text: '不能接入命令' })).status, 409);
+  await h.post('abort', {}); await compact;
+  await h.post('send', { text: 'slow' });
+  await until(async () => !!(await h.state()).queueOwner, '用户轮次归属');
+  assert.equal((await h.post('queue', { ...(await h.state()).queueOwner, id: 'q-restart', text: '重启后不自动执行' })).status, 200);
+  const closed = new Promise((resolve) => h.child.once('close', resolve));
+  h.streams.forEach((stream) => stream.destroy()); h.child.kill(); await closed;
+  const restarted = await harness(t, { reuseDir: h.dir });
+  assert.equal((await restarted.state()).queued, null);
+  assert.equal((await restarted.state()).queueOwner, null);
+  assert.equal((await restarted.state()).busy, false);
+  assert.equal((await restarted.state()).status, 'aborted');
+  await delay(30); assert.equal(restarted.requests.length, 0);
+});
+
+test('停止 beforeTurn 与 afterTurn 会取消 Hook 进程，不留下延迟写入，下一轮仍可执行', async (t) => {
+  for (const hookName of ['beforeTurn', 'afterTurn']) {
+    await t.test(hookName, async (t) => {
+      const hook = `"${process.execPath}" -e "const fs=require('node:fs');fs.writeFileSync('hook-started',String(process.pid));const timer=setInterval(()=>{if(fs.existsSync('hook-release')){clearInterval(timer);fs.writeFileSync('hook-late','must not write');console.log('late-hook');}},10)"`;
+      const h = await harness(t, { cli: true, configContent: JSON.stringify({ [hookName]: hook }) });
+      t.after(() => writeFileSync(path.join(h.workspace, 'hook-release'), '1'));
+      await h.post('send', { text: '正常回答' });
+      await until(() => existsSync(path.join(h.workspace, 'hook-started')), 'Hook 子进程启动');
+      const pid = Number(readFileSync(path.join(h.workspace, 'hook-started'), 'utf8'));
+      assert.equal((await h.state()).busy, true);
+      assert.equal((await h.post('abort', {})).status, 200);
+      await until(async () => !(await h.state()).busy, '停止释放 Hook 与会话锁');
+      await until(() => { try { process.kill(pid, 0); return false; } catch (error) { if (error.code === 'ESRCH') return true; throw error; } }, 'Hook 子进程已终止');
+      assert.equal((await h.state()).status, hookName === 'beforeTurn' ? 'aborted' : 'completed', '取消轮末 Hook 不改模型完成结果');
+      assert.equal(h.requests.length, hookName === 'beforeTurn' ? 0 : 1);
+      assert.ok(h.events.some((event) => event.type === 'command' && event.output?.includes('钩子已停止')));
+      writeFileSync(path.join(h.workspace, 'hook-release'), '1');
+      await delay(50);
+      assert.equal(existsSync(path.join(h.workspace, 'hook-late')), false);
+      assert.equal((await h.post('config', { beforeTurn: '', afterTurn: '' })).status, 200);
+      const mark = h.events.length;
+      await h.post('send', { text: '停止后继续' });
+      assert.equal((await h.event('turn_end', mark)).reason, 'completed');
+    });
+  }
+});
+
 test('afterTurn 钩子失败可见且不影响主流程', async (t) => {
   const h = await harness(t, { cli: true, configContent: JSON.stringify({ afterTurn: 'exit 3' }) });
   await h.post('send', { text: '正常回答' });
@@ -633,12 +846,13 @@ test('记忆自动沉淀：模型经 memory_append 工具写入并注入后续�
   }
   assert.equal(approved, true, '沉淀工具走逐次审批');
   assert.equal(existsSync(path.join(h.dir, 'data', 'memory.md')), true, 'memory.md 真实写入');
-  await h.post('send', { text: '复述' });
-  await until(async () => {
-    const request = h.requests.at(-1);
+  const previousRequests = h.requests.length;
+  assert.equal((await h.post('send', { text: '复述' })).status, 200);
+  await until(() => {
+    const request = h.requests[previousRequests];
     return request && request.messages[0]?.content?.includes('记住 pnpm');
   }, '下轮 system 注入新记忆');
-  assert.match(h.requests.at(-1).messages.at(-1).content ?? '', /记住 pnpm|已记录/, '会话含沉淀内容');
+  assert.equal(h.requests[previousRequests].messages.at(-1).content, '复述', '新轮次目标确实已发送');
 });
 
 test('beforeTurn 钩子：轮开始前执行、事件与状态经环境变量传递', async (t) => {
@@ -672,4 +886,20 @@ test('beforeTurn 配置经 config 端点持久化', async (t) => {
   const saved = await h.post('config', { beforeTurn: 'echo done' });
   assert.equal(saved.status, 200);
   assert.equal(JSON.parse(readFileSync(h.dir + '/data/config.json', 'utf8')).beforeTurn, 'echo done');
+});
+
+test('Hook 配置可从 state 回读，保存其他权限和重启后保持原命令', async (t) => {
+  const h = await harness(t, { cli: true });
+  const hooks = { beforeTurn: 'echo before-round', afterTurn: 'echo after-round' };
+  const saved = await h.post('config', hooks);
+  assert.equal(saved.status, 200);
+  for (const [key, command] of Object.entries(hooks)) assert.equal(saved.body.state.config[key], command);
+  const permissions = await h.post('config', { approval: 'normal', allowWriteDirs: [h.workspace] });
+  assert.equal(permissions.status, 200);
+  for (const [key, command] of Object.entries(hooks)) assert.equal((await h.state()).config[key], command);
+  h.streams.forEach((stream) => stream.destroy());
+  const closed = new Promise((resolve) => h.child.once('close', resolve));
+  h.child.kill(); await closed;
+  const restarted = await harness(t, { cli: true, reuseDir: h.dir });
+  for (const [key, command] of Object.entries(hooks)) assert.equal((await restarted.state()).config[key], command);
 });

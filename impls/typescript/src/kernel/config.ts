@@ -493,7 +493,7 @@ export function saveMcpServer(current: Config, input: Record<string, unknown>): 
     if (!Array.isArray(input.args) || input.args.some((arg) => typeof arg !== 'string')) throw new ConfigInputError('启动参数须为字符串数组');
     args = input.args as string[];
   }
-  let env: Record<string, string> | undefined;
+  let env: Record<string, string> | undefined = servers.find((server) => server.id === id)?.env;
   if (input.env !== undefined) {
     if (typeof input.env !== 'object' || input.env === null || Array.isArray(input.env) || Object.values(input.env).some((value) => typeof value !== 'string')) throw new ConfigInputError('环境变量须为字符串到字符串的映射');
     env = input.env as Record<string, string>;

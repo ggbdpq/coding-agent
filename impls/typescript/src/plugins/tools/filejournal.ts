@@ -1,14 +1,14 @@
-// 写前快照日志：edit/write/apply_patch 在改动文件前把原文记入日志，供工作台"撤销本轮修改"。
+// 写前快照日志：edit/write/apply_patch 读取写前原文，写入成功后记录，供工作台"撤销本轮修改"。
 // sink 由 web 壳安装（模块级单例，与 pathguard 同风格）；REPL 等壳不安装则整体无操作。
 // 边界：bash 等任意命令的写入无法归因，不在快照范围；超过大小上限的原文跳过快照（该文件本轮不可撤销）。
 // 日志按会话存放在数据目录 file-journal/ 下，每轮开始时清空，服务重启后仍可撤销上一轮。
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export interface FileWriteEntry {
-  /** 绝对路径 */
+  /** 写入时固化的真实绝对路径，避免软链重指后把快照恢复到另一个文件 */
   path: string;
   /** 写前是否存在（false = 本轮新建，撤销即删除） */
   existed: boolean;
@@ -64,7 +64,7 @@ export async function readPreSnapshot(abs: string): Promise<{ existed: boolean; 
 export function recordWrite(abs: string, pre: { existed: boolean; content: string | null } | null, post: string): void {
   if (!sink || !pre) return;
   try {
-    sink.append({ path: abs, existed: pre.existed, content: pre.content, postSha256: sha256(post), ts: Date.now() });
+    sink.append({ path: realpathSync(abs), existed: pre.existed, content: pre.content, postSha256: sha256(post), ts: Date.now() });
   } catch (error) {
     lastError = `本轮修改快照记录失败，撤销可能不可用：${(error as Error).message}`;
   }

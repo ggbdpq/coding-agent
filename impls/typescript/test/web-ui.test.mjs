@@ -40,7 +40,7 @@ async function withPage(state, routes, verify, { initScript } = {}) {
       req.on('end', async () => {
         console.error('[MOCK] hit', endpoint);
         try { const result = await routes[endpoint](raw ? JSON.parse(raw) : {}, { emit, state }); reply(res, result); }
-        catch (error) { console.error('[MOCK] handler error', endpoint, error.message); reply(res, { error: error.message }, 400); }
+        catch (error) { console.error('[MOCK] handler error', endpoint, error.message); reply(res, { error: error.message }, error.status ?? 400); }
       }); return;
     }
     console.error('[MOCK] UNROUTED', req.method, endpoint);
@@ -83,6 +83,269 @@ test('通过原生目录选择打开项目，取消选择保留当前工作区',
       return choices++ ? null : '/tmp/selected-project';
     } } };
   } });
+});
+
+test('运行中可写草稿并排队一条，刷新恢复队列，取消只恢复空白草稿且迟到响应不抹掉新输入', async () => {
+  const owner = { sessionId: 's1', turnId: 'owner-1' };
+  const state = initialState({ title: '正在完善 README', busy: true, status: 'running', queueOwner: owner, queued: null, seq: 1 });
+  const text = '下一条 <img src=x onerror="alert(1)">';
+  let release, received, cancelled, acknowledge;
+  const accepted = new Promise((resolve) => { acknowledge = resolve; });
+  await withPage(state, {
+    '/queue': async (body) => {
+      received = body; acknowledge();
+      await new Promise((resolve) => { release = resolve; });
+      state.queued = { id: body.id, text: body.text, sessionId: owner.sessionId }; state.seq++;
+      return { ok: true, state };
+    },
+    '/queue/cancel': (body) => {
+      cancelled = body; state.queued = null; state.seq++;
+      return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('heading', { name: state.title, exact: true }).waitFor();
+    const input = page.getByRole('textbox', { name: '消息', exact: true });
+    assert.equal(await input.isEnabled(), true, '主轮运行时仍可写下一条草稿');
+    await input.fill(text);
+    await page.getByRole('button', { name: '排队下一条', exact: true }).click();
+    await accepted;
+    await input.fill('响应返回前写的新草稿');
+    release();
+    const queue = page.getByRole('region', { name: '排队指令', exact: true });
+    await queue.getByText(text, { exact: true }).waitFor();
+    assert.equal(await input.inputValue(), '响应返回前写的新草稿');
+    assert.equal(await queue.locator('img').count(), 0, '队列文本不作为 HTML');
+    assert.deepEqual({ text: received.text, sessionId: received.sessionId, turnId: received.turnId }, { text, ...owner });
+    assert.match(received.id, /^[A-Za-z0-9_-]{1,80}$/);
+    assert.equal(await page.getByRole('button', { name: '排队下一条', exact: true }).isDisabled(), true, '只允许一个待执行条目');
+    await page.reload();
+    await queue.getByText(text, { exact: true }).waitFor();
+    await page.getByRole('button', { name: '取消排队', exact: true }).click();
+    await queue.waitFor({ state: 'hidden' });
+    assert.deepEqual(cancelled, { id: received.id });
+    assert.equal(await input.inputValue(), text, '取消后的文本恢复到空白输入框供修改');
+  });
+});
+
+test('审查范围只筛选本轮快照文件，HEAD 差异保留用户修改且提交仍覆盖仓库已暂存文件', async () => {
+  const files = [
+    { path: 'agent.txt', staged: false, untracked: false, deleted: false, revertable: true, diff: '+Agent 编辑\n+用户原有笔记\n' },
+    { path: 'user.txt', staged: true, untracked: false, deleted: false, revertable: false, diff: '+用户自己编辑\n' },
+  ];
+  const calls = [];
+  await withPage(initialState(), {
+    '/changes': () => ({ files }),
+    '/changes/commit': (body) => { calls.push(body); return { changes: { files: [] } }; },
+  }, async (page) => {
+    await page.getByRole('button', { name: '查看变更', exact: true }).click();
+    const panel = page.getByRole('complementary', { name: 'Git 变更', exact: true });
+    await panel.getByText('user.txt', { exact: true }).waitFor();
+    await panel.getByRole('combobox', { name: '审查范围', exact: true }).selectOption('snapshots');
+    assert.equal(await panel.getByText('agent.txt', { exact: true }).isVisible(), true);
+    assert.equal(await panel.getByText('user.txt', { exact: true }).count(), 0);
+    await panel.getByText('agent.txt', { exact: true }).click();
+    assert.equal(await panel.getByText('+用户原有笔记', { exact: true }).isVisible(), true);
+    assert.match(await panel.getByRole('note').textContent(), /用户.*修改/);
+    assert.match(await panel.getByRole('note').textContent(), /命令|bash/);
+    assert.match(await panel.getByRole('note').textContent(), /提交.*全部已暂存/);
+    await panel.getByRole('textbox', { name: '提交说明', exact: true }).fill('提交仓库已暂存');
+    assert.equal(await panel.getByRole('button', { name: '提交已暂存', exact: true }).isEnabled(), true, '隐藏的已暂存文件仍属于提交范围');
+    await panel.getByRole('button', { name: '提交已暂存', exact: true }).click();
+    await panel.getByText('本轮没有可展示的快照文件', { exact: true }).waitFor();
+    assert.deepEqual(calls, [{ message: '提交仓库已暂存' }]);
+    await panel.getByRole('combobox', { name: '审查范围', exact: true }).selectOption('all');
+    await panel.getByText('没有 Git 变更', { exact: true }).waitFor();
+  });
+});
+
+test('排队已接受但响应失败后取消，再排同一文本必须生成新请求而不丢草稿', async () => {
+  const state = initialState({ title: '等待首轮结束', busy: true, status: 'running', queueOwner: { sessionId: 's1', turnId: 'owner-1' }, queued: null, seq: 1 });
+  const requests = [];
+  await withPage(state, {
+    '/queue': (body, { emit }) => {
+      requests.push(body);
+      state.queued = { id: body.id, text: body.text, sessionId: body.sessionId }; state.seq++;
+      emit({ type: 'state', state });
+      if (requests.length === 1) throw Object.assign(new Error('排队响应丢失'), { status: 502 });
+      return { ok: true, state };
+    },
+    '/queue/cancel': () => { state.queued = null; state.seq++; return { ok: true, state }; },
+  }, async (page) => {
+    await page.getByRole('heading', { name: state.title, exact: true }).waitFor();
+    const input = page.getByRole('textbox', { name: '消息', exact: true });
+    await input.fill('重复文本的新意图');
+    await page.getByRole('button', { name: '排队下一条', exact: true }).click();
+    await page.getByText('排队响应丢失', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '取消排队', exact: true }).click();
+    await page.getByRole('region', { name: '排队指令', exact: true }).waitFor({ state: 'hidden' });
+    assert.equal(await input.inputValue(), '重复文本的新意图');
+    await page.getByRole('button', { name: '排队下一条', exact: true }).click();
+    await page.getByRole('region', { name: '排队指令', exact: true }).getByText('重复文本的新意图', { exact: true }).waitFor();
+    assert.equal(requests.length, 2);
+    assert.notEqual(requests[0].id, requests[1].id, '取消后的新意图不能复用已取消回执');
+  });
+});
+
+test('排队响应失败后轮次推进或空闲，同一草稿重试仍确认原请求而不重复发送', async () => {
+  for (const nextBusy of [true, false]) {
+    const owner = { sessionId: 's1', turnId: 'owner-1' };
+    const state = initialState({ title: '等待排队回执', busy: true, status: 'running', queueOwner: owner, queued: null, seq: 1 });
+    const requests = []; let normalSends = 0;
+    await withPage(state, {
+      '/queue': (body) => {
+        requests.push(body);
+        if (requests.length === 1) throw Object.assign(new Error('回执暂时不可读'), { status: 502 });
+        if (requests.length === 2) throw Object.assign(new Error('旧回执尚无法确认'), { status: 409 });
+        return { ok: true, state }; // 同一请求已消费，返回回执而不新建队列
+      },
+      '/send': () => { normalSends++; return { ok: true }; },
+    }, async (page, { emit }) => {
+      await page.getByRole('heading', { name: state.title, exact: true }).waitFor();
+      const input = page.getByRole('textbox', { name: '消息', exact: true });
+      await input.fill('已消费请求的原文');
+      await page.getByRole('button', { name: '排队下一条', exact: true }).click();
+      await page.getByText('回执暂时不可读', { exact: true }).waitFor();
+      state.busy = nextBusy; state.queueOwner = nextBusy ? { sessionId: 's1', turnId: 'owner-2' } : null;
+      state.status = nextBusy ? 'running' : 'completed'; state.title = nextBusy ? '已进入下一轮' : '已回到空闲'; state.seq++;
+      emit({ type: 'state', state });
+      await page.getByRole('heading', { name: state.title, exact: true }).waitFor();
+      await page.getByRole('button', { name: /^(排队下一条|发送|确认排队结果)$/ }).click();
+      await page.getByText('旧回执尚无法确认', { exact: true }).waitFor();
+      assert.equal(await input.inputValue(), '已消费请求的原文', '未知结果的确认请求被拒绝时仍保留草稿');
+      await page.getByRole('button', { name: '确认排队结果', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('[aria-label="消息"]').value === '');
+      assert.equal(normalSends, 0, '已知请求结果不明时不得转换成新的 /send');
+      assert.equal(requests.length, 3);
+      assert.deepEqual(requests[1], requests[0], '确认使用原 id 和 owner，不转成新轮请求');
+      assert.deepEqual(requests[2], requests[0], '确认请求的 409 不能解除去重保护');
+    });
+  }
+});
+
+test('排队回执未知或迟到后切换会话或工作区，同文输入作为新任务发送', async () => {
+  for (const target of ['session', 'workspace']) {
+    const owner = { sessionId: 's1', turnId: 'owner-1' };
+    const state = initialState({ title: '旧任务正在执行', busy: true, status: 'running', queueOwner: owner, queued: null, seq: 1,
+      projects: [
+        { path: '/tmp/ui-project', name: 'ui-project', available: true, sessionCount: 1 },
+        { path: '/tmp/next-project', name: 'next-project', available: true, sessionCount: 0 },
+      ],
+    });
+    const queuedRequests = [], sent = [];
+    await withPage(state, {
+      '/queue': (body) => {
+        queuedRequests.push(body);
+        if (queuedRequests.length === 1) throw Object.assign(new Error('旧任务回执暂时不可读'), { status: 502 });
+        return { ok: true, state };
+      },
+      '/session/new': () => { state.currentSessionId = 's2'; state.title = '新会话'; state.seq++; return { ok: true, state }; },
+      '/workspace': ({ workspace }) => {
+        assert.equal(workspace, '/tmp/next-project');
+        state.config.workspace = workspace; state.title = '新项目任务'; state.seq++;
+        return { ok: true, state };
+      },
+      '/send': ({ text }) => { sent.push({ text, sessionId: state.currentSessionId, workspace: state.config.workspace }); return { ok: true }; },
+    }, async (page, { emit }) => {
+      await page.getByRole('heading', { name: state.title, exact: true }).waitFor();
+      const input = page.getByRole('textbox', { name: '消息', exact: true });
+      await input.fill('继续');
+      await page.getByRole('button', { name: '排队下一条', exact: true }).click();
+      await page.getByText('旧任务回执暂时不可读', { exact: true }).waitFor();
+      state.busy = false; state.status = 'completed'; state.queueOwner = null; state.title = '旧任务已完成'; state.seq++;
+      emit({ type: 'state', state });
+      await page.getByRole('heading', { name: state.title, exact: true }).waitFor();
+      if (target === 'session') await page.getByRole('button', { name: '新任务', exact: true }).click();
+      else await page.getByRole('button', { name: '打开项目 next-project', exact: true }).click();
+      await page.getByRole('heading', { name: target === 'session' ? '新会话' : '新项目任务', exact: true }).waitFor();
+      assert.equal(await input.inputValue(), '', '显式导航已结束旧输入上下文');
+      await input.fill('继续');
+      await page.getByRole('button', { name: /^(发送|确认排队结果)$/ }).click();
+      await page.waitForFunction(() => document.querySelector('[aria-label="消息"]').value === '');
+      assert.deepEqual(sent, [{ text: '继续', sessionId: target === 'session' ? 's2' : 's1', workspace: target === 'session' ? '/tmp/ui-project' : '/tmp/next-project' }]);
+      assert.equal(queuedRequests.length, 1, '显式切换后的新任务不能确认旧上下文请求');
+    });
+  }
+  for (const target of ['session', 'workspace']) {
+    const state = initialState({ title: '旧任务正在执行', busy: true, status: 'running', queueOwner: { sessionId: 's1', turnId: 'owner-1' }, queued: null, seq: 1,
+      projects: [
+        { path: '/tmp/ui-project', name: 'ui-project', available: true, sessionCount: 1 },
+        { path: '/tmp/next-project', name: 'next-project', available: true, sessionCount: 0 },
+      ],
+    });
+    let release, acknowledge;
+    const accepted = new Promise((resolve) => { acknowledge = resolve; });
+    const sent = [];
+    await withPage(state, {
+      '/queue': async (body, { emit }) => {
+        state.queued = { id: body.id, text: body.text, sessionId: body.sessionId }; state.seq++;
+        emit({ type: 'state', state });
+        const receiptState = structuredClone(state);
+        await new Promise((resolve) => { release = resolve; acknowledge(); });
+        return { ok: true, state: receiptState };
+      },
+      '/session/new': (_, { emit }) => {
+        state.currentSessionId = 's2'; state.title = '新会话'; state.seq++;
+        emit({ type: 'state', state }); return { ok: true, state };
+      },
+      '/workspace': ({ workspace }, { emit }) => {
+        state.config.workspace = workspace; state.title = '新项目任务'; state.seq++;
+        emit({ type: 'state', state }); return { ok: true, state };
+      },
+      '/send': ({ text }) => { sent.push({ text, sessionId: state.currentSessionId, workspace: state.config.workspace }); return { ok: true }; },
+    }, async (page, { emit }) => {
+      await page.getByRole('heading', { name: state.title, exact: true }).waitFor();
+      const input = page.getByRole('textbox', { name: '消息', exact: true });
+      await input.fill('继续');
+      await page.getByRole('button', { name: '排队下一条', exact: true }).click();
+      await accepted;
+      state.busy = false; state.status = 'completed'; state.queueOwner = null; state.queued = null; state.title = '旧任务已完成'; state.seq++;
+      emit({ type: 'state', state });
+      const other = await page.context().browser().newPage();
+      await other.goto(page.url());
+      await other.getByRole('heading', { name: state.title, exact: true }).waitFor();
+      if (target === 'session') await other.getByRole('button', { name: '新任务', exact: true }).click();
+      else await other.getByRole('button', { name: '打开项目 next-project', exact: true }).click();
+      const title = target === 'session' ? '新会话' : '新项目任务';
+      await page.getByRole('heading', { name: title, exact: true }).waitFor();
+      await input.fill('继续');
+      const response = page.waitForResponse((result) => result.url().endsWith('/queue') && result.status() === 200);
+      release(); await response;
+      await page.waitForFunction(() => !document.getElementById('send').disabled || document.querySelector('[aria-label="消息"]').value === '');
+      assert.equal(await input.inputValue(), '继续', '旧上下文 ACK 不能清空新上下文同文草稿');
+      assert.equal(await page.getByRole('heading', { name: title, exact: true }).isVisible(), true, '旧 ACK 状态不能把新上下文回退');
+      await page.getByRole('button', { name: '发送', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('[aria-label="消息"]').value === '');
+      assert.deepEqual(sent, [{ text: '继续', sessionId: target === 'session' ? 's2' : 's1', workspace: target === 'session' ? '/tmp/ui-project' : '/tmp/next-project' }]);
+      await other.close();
+    });
+  }
+});
+
+test('新的排队请求被明确 409 拒绝后，空闲时同一草稿可正常发送', async () => {
+  const state = initialState({ title: '当前轮即将完成', busy: true, status: 'running', queueOwner: { sessionId: 's1', turnId: 'owner-1' }, queued: null, seq: 1 });
+  let queuedRequests = 0;
+  const sent = [];
+  await withPage(state, {
+    '/queue': (body, { emit }) => {
+      queuedRequests++;
+      state.busy = false; state.status = 'completed'; state.queueOwner = null; state.title = '当前轮已完成'; state.seq++;
+      emit({ type: 'state', state });
+      throw Object.assign(new Error('当前轮已结束，未接受排队'), { status: 409 });
+    },
+    '/send': ({ text }) => { sent.push(text); return { ok: true }; },
+  }, async (page) => {
+    await page.getByRole('heading', { name: state.title, exact: true }).waitFor();
+    const input = page.getByRole('textbox', { name: '消息', exact: true });
+    await input.fill('未接受的后续任务');
+    await page.getByRole('button', { name: '排队下一条', exact: true }).click();
+    await page.getByText('当前轮已结束，未接受排队', { exact: true }).waitFor();
+    assert.equal(await input.inputValue(), '未接受的后续任务', '确定拒绝仍须保留原文');
+    assert.equal(await page.getByRole('button', { name: /^(发送|确认排队结果)$/ }).textContent(), '发送', '确定未接受的输入可成为新的发送意图');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('[aria-label="消息"]').value === '');
+    assert.deepEqual(sent, ['未接受的后续任务']);
+    assert.equal(queuedRequests, 1, '不能继续确认根本未接受的旧排队请求');
+  });
 });
 
 test('项目导航可切换已打开项目，同时展示该项目会话并提供新任务和设置入口', async () => {
@@ -641,6 +904,82 @@ test('Cmd/Ctrl+, 打开设置中心，已在设置时不会覆盖未保存的模
   });
 });
 
+test('日常工作台导航直达任务和扩展，输入区承载模型权限且长标题与窄屏布局可用', async () => {
+  const title = '审查自动化产出、核对会话状态并继续本地开发改造的长任务标题'.repeat(12);
+  await withPage(initialState({ title }), {
+    '/automations': () => ({ automations: [] }),
+    '/memory': () => ({ content: '' }),
+  }, async (page) => {
+    const composer = page.locator('footer.composer');
+    assert.equal(await composer.getByRole('combobox', { name: '切换模型配置', exact: true }).isVisible(), true);
+    assert.equal(await composer.getByRole('checkbox', { name: '全部免审批', exact: true }).isVisible(), true);
+    assert.equal(await page.locator('header').getByRole('combobox', { name: '切换模型配置', exact: true }).count(), 0);
+    const heading = page.getByRole('heading', { name: title, exact: true });
+    const titleBounds = await heading.boundingBox();
+    const statusBounds = await page.locator('#status').boundingBox();
+    const changesBounds = await page.getByRole('button', { name: '查看变更', exact: true }).boundingBox();
+    assert.ok(titleBounds && statusBounds && changesBounds);
+    assert.ok(titleBounds.height <= changesBounds.height, '长标题应保持单行');
+    assert.ok(titleBounds.x + titleBounds.width <= statusBounds.x, '长标题不能覆盖任务状态');
+    assert.ok(statusBounds.x + statusBounds.width <= changesBounds.x, '任务状态不能覆盖变更入口');
+    const input = page.getByRole('textbox', { name: '消息', exact: true });
+    await input.fill('尚未发送的任务草稿');
+    await page.getByRole('button', { name: '自动化任务', exact: true }).click();
+    await page.getByRole('heading', { name: '自动化', exact: true }).waitFor();
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    assert.equal(await input.inputValue(), '尚未发送的任务草稿');
+    await page.getByRole('button', { name: '技能与扩展', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '添加服务器', exact: true }).isVisible(), true);
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await page.getByRole('button', { name: '查看变更', exact: true }).click();
+    await page.getByRole('heading', { name: 'Git 变更', exact: true }).waitFor();
+    const sendHit = await composer.getByRole('button', { name: '发送', exact: true }).evaluate((button) => {
+      const bounds = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      return { reachable: button.contains(hit), hitElement: hit?.id || hit?.tagName || 'none' };
+    });
+    assert.equal(sendHit.reachable, true, `1100px 桌面窗口打开变更时发送按钮不应被遮挡；实际命中 ${sendHit.hitElement}`);
+    const desktopTitleBounds = await heading.boundingBox();
+    const desktopStatusBounds = await page.locator('#status').boundingBox();
+    const desktopChangesBounds = await page.getByRole('button', { name: '收起变更', exact: true }).boundingBox();
+    assert.ok(desktopTitleBounds && desktopStatusBounds && desktopChangesBounds);
+    assert.ok(desktopTitleBounds.x + desktopTitleBounds.width <= desktopStatusBounds.x, '1100px 桌面窗口的长标题不能覆盖任务状态');
+    assert.ok(desktopStatusBounds.x + desktopStatusBounds.width <= desktopChangesBounds.x, '1100px 桌面窗口的任务状态不能覆盖变更入口');
+    await page.getByRole('button', { name: '关闭变更', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await heading.isVisible(), true);
+    assert.equal(await input.isVisible(), true);
+    assert.equal(await composer.getByRole('combobox', { name: '切换模型配置', exact: true }).isVisible(), true);
+    assert.equal(await composer.getByRole('checkbox', { name: '全部免审批', exact: true }).isVisible(), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, '窄屏不应横向溢出');
+  });
+});
+
+test('首次启动空态可选择项目和配置模型，未就绪时不能创建自动化任务', async () => {
+  const state = initialState({ ready: false, projects: [], config: {
+    ...initialState().config, workspace: '', baseUrl: '', model: '', hasApiKey: false,
+  } });
+  const created = [];
+  await withPage(state, { '/automations': (body) => {
+    if (body.name) created.push(body);
+    return { automations: [] };
+  } }, async (page) => {
+    await page.locator('#settings-home:enabled').waitFor({ state: 'attached' });
+    const back = page.getByRole('button', { name: '返回工作区', exact: true });
+    if (await back.isVisible()) await back.click();
+    assert.equal(await page.getByRole('button', { name: '选择项目', exact: true }).isVisible(), true);
+    await page.getByRole('button', { name: '配置模型', exact: true }).click();
+    assert.equal(await page.getByRole('heading', { name: '模型', exact: true }).isVisible(), true);
+    await page.getByRole('button', { name: '返回工作区', exact: true }).click();
+    await page.getByRole('button', { name: '自动化任务', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '运行任务', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('textbox', { name: '任务名称', exact: true }).isDisabled(), true);
+    assert.match(await page.getByRole('alert').filter({ visible: true }).last().textContent(), /项目|模型/);
+    assert.deepEqual(created, []);
+  });
+});
+
 test('Cmd/Ctrl+B 可折叠和展开侧栏，同时保持正在输入的消息', async () => {
   await withPage(initialState(), {}, async (page) => {
     const input = page.getByRole('textbox', { name: '消息', exact: true });
@@ -773,6 +1112,24 @@ test('滚动技能设置后切换常规设置，标题和当前项目从顶部�
   });
 });
 
+test('中文输入法选词 Enter 不发送或清空草稿，组合结束后 Enter 可发送', async () => {
+  const sent = [];
+  await withPage(initialState(), { '/send': (body) => { sent.push(body); return { ok: true }; } }, async (page) => {
+    const input = page.getByRole('textbox', { name: '消息', exact: true });
+    await input.fill('测试中文选词');
+    const compositionRequest = page.waitForRequest((request) => request.url().endsWith('/send'), { timeout: 300 });
+    await input.evaluate((element) => element.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Enter', isComposing: true, bubbles: true, cancelable: true,
+    })));
+    await assert.rejects(compositionRequest, /Timeout/, '输入法选词期间不能发送请求');
+    assert.equal(await input.inputValue(), '测试中文选词');
+    assert.deepEqual(sent, []);
+    await input.press('Enter');
+    await page.waitForFunction(() => document.querySelector('[aria-label="消息"]').value === '');
+    assert.deepEqual(sent, [{ text: '测试中文选词' }]);
+  });
+});
+
 test('常规与外观偏好保存后刷新保留，并改变主题字号和消息发送按键', async () => {
   const state = initialState(); let received;
   await withPage(state, {
@@ -780,6 +1137,7 @@ test('常规与外观偏好保存后刷新保留，并改变主题字号和消�
     '/send': ({ text }) => { received = text; return { ok: true }; },
   }, async (page) => {
     await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    const darkColor = await page.locator('body').evaluate((body) => getComputedStyle(body).color);
     await page.getByLabel('Enter 发送消息', { exact: true }).uncheck();
     await page.getByRole('button', { name: '保存常规设置', exact: true }).click();
     await page.getByText('设置已保存', { exact: true }).waitFor();
@@ -789,7 +1147,7 @@ test('常规与外观偏好保存后刷新保留，并改变主题字号和消�
     await page.getByRole('button', { name: '保存外观设置', exact: true }).click();
     await page.getByText('设置已保存', { exact: true }).waitFor();
     await page.reload();
-    assert.equal(await page.locator('body').evaluate((body) => getComputedStyle(body).color), 'rgb(35, 42, 54)');
+    assert.notEqual(await page.locator('body').evaluate((body) => getComputedStyle(body).color), darkColor, '浅色主题刷新后仍应改变可见文字颜色');
     assert.equal(await page.getByRole('log', { name: '会话记录' }).evaluate((log) => getComputedStyle(log).fontSize), '18px');
     const input = page.getByRole('textbox', { name: '消息', exact: true });
     await input.fill('消息一'); await input.press('Enter');
@@ -819,6 +1177,68 @@ test('权限设置可保存默认审批和通过选择器添加的额外目录�
     await page.getByRole('navigation', { name: '设置分组' }).getByRole('button', { name: '权限', exact: true }).click();
     assert.equal(await page.getByLabel('默认审批方式', { exact: true }).inputValue(), 'never');
     assert.equal(await page.getByText('/tmp/extra-project', { exact: true }).isVisible(), true);
+  }, { initScript: () => { window.__TAURI__ = { core: { invoke: async () => '/tmp/extra-project' } }; } });
+});
+
+test('权限和偏好草稿跨设置分组与状态同步保留，保存及刷新可回读', async () => {
+  const state = initialState();
+  state.config.beforeTurn = 'echo saved-before'; state.config.afterTurn = 'echo saved-after';
+  const saved = {};
+  await withPage(state, {
+    '/config': (body) => { saved.permissions = body; state.config = { ...state.config, ...body }; state.seq++; return { ok: true, state }; },
+    '/preferences': (body) => { saved.preferences = body; state.preferences = body; state.seq++; return { ok: true, state }; },
+  }, async (page, { emit }) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const nav = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await nav.getByRole('button', { name: '权限', exact: true }).click();
+    const before = page.getByLabel('轮开始钩子（留空禁用）', { exact: true });
+    const after = page.getByLabel('轮结束钩子（留空禁用）', { exact: true });
+    assert.equal(await before.inputValue(), 'echo saved-before');
+    assert.equal(await after.inputValue(), 'echo saved-after');
+    await before.fill('echo draft-before'); await after.fill('echo draft-after');
+    await page.getByLabel('默认审批方式', { exact: true }).selectOption('never');
+    await page.getByRole('button', { name: '添加免审批目录', exact: true }).click();
+    await page.getByText('/tmp/extra-project', { exact: true }).waitFor();
+    await nav.getByRole('button', { name: '外观', exact: true }).click();
+    await page.getByLabel('主题', { exact: true }).selectOption('light');
+    await page.getByLabel('消息字号', { exact: true }).selectOption('18');
+    await nav.getByRole('button', { name: '常规', exact: true }).click();
+    await page.getByLabel('Enter 发送消息', { exact: true }).uncheck();
+    state.seq++; emit({ type: 'state', state });
+    await nav.getByRole('button', { name: '权限', exact: true }).click();
+    assert.equal(await before.inputValue(), 'echo draft-before');
+    assert.equal(await after.inputValue(), 'echo draft-after');
+    assert.equal(await page.getByLabel('默认审批方式', { exact: true }).inputValue(), 'never');
+    assert.equal(await page.getByText('/tmp/extra-project', { exact: true }).isVisible(), true);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/config') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: '保存权限设置', exact: true }).click(),
+    ]);
+    assert.deepEqual(saved.permissions, { approval: 'never', allowWriteDirs: ['/tmp/extra-project'], beforeTurn: 'echo draft-before', afterTurn: 'echo draft-after' });
+    await nav.getByRole('button', { name: '常规', exact: true }).click();
+    assert.equal(await page.getByLabel('Enter 发送消息', { exact: true }).isChecked(), false);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/preferences') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: '保存常规设置', exact: true }).click(),
+    ]);
+    await nav.getByRole('button', { name: '外观', exact: true }).click();
+    assert.equal(await page.getByLabel('主题', { exact: true }).inputValue(), 'light');
+    assert.equal(await page.getByLabel('消息字号', { exact: true }).inputValue(), '18');
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/preferences') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: '保存外观设置', exact: true }).click(),
+    ]);
+    assert.deepEqual(saved.preferences, { theme: 'light', fontSize: 18, enterToSend: false });
+    await page.reload();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await nav.getByRole('button', { name: '权限', exact: true }).click();
+    assert.equal(await before.inputValue(), 'echo draft-before');
+    assert.equal(await after.inputValue(), 'echo draft-after');
+    await nav.getByRole('button', { name: '外观', exact: true }).click();
+    assert.equal(await page.getByLabel('主题', { exact: true }).inputValue(), 'light');
+    assert.equal(await page.getByLabel('消息字号', { exact: true }).inputValue(), '18');
+    await nav.getByRole('button', { name: '常规', exact: true }).click();
+    assert.equal(await page.getByLabel('Enter 发送消息', { exact: true }).isChecked(), false);
   }, { initScript: () => { window.__TAURI__ = { core: { invoke: async () => '/tmp/extra-project' } }; } });
 });
 
@@ -894,9 +1314,10 @@ test('缺少模型配置时能保存配置并开始聊天，API Key 不读回', 
   let saved;
   const state = initialState({ ready: false, configError: '请先配置模型', config: { baseUrl: '', model: '', protocol: 'auto', contextLimit: 100000, workspace: '/tmp/ui-project', hasApiKey: false } });
   await withPage(state, { '/config': (body) => {
-    saved = body; state.ready = true; state.config = { ...body, hasApiKey: true }; delete state.config.apiKey; delete state.configError;
+    saved = body; state.ready = true; state.config = { ...state.config, ...body, hasApiKey: true }; delete state.config.apiKey; delete state.configError;
     return { ok: true, state };
   } }, async (page) => {
+    await page.getByRole('button', { name: '配置模型', exact: true }).click();
     await page.getByRole('region', { name: '设置中心', exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: '测试已保存的连接', exact: true }).isDisabled(), true);
     assert.equal(await page.getByLabel('API Key', { exact: true }).getAttribute('type'), 'password');
@@ -1180,6 +1601,37 @@ test('用量页展示账户余额并可刷新，失败信息留在卡片内', as
   });
 });
 
+test('自动化隔离执行勾选提交 worktree，创建成功后恢复默认不隔离', async () => {
+  const created = [];
+  await withPage(initialState(), { '/automations': (body) => {
+    if (body.name) created.push(body);
+    return { ok: true, automations: [] };
+  } }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('navigation', { name: '设置分组', exact: true }).getByRole('button', { name: '自动化', exact: true }).click();
+    const isolation = page.getByRole('checkbox', { name: '在独立 worktree 中执行', exact: true });
+    assert.equal(await isolation.isChecked(), false);
+    await page.getByLabel('任务名称', { exact: true }).fill('隔离检查');
+    await page.getByLabel('任务提示词', { exact: true }).fill('检查并写报告');
+    await isolation.check();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/automations') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: '运行任务', exact: true }).click(),
+    ]);
+    await page.waitForFunction(() => document.getElementById('automation-name').value === '');
+    assert.deepEqual(created, [{ name: '隔离检查', prompt: '检查并写报告', workspace: '/tmp/ui-project', worktree: true }]);
+    assert.equal(await isolation.isChecked(), false);
+    await page.getByLabel('任务名称', { exact: true }).fill('默认检查');
+    await page.getByLabel('任务提示词', { exact: true }).fill('只读检查');
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/automations') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: '运行任务', exact: true }).click(),
+    ]);
+    assert.equal(created.length, 2);
+    assert.equal(created[1].worktree === true, false);
+  });
+});
+
 test('自动化设置可创建任务、查看状态与结果、停止与继续、删除', async () => {
   const state = initialState();
   let stopped = false, paused = true, removed = false;
@@ -1279,6 +1731,52 @@ test('命令页可管理 MCP 服务器：添加、测试连接与启停', async 
   });
 });
 
+test('HTTP MCP 编辑可回显并保存传输端点，切换 stdio 后不残留 HTTP 地址', async () => {
+  const server = { id: 'http-1', name: 'remote', command: '', url: 'http://127.0.0.1:9123/mcp', enabled: false };
+  const state = initialState({ capabilities: { commands: [], skills: [], tools: [], mcpServers: [server] } });
+  const saved = [];
+  await withPage(state, {
+    '/memory': () => ({ content: '' }),
+    '/mcp/servers': (body) => {
+      saved.push(body);
+      state.capabilities.mcpServers = [{ ...server, ...body }]; state.seq++;
+      return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    const nav = page.getByRole('navigation', { name: '设置分组', exact: true });
+    await nav.getByRole('button', { name: '命令', exact: true }).click();
+    await page.getByRole('button', { name: '编辑 MCP 服务器 remote', exact: true }).click();
+    const transport = page.getByLabel('传输方式', { exact: true });
+    const endpoint = page.getByLabel('MCP 端点', { exact: true });
+    assert.equal(await transport.inputValue(), 'http');
+    assert.equal(await endpoint.inputValue(), 'http://127.0.0.1:9123/mcp');
+    await endpoint.fill('http://127.0.0.1:9456/mcp');
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/mcp/servers') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: '保存', exact: true }).click(),
+    ]);
+    assert.equal(saved[0].id, 'http-1');
+    assert.equal(saved[0].url, 'http://127.0.0.1:9456/mcp');
+    assert.equal(saved[0].command || '', '');
+    await page.reload();
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await nav.getByRole('button', { name: '命令', exact: true }).click();
+    await page.getByRole('button', { name: '编辑 MCP 服务器 remote', exact: true }).click();
+    assert.equal(await transport.inputValue(), 'http');
+    assert.equal(await endpoint.inputValue(), 'http://127.0.0.1:9456/mcp');
+    await transport.selectOption('stdio');
+    await page.getByLabel('启动命令', { exact: true }).fill('node');
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/mcp/servers') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: '保存', exact: true }).click(),
+    ]);
+    assert.equal(saved.length, 2);
+    assert.equal(saved[1].command, 'node');
+    assert.equal(saved[1].url || '', '');
+  });
+});
+
 test('自动化任务结束时工作区顶部出现通知', async () => {
   const state = initialState();
   await withPage(state, {}, async (page, { streams }) => {
@@ -1320,6 +1818,33 @@ test('自动化任务运行期间主会话发送提示互斥', async () => {
     await page.getByRole('textbox', { name: '消息', exact: true }).fill('主会话任务');
     await page.getByRole('button', { name: '发送', exact: true }).click();
     await page.getByText('自动化任务正在运行（与主会话共用工作目录基准），请等待完成或先停止任务', { exact: true }).waitFor();
+  });
+});
+
+test('HTTP MCP 目录条目缺省启动参数仍可预填端点并保存', async () => {
+  const state = initialState(); let saved;
+  await withPage(state, {
+    '/memory': () => ({ content: '' }),
+    '/mcp/catalog': () => ({ catalog: [{ name: 'remote', url: 'http://127.0.0.1:9456/mcp', description: 'HTTP 服务' }] }),
+    '/mcp/servers': (body) => {
+      saved = body; state.capabilities.mcpServers = [{ id: 'http-1', ...body }]; state.seq++;
+      return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '技能与扩展', exact: true }).click();
+    await page.getByRole('button', { name: '从目录添加', exact: true }).click();
+    await page.getByRole('button', { name: '使用 remote', exact: true }).click();
+    assert.equal(await page.getByLabel('传输方式', { exact: true }).inputValue(), 'http');
+    assert.equal(await page.getByLabel('MCP 端点', { exact: true }).inputValue(), 'http://127.0.0.1:9456/mcp');
+    assert.equal(await page.getByLabel('启动命令', { exact: true }).isVisible(), false);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/mcp/servers') && response.request().method() === 'POST'),
+      page.getByRole('button', { name: '保存', exact: true }).click(),
+    ]);
+    assert.equal(saved.name, 'remote');
+    assert.equal(saved.url, 'http://127.0.0.1:9456/mcp');
+    assert.equal(saved.command || '', '');
+    assert.equal(Object.hasOwn(saved, 'args'), false);
   });
 });
 

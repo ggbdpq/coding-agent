@@ -108,8 +108,8 @@ export default definePlugin({
 
     // 第二阶段：全部通过，逐文件写入（快照以预验读到的原文为准）
     for (const p of prepared) {
-      recordWrite(p.abs, preSnapshot(true, cache.get(p.abs) ?? null), p.next);
       await writeFile(p.abs, p.next, 'utf8');
+      recordWrite(p.abs, preSnapshot(true, cache.get(p.abs) ?? null), p.next);
     }
     return `已应用补丁：${prepared.length} 处编辑，涉及 ${new Set(prepared.map((p) => p.display)).size} 个文件`;
   },

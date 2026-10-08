@@ -28,7 +28,7 @@ process.stdin.on('data', (chunk) => {
     let msg; try { msg = JSON.parse(line); } catch { continue; }
     if (msg.method === 'initialize') respond(msg, { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'fake', version: '1.0.0' } });
     else if (msg.method === 'tools/list') respond(msg, { tools: [{ name: 'echo', description: '回显文本', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } }, { name: 'slow', description: '慢速工具', inputSchema: { type: 'object' } }] });
-    else if (msg.method === 'tools/call') respond(msg, { content: [{ type: 'text', text: msg.params?.name === 'slow' ? 'slow done' : 'echo:' + (msg.params?.arguments?.text ?? '') }] });
+    else if (msg.method === 'tools/call') respond(msg, { content: [{ type: 'text', text: msg.params?.name === 'slow' ? 'slow done' : 'echo:' + (msg.params?.arguments?.text ?? '') + (process.env.TCODE_MCP_FIXTURE ? ':env=' + process.env.TCODE_MCP_FIXTURE : '') }] });
     else if (msg.method === 'resources/list') respond(msg, { resources: [{ uri: 'file:///config', name: '服务配置', description: '当前配置内容' }] });
     else if (msg.method === 'resources/read') respond(msg, { contents: [{ uri: msg.params?.uri, text: '配置内容正文' }] });
     else if (msg.method === 'prompts/list') respond(msg, { prompts: [{ name: 'greet', description: '生成问候', arguments: [{ name: 'who' }] }] });
@@ -67,6 +67,7 @@ async function fixture(t, { enabled = true, transport = 'stdio', trusted = false
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (value) => res.write(`data: ${JSON.stringify(value)}\n\n`);
     const user = body.messages.findLast((m) => m.role === 'user')?.content ?? '';
+    if (user === 'hold' || user === 'Reply with OK.') { res.write(': wait\n\n'); return; }
     const prefix = transport === 'http' ? 'mcp__httponly' : 'mcp__demo';
     const lastUserIndex = body.messages.map((m) => m.role).lastIndexOf('user');
     const toolAfterUser = body.messages.slice(lastUserIndex + 1).some((m) => m.role === 'tool');
@@ -151,6 +152,53 @@ test('MCP 服务器配置持久化、连接测试列出工具，重启后仍可�
   assert.equal(JSON.stringify(state).includes('automation-key'), false);
 });
 
+test('MCP 测试拒绝审批、主轮次、模型探测与自动化运行，不释放已有锁或改会话', async (t) => {
+  const h = await fixture(t);
+  await until(async () => (await h.state()).capabilities.tools.some((tool) => tool.name === 'mcp__demo__echo'));
+  const rejectedWithoutChangingState = async () => {
+    const before = await h.state();
+    assert.equal((await h.post('mcp/test', { id: 'srv-demo' })).status, 409);
+    const after = await h.state();
+    assert.equal(after.busy, before.busy);
+    assert.equal(after.status, before.status);
+    assert.equal(after.currentSessionId, before.currentSessionId);
+    assert.deepEqual(after.pending, before.pending);
+  };
+  const idle = () => until(async () => !(await h.state()).busy);
+  await h.post('send', { text: '用 demo 的 echo 工具' });
+  await until(async () => (await h.state()).pending.length === 1);
+  await rejectedWithoutChangingState();
+  assert.equal((await h.post('session/new')).status, 409);
+  await h.post('abort'); await idle();
+
+  await h.post('send', { text: 'hold' });
+  await until(() => h.requests.at(-1)?.messages.at(-1)?.content === 'hold');
+  await rejectedWithoutChangingState();
+  await h.post('abort'); await idle();
+
+  const probe = h.post('model/test');
+  await until(() => h.requests.at(-1)?.messages.at(-1)?.content === 'Reply with OK.');
+  await rejectedWithoutChangingState();
+  await h.post('abort'); assert.equal((await probe).status, 499); await idle();
+
+  const created = await h.post('automations', { name: '互斥任务', prompt: 'hold' });
+  assert.equal(created.status, 200);
+  await until(() => h.requests.at(-1)?.messages.at(-1)?.content === 'hold');
+  await rejectedWithoutChangingState();
+  await h.post('automations/stop', { id: created.body.id });
+  await until(async () => (await h.get('automations')).body.automations.find((task) => task.id === created.body.id).status !== 'running');
+
+  const delayed = path.join(h.data, 'delayed-mcp.mjs');
+  writeFileSync(delayed, 'await new Promise((resolve) => setTimeout(resolve, 200));\n' + FAKE_SERVER);
+  const saved = await h.post('mcp/servers', { name: 'delayed', command: process.execPath, args: [delayed], enabled: false });
+  const id = saved.body.state.capabilities.mcpServers.find((server) => server.name === 'delayed').id;
+  const connection = h.post('mcp/test', { id });
+  await until(async () => (await h.state()).busy);
+  await rejectedWithoutChangingState();
+  assert.equal((await connection).status, 200);
+  assert.equal((await h.state()).busy, false);
+});
+
 test('启用的 MCP 工具经审批桥接进会话并真实调用，结果回传模型', async (t) => {
   const h = await fixture(t);
   const state = await approvedTurn(h);
@@ -180,6 +228,26 @@ test('MCP 配置 CRUD：非法输入拒绝，删除后连接测试 404', async (
   const after = await h.state();
   assert.equal(after.capabilities.tools.some((tool) => tool.name.startsWith('mcp__demo__')), false, '删除后工具不再桥接');
   assert.equal((await h.post('mcp/test', { id: 'srv-demo' })).status, 404);
+});
+
+test('编辑 MCP 省略 env 保留原环境，重启仍生效；显式空映射可清空且 state 不回传 env', async (t) => {
+  const h = await fixture(t);
+  const server = (await h.state()).capabilities.mcpServers[0];
+  const environment = { TCODE_MCP_FIXTURE: 'kept-fixture-value' };
+  assert.equal((await h.post('mcp/servers', { ...server, env: environment })).status, 200);
+  const edited = await h.post('mcp/servers', { ...server, trusted: true });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.state.capabilities.mcpServers[0].env, undefined);
+  assert.equal(JSON.stringify(edited.body.state.capabilities.mcpServers).includes(environment.TCODE_MCP_FIXTURE), false);
+  assert.match((await approvedTurn(h)).messages.at(-1).content, /:env=kept-fixture-value/);
+  await h.restart();
+  assert.equal((await h.post('session/new')).status, 200);
+  assert.match((await approvedTurn(h)).messages.at(-1).content, /:env=kept-fixture-value/);
+  const cleared = await h.post('mcp/servers', { ...server, env: {}, trusted: true });
+  assert.equal(cleared.status, 200);
+  assert.equal(cleared.body.state.capabilities.mcpServers[0].env, undefined);
+  assert.equal((await h.post('session/new')).status, 200);
+  assert.doesNotMatch((await approvedTurn(h)).messages.at(-1).content, /:env=/);
 });
 
 test('trusted 服务器的工具免审批直接执行：无审批等待、结果照常回传、持久化', async (t) => {

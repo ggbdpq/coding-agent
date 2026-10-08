@@ -16,7 +16,7 @@ import { SessionStore } from '../core/session.ts';
 import type { ChatMessage } from '../kernel/types.ts';
 import { definePlugin } from '../kernel/plugin.ts';
 import { appendJournal, journalError, loadJournal, resetJournal, saveJournal, setFileJournalSink } from '../plugins/tools/filejournal.ts';
-import { commitStaged, revertToEntry, stagePaths, workspaceChanges, type ChangesResult } from './webgit.ts';
+import { commitStaged, existingRealpath, gitRoot, revertToEntry, stagePaths, workspaceChanges, type ChangesResult } from './webgit.ts';
 import { buildSystemPrompt, discoverSkills } from '../core/systemprompt.ts';
 import { AutomationRunner } from '../core/automation.ts';
 import { McpManager } from '../core/mcp.ts';
@@ -107,6 +107,19 @@ export async function startWeb(app: App): Promise<void> {
 
   let busy = false;
   let abort: AbortController | null = null;
+  let queueOwner: { sessionId: string | null; turnId: string } | null = null;
+  let queued: { id: string; text: string; sessionId: string | null } | null = null;
+  const seenQueueIds = new Set<string>();
+  // ponytail: 单槽队列只记最近提交回执，供网络重试去重；需要历史任务队列时再持久化。
+  let queueReceipt: { id: string; text: string; sessionId: string | null; turnId: string; disposition: 'waiting' | 'started' | 'cancelled' } | null = null;
+
+  function clearQueue(reason: string) {
+    if (!queued) return;
+    const text = queued.text;
+    queued = null;
+    if (queueReceipt) queueReceipt.disposition = 'cancelled';
+    sendEvent({ type: 'command', output: `待执行输入已取消：${reason}\n${text}` });
+  }
 
   // 自动化任务：隔离会话后台执行，定义与状态持久化在数据目录 automations/
   const automations = new AutomationRunner(app.config.tcodeDir);
@@ -275,9 +288,11 @@ export async function startWeb(app: App): Promise<void> {
         skills: skillDirectories().flatMap((dir, index) => index && app.config.workspace === '' ? [] : discoverSkills([dir]).map((skill) => ({ ...skill, scope: index ? 'project' : 'global' }))),
       },
       config: { baseUrl, model, protocol: protocol ?? 'auto', contextLimit, workspace: cwd, hasApiKey: !!apiKey,
-        approval: app.config.approval ?? 'normal', allowWriteDirs: app.config.allowWriteDirs ?? [] },
+        approval: app.config.approval ?? 'normal', allowWriteDirs: app.config.allowWriteDirs ?? [],
+        beforeTurn: app.config.beforeTurn ?? '', afterTurn: app.config.afterTurn ?? '' },
       configError, storageError, currentSessionId: store.currentId, title: sessions.find((session) => session.id === store.currentId)?.title ?? '新会话', sessions,
       messages: app.messages.filter((message) => message.role !== 'system'), activity, status, busy,
+      queued, queueOwner: busy && !abort?.signal.aborted ? queueOwner : null,
       yolo: app.yolo.value, planMode: app.planMode.value, pending: [...permissions.values()], usage, turnId, seq,
     };
   }
@@ -343,7 +358,7 @@ export async function startWeb(app: App): Promise<void> {
         status = ev.reason;
         if (ev.reason === 'aborted') sendEvent({ type: 'aborted' });
         else if (ev.reason === 'error') sendEvent({ type: 'error', message: safeError(ev.error ?? '未知错误') });
-        sendEvent({ ...ev, error: ev.error ? safeError(ev.error) : undefined });
+        sendEvent({ ...ev, busy, error: ev.error ? safeError(ev.error) : undefined });
         break;
       default:
         break;
@@ -351,55 +366,91 @@ export async function startWeb(app: App): Promise<void> {
   }
 
   /** 生命周期钩子：以用户权限在项目目录执行配置的 shell 命令，输出回显会话；失败可见不阻塞 */
-  async function runHook(event: 'beforeTurn' | 'afterTurn', status: string): Promise<void> {
+  async function runHook(event: 'beforeTurn' | 'afterTurn', status: string, signal: AbortSignal): Promise<boolean> {
     const command = (event === 'beforeTurn' ? app.config.beforeTurn : app.config.afterTurn)?.trim();
-    if (!command) return;
+    if (!command) return true;
     const label = event === 'beforeTurn' ? '轮开始钩子' : '轮结束钩子';
     try {
+      signal.throwIfAborted();
       const executed = await new Promise<{ code: number | null; text: string }>((resolve, reject) => {
         const child = spawn(command, {
           shell: true,
+          detached: process.platform !== 'win32',
+          windowsHide: true,
           cwd: app.config.workspace ?? process.cwd(),
           env: { ...process.env, TCODE_HOOK_EVENT: event, TCODE_HOOK_STATUS: status, TCODE_HOOK_CWD: app.config.workspace ?? process.cwd() },
-          timeout: 30_000,
         });
+        // Hook 可在等待中写文件；停止和超时必须同时终止其子进程。
+        const kill = () => {
+          if (process.platform === 'win32' && child.pid) {
+            spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', () => child.kill('SIGKILL'));
+          } else if (child.pid) {
+            try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+          }
+        };
+        const cancel = () => { kill(); cleanup(); reject(new DOMException('用户已停止', 'AbortError')); };
+        const timer = setTimeout(kill, 30_000);
+        const cleanup = () => { clearTimeout(timer); signal.removeEventListener('abort', cancel); };
+        signal.addEventListener('abort', cancel, { once: true });
         let text = '';
-        child.stdout?.on('data', (chunk: Buffer) => { text += chunk.toString(); });
-        child.stderr?.on('data', (chunk: Buffer) => { text += chunk.toString(); });
-        child.on('close', (code) => resolve({ code, text: text.slice(-2000) }));
-        child.on('error', reject);
+        child.stdout?.on('data', (chunk: Buffer) => { text = (text + chunk.toString()).slice(-2000); });
+        child.stderr?.on('data', (chunk: Buffer) => { text = (text + chunk.toString()).slice(-2000); });
+        child.on('close', (code) => { cleanup(); resolve({ code, text }); });
+        child.on('error', (error) => { cleanup(); reject(error); });
       });
       const output = executed.text.trim();
       if (executed.code !== 0) sendEvent({ type: 'command', output: `${label}执行失败（code ${executed.code}）${output ? '\n' + output : ''}` });
       else if (output) sendEvent({ type: 'command', output: `${label}输出：\n${output}` });
+      return executed.code === 0;
     } catch (error) {
-      sendEvent({ type: 'command', output: `${label}执行失败：${(error as Error).message}` });
+      sendEvent({ type: 'command', output: signal.aborted ? `${label}已停止` : `${label}执行失败：${(error as Error).message}` });
+      return false;
     }
   }
 
-  const runAfterTurnHook = (status: string) => runHook('afterTurn', status);
-
   async function runTurnAsync(text: string): Promise<void> {
     busy = true;
-    abort = new AbortController();
-    resetJournal(app.config.tcodeDir, store.currentId ?? 'unknown');
-    await runHook('beforeTurn', 'beforeTurn');
     try {
-      // MCP 工具桥接就绪（连接预热完成或 2 秒上限）后再组装本轮工具
-      await Promise.race([
-        Promise.all((app.config.mcpServers ?? []).filter((server) => server.enabled)
-          .map((server) => mcp.test(server, process.cwd()).catch(() => {}))),
-        new Promise((resolve) => setTimeout(resolve, 2000)),
-      ]);
-      let turnStatus: string = 'completed';
-      await runUserTurn(app, text, {
-        check: gate,
-        signal: abort.signal,
-        emit: bridgeEvent,
-      }).catch((error: Error) => { turnStatus = error.name === 'AbortError' ? 'aborted' : 'error'; });
-      void runAfterTurnHook(turnStatus);
+      while (true) {
+        abort = new AbortController(); status = 'running';
+        queueOwner = { sessionId: store.currentId, turnId: randomBytes(12).toString('base64url') };
+        seenQueueIds.clear();
+        sendState();
+        let completed = false;
+        try {
+          resetJournal(app.config.tcodeDir, store.currentId ?? 'unknown');
+          const beforeOk = await runHook('beforeTurn', 'beforeTurn', abort.signal);
+          // MCP 工具桥接就绪（连接预热完成或 2 秒上限）后再组装本轮工具
+          await Promise.race([
+            Promise.all((app.config.mcpServers ?? []).filter((server) => server.enabled)
+              .map((server) => mcp.test(server, process.cwd()).catch(() => {}))),
+            new Promise((resolve) => setTimeout(resolve, 2000)),
+          ]);
+          refreshSystemPrompt();
+          let turnStatus: string = 'completed';
+          await runUserTurn(app, text, {
+            check: gate,
+            signal: abort.signal,
+            emit: bridgeEvent,
+          }).catch((error: Error) => { turnStatus = error.name === 'AbortError' ? 'aborted' : 'error'; });
+          const afterOk = await runHook('afterTurn', turnStatus, abort.signal);
+          completed = turnStatus === 'completed' && beforeOk && afterOk && !abort.signal.aborted;
+        } catch (error) {
+          status = 'error';
+          const message = safeError((error as Error).message);
+          sendEvent({ type: 'error', message });
+          sendEvent({ type: 'turn_end', reason: 'error', error: message, busy });
+        }
+        pending.clear(); permissions.clear();
+        if (!completed) clearQueue('当前轮次出错、停止或钩子失败，请检查结果后重新发送');
+        if (!queued) break;
+        text = queued.text; queued = null;
+        if (queueReceipt) queueReceipt.disposition = 'started';
+        // busy 始终保持，下一轮不得与设置、命令或自动化插队并发。
+      }
     } finally {
-      busy = false;
+      busy = false; queueOwner = null;
+      seenQueueIds.clear();
       abort = null;
       pending.clear(); permissions.clear();
       sendState();
@@ -473,8 +524,9 @@ export async function startWeb(app: App): Promise<void> {
     if (req.method === 'POST' && path === '/changes/revert') {
       if (busy) { json(res, 409, { error: '任务运行期间不能撤销修改' }); return; }
       if (typeof body.path !== 'string' || !body.path) throw new ConfigInputError('请提供要撤销的文件路径');
-      const absolute = nodePath.resolve(app.config.workspace ?? process.cwd(), body.path);
-      const entries = journalEntries().filter((entry) => entry.path === absolute);
+      const cwd = app.config.workspace ?? process.cwd();
+      const absolute = nodePath.resolve(await gitRoot(cwd).catch(() => cwd), body.path);
+      const entries = journalEntries().filter((entry) => entry.path === absolute && existingRealpath(entry.path) === entry.path);
       if (!entries.length) { json(res, 404, { error: '该文件没有本轮修改快照；只有 Agent 本轮通过编辑/写入工具改动的文件可撤销' }); return; }
       if (await revertToEntry(entries) === 'conflict') {
         json(res, 409, { error: '文件在快照之后又被修改（可能是你手动编辑的），为保护你的改动未执行撤销；可用 Git 对比后自行处理' });
@@ -601,6 +653,7 @@ export async function startWeb(app: App): Promise<void> {
       json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
     }
     if (req.method === 'POST' && path === '/mcp/test') {
+      if (busy || automations.anyRunning()) { json(res, 409, { error: '主会话、连接测试或自动化任务正在运行，请等待完成或先停止' }); return; }
       const id = String(body.id ?? '');
       const server = (app.config.mcpServers ?? []).find((entry) => entry.id === id);
       if (!server) { json(res, 404, { error: '没有这个 MCP 服务器' }); return; }
@@ -897,6 +950,34 @@ export async function startWeb(app: App): Promise<void> {
       void runTurnAsync(text).catch(() => {});
       return;
     }
+    if (req.method === 'POST' && path === '/queue') {
+      const text = String(body.text ?? '').trim();
+      if (!text) { json(res, 400, { error: '空输入' }); return; }
+      const id = body.id === undefined ? randomBytes(12).toString('base64url') : body.id;
+      if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(id)) { json(res, 400, { error: '排队 id 须为 1–80 位字母、数字、下划线或连字符' }); return; }
+      if (typeof body.sessionId !== 'string' || typeof body.turnId !== 'string') { json(res, 400, { error: '排队须携带当前 queueOwner 的 sessionId 与 turnId' }); return; }
+      if (queueReceipt?.id === id) {
+        if (queueReceipt.text !== text || queueReceipt.sessionId !== body.sessionId || queueReceipt.turnId !== body.turnId) { json(res, 409, { error: '此排队 id 已用于另一条输入或轮次' }); return; }
+        json(res, 200, { ok: true, id, state: snapshot() }); return;
+      }
+      if (!busy || !queueOwner || abort?.signal.aborted) { json(res, 409, { error: '只有正在运行的用户轮次可以排队后续输入' }); return; }
+      if (queueOwner.sessionId !== body.sessionId || queueOwner.turnId !== body.turnId) { json(res, 409, { error: '当前会话或轮次已变化，请刷新后重新发送' }); return; }
+      if (seenQueueIds.has(id)) { json(res, 409, { error: '此输入在当前轮次已被接受或取消，请使用新 id 发送新的输入' }); return; }
+      if (queued) { json(res, 409, { error: '已有一条待执行输入，请先取消或等待执行' }); return; }
+      queued = { id, text, sessionId: store.currentId };
+      seenQueueIds.add(id);
+      queueReceipt = { id, text, ...queueOwner, disposition: 'waiting' };
+      json(res, 200, { ok: true, id, state: snapshot() }); sendState(); return;
+    }
+    if (req.method === 'POST' && path === '/queue/cancel') {
+      const id = String(body.id ?? '');
+      if (queued?.id !== id) {
+        if (queueReceipt?.id === id && queueReceipt.disposition === 'cancelled') { json(res, 200, { ok: true, state: snapshot() }); return; }
+        json(res, 404, { error: '没有这条待执行输入；已开始执行的轮次请使用停止' }); return;
+      }
+      clearQueue('用户取消排队');
+      json(res, 200, { ok: true, state: snapshot() }); sendState(); return;
+    }
     if (req.method === 'POST' && path === '/permission') {
       const id = String(body.id ?? '');
       const decision = body.decision;
@@ -913,8 +994,10 @@ export async function startWeb(app: App): Promise<void> {
       return;
     }
     if (req.method === 'POST' && path === '/abort') {
+      clearQueue('用户停止当前轮次');
       abort?.abort();
       json(res, 200, { ok: true });
+      sendState();
       return;
     }
     if (req.method === 'POST' && path === '/command') {

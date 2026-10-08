@@ -80,8 +80,8 @@ export default definePlugin({
     const next = replaceAll
       ? content.split(oldString).join(newString)
       : content.replace(oldString, newString);
-    recordWrite(abs, preSnapshot(true, content), next);
     await writeFile(abs, next, 'utf8');
+    recordWrite(abs, preSnapshot(true, content), next);
     const count = replaceAll ? content.split(oldString).length - 1 : 1;
     return `已替换 ${file} 中 ${count} 处内容`;
   },

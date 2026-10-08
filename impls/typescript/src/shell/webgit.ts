@@ -59,6 +59,10 @@ function parseStatus(output: string): StatusEntry[] {
   return entries;
 }
 
+export async function gitRoot(cwd: string): Promise<string> {
+  return (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+}
+
 async function fileDiff(cwd: string, entry: StatusEntry, hasHead: boolean): Promise<string> {
   const options = ['--no-ext-diff', '--no-textconv', '--color=never'];
   if (entry.xy === '??') {
@@ -69,19 +73,18 @@ async function fileDiff(cwd: string, entry: StatusEntry, hasHead: boolean): Prom
   return (await git(cwd, ['diff', ...options, '--cached', '--', entry.path])) + await git(cwd, ['diff', ...options, '--', entry.path]);
 }
 
-/** macOS 等系统的 /var 是 /private/var 的别名；快照按工作目录记录，这里两种形态都识别 */
-function existingRealpath(target: string): string {
+/** 当前真实落点用于校验快照身份；已删除的规范路径保持原样，不能据此推断旧别名的原落点。 */
+export function existingRealpath(target: string): string {
   try { return realpathSync(target); } catch { return target; }
 }
 
-/** 逐文件变更视图；journal 是本轮写前快照（绝对路径 → 条目），用于标记可撤销文件 */
+/** 逐文件变更视图；journal 按写入时真实路径记录快照，旧别名记录不自动重新归属。 */
 export async function workspaceChanges(cwd: string, journal: Map<string, FileWriteEntry>): Promise<ChangesResult> {
   try {
-    await git(cwd, ['rev-parse', '--is-inside-work-tree']);
-    const toplevel = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
-    const entries = parseStatus(await git(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
+    const toplevel = await gitRoot(cwd);
+    const entries = parseStatus(await git(toplevel, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
     let hasHead = true;
-    try { await git(cwd, ['rev-parse', '--verify', 'HEAD']); } catch { hasHead = false; }
+    try { await git(toplevel, ['rev-parse', '--verify', 'HEAD']); } catch { hasHead = false; }
     const files: ChangeFile[] = [];
     let truncated = false;
     let budget = LIMIT;
@@ -99,7 +102,7 @@ export async function workspaceChanges(cwd: string, journal: Map<string, FileWri
         staged: entry.xy[0] !== ' ' && entry.xy[0] !== '?',
         untracked: entry.xy === '??' || added,
         deleted: entry.xy.includes('D'),
-        revertable: journal.has(absolute) || journal.has(existingRealpath(absolute)),
+        revertable: journal.has(absolute) && existingRealpath(absolute) === absolute,
         diff: diff && diff.trim() ? diff : null,
       });
     }
@@ -111,6 +114,7 @@ export async function workspaceChanges(cwd: string, journal: Map<string, FileWri
 
 /** 暂存或取消暂存；paths 必须来自当前变更列表，防止任意路径注入 */
 export async function stagePaths(cwd: string, paths: string[], stage: boolean): Promise<void> {
+  cwd = await gitRoot(cwd);
   const known = new Set<string>();
   for (const entry of parseStatus(await git(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all']))) {
     known.add(entry.path);
@@ -127,6 +131,7 @@ export async function stagePaths(cwd: string, paths: string[], stage: boolean): 
 }
 
 export async function commitStaged(cwd: string, message: string): Promise<void> {
+  cwd = await gitRoot(cwd);
   const hasStaged = await git(cwd, ['diff', '--cached', '--name-only']);
   if (!hasStaged.trim()) throw new RangeError('没有已暂存的变更；先勾选要提交的文件');
   await git(cwd, ['commit', '-m', message], { timeout: 15000 });
