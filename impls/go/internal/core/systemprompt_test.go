@@ -29,10 +29,24 @@ func TestSkillIndexUnreadableDirWarnsAndSkips(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stderr = w
+
+	t.Cleanup(func() { os.Stderr = old })
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("关闭 stderr 读取管道：%v", err)
+		}
+	})
 	got := SkillIndex([]string{f})
-	w.Close()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("关闭 stderr 写入管道：%v", err)
+	}
 	os.Stderr = old
-	out, _ := io.ReadAll(r)
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("读取 stderr：%v", err)
+	}
 
 	if got != "" {
 		t.Fatalf("不可读目录应被跳过，got %q", got)

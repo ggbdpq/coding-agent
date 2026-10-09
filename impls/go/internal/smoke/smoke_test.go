@@ -5,6 +5,7 @@ package smoke
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -34,10 +35,14 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "冒烟：起服务器失败：%v\n", err)
 		os.Exit(1)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
 	server := &http.Server{Handler: http.HandlerFunc(handleFakeSSE)}
-	go server.Serve(ln) //nolint:errcheck // 测试进程退出时统一回收
-	serverURL = fmt.Sprintf("http://127.0.0.1:%d/v1", port)
+	go func() {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Fprintf(os.Stderr, "冒烟：SSE 服务失败：%v\n", err)
+		}
+	}()
+
+	serverURL = "http://" + ln.Addr().String() + "/v1"
 
 	// 2. 编译被测二进制（比 go run 子进程更稳：不经 go 工具链转发信号）
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -60,8 +65,18 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
-	server.Close()
-	os.RemoveAll(buildDir)
+
+	if err := server.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "冒烟：关闭 SSE 服务失败：%v\n", err)
+
+		code = 1
+	}
+
+	if err := os.RemoveAll(buildDir); err != nil {
+		fmt.Fprintf(os.Stderr, "冒烟：清理编译目录失败：%v\n", err)
+
+		code = 1
+	}
 	os.Exit(code)
 }
 
@@ -73,14 +88,25 @@ func handleFakeSSE(w http.ResponseWriter, r *http.Request) {
 	bodiesMu.Unlock()
 
 	w.Header().Set("content-type", "text/event-stream")
-	flusher := w.(http.Flusher)
+	flusher, ok := w.(http.Flusher)
+
+	if !ok {
+		http.Error(w, "冒烟：响应不支持流式刷新", http.StatusInternalServerError)
+		return
+	}
 	send := func(obj any) {
 		b, _ := json.Marshal(obj)
-		fmt.Fprintf(w, "data: %s\n\n", b)
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+			fmt.Fprintf(os.Stderr, "冒烟：发送 SSE 事件失败：%v\n", err)
+			return
+		}
 		flusher.Flush()
 	}
 	finish := func() {
-		fmt.Fprint(w, "data: [DONE]\n\n")
+		if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err != nil {
+			fmt.Fprintf(os.Stderr, "冒烟：发送 SSE 结束事件失败：%v\n", err)
+			return
+		}
 		flusher.Flush()
 	}
 
@@ -210,9 +236,20 @@ func startGocode(t *testing.T, home string, args []string, envExtra map[string]s
 	if err != nil {
 		t.Fatalf("stdin 管道失败：%v", err)
 	}
-	stdout, _ := p.cmd.StdoutPipe()
-	stderr, _ := p.cmd.StderrPipe()
-	p.cmd.Start()
+
+	stdout, err := p.cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout 管道失败：%v", err)
+	}
+
+	stderr, err := p.cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("stderr 管道失败：%v", err)
+	}
+
+	if err := p.cmd.Start(); err != nil {
+		t.Fatalf("启动 gcode 失败：%v", err)
+	}
 	go func() {
 		_, _ = io.Copy(&p.out, stdout)
 	}()

@@ -122,7 +122,11 @@ func runWebFetch(ctx context.Context, args map[string]any) string {
 	}
 
 	ctype := resp.Header.Get("Content-Type")
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, fetchMaxBytes))
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, fetchMaxBytes))
+	if err != nil {
+		return fmt.Sprintf("错误：读取失败：%s", err)
+	}
 	body := string(data)
 	text := body
 	if strings.Contains(strings.ToLower(ctype), "html") {
