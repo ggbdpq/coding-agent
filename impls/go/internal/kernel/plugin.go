@@ -5,6 +5,7 @@ package kernel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -110,7 +111,7 @@ func NewRegistry() *Registry { return &Registry{} }
 // Register 注册一个插件；同 kind 重名或四类字段一个都没设时报错。
 func (r *Registry) Register(p Plugin) error {
 	if p.kind() == "" {
-		return fmt.Errorf("插件必须恰好设置 Tool/Command/Provider/Shell 之一")
+		return errors.New("插件必须恰好设置 Tool/Command/Provider/Shell 之一")
 	}
 	for _, q := range r.plugins {
 		if q.kind() == p.kind() && q.name() == p.name() {

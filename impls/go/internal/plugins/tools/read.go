@@ -44,7 +44,7 @@ func runRead(args map[string]any) string {
 	abs := ResolvePath(file).Abs
 	st, err := os.Stat(abs)
 	if err != nil {
-		return fmt.Sprintf("错误：文件不存在：%s", file)
+		return "错误：文件不存在：" + file
 	}
 	if st.IsDir() {
 		return fmt.Sprintf("错误：%s 是目录，请用 glob 列文件", file)
