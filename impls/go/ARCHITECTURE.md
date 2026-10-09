@@ -72,7 +72,7 @@ Go 惯例：单测与被测同目录。
 | --- | --- | --- |
 | ApplyEdit 判定表 | `internal/plugins/tools/edit_test.go` | old_string 唯一性防线 |
 | Trim 估算与裁剪 | `internal/core/trim_test.go` | 裁旧留新 12、配对完整、幂等 |
-| Netguard 判定表 | `internal/plugins/tools/netguard_test.go` | SSRF 防线（含 IPv6 展开形式、::ffff: 映射） |
+| Netguard 判定表 | `internal/plugins/tools/netguard_test.go` | SSRF 防线（含 IPv6 展开形式、::ffff: 映射）与 DNS 原因错误链 |
 | 网页正文读取 | `internal/plugins/tools/webfetch_test.go` | 经 `ToolDef.Run` + HTTP transport 边界验证完整正文成功、读取中断返回错误 |
 | Registry | `internal/kernel/registry_test.go` | 注册/按类取用/重名拒绝/schema 形状 |
 | 端到端冒烟 | `internal/smoke/smoke_test.go` | 假 SSE 服务器 + 真二进制子进程，A/B/C/D/F 五场景 |

@@ -138,7 +138,7 @@ func IsPublicIPv6(ip string) bool {
 func AssertResolvesPublic(hostname string) error {
 	addrs, err := net.LookupIP(hostname)
 	if err != nil {
-		return fmt.Errorf("错误：%s 解析失败：%s（已拦截，SSRF 防护）", hostname, err)
+		return fmt.Errorf("错误：%s 解析失败：%w（已拦截，SSRF 防护）", hostname, err)
 	}
 	if len(addrs) == 0 {
 		return fmt.Errorf("错误：%s 没有解析到任何地址", hostname)
