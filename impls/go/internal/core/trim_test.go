@@ -2,15 +2,14 @@
 package core
 
 import (
+	"gcode/internal/kernel"
 	"strconv"
 	"strings"
 	"testing"
-
-	"gcode/internal/kernel"
 )
 
 // exchange 构造一组 assistant(tool_call) + tool(大输出) 消息。
-func exchange(i int, size int) []kernel.ChatMessage {
+func exchange(i, size int) []kernel.ChatMessage {
 	id := "c" + strconv.Itoa(i)
 
 	return []kernel.ChatMessage{

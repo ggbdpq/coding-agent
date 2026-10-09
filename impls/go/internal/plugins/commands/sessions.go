@@ -3,9 +3,8 @@ package commands
 
 import (
 	"fmt"
-	"time"
-
 	"gcode/internal/kernel"
+	"time"
 )
 
 // SessionsCmd 构造 /sessions 命令插件。

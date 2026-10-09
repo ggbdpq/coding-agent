@@ -3,9 +3,8 @@ package commands
 
 import (
 	"fmt"
-	"strings"
-
 	"gcode/internal/kernel"
+	"strings"
 )
 
 // HelpText 生成帮助文本（独立导出便于复用与测试）。

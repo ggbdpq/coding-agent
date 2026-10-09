@@ -7,14 +7,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"gcode/internal/kernel"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"gcode/internal/kernel"
 )
 
 // SessionStore JSONL 会话存储。

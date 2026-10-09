@@ -4,9 +4,8 @@
 package core
 
 import (
-	"unicode/utf8"
-
 	"gcode/internal/kernel"
+	"unicode/utf8"
 )
 
 // keepRecentTools 保留最近多少条工具消息不动。

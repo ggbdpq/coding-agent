@@ -3,10 +3,9 @@
 package tools
 
 import (
+	"gcode/internal/kernel"
 	"path/filepath"
 	"testing"
-
-	"gcode/internal/kernel"
 )
 
 func allowWriteApp(dirs ...string) *kernel.App {

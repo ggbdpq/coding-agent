@@ -5,11 +5,10 @@ package commands
 
 import (
 	"fmt"
+	"gcode/internal/kernel"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 var initTemplate = strings.Join([]string{

@@ -4,9 +4,8 @@ package commands
 
 import (
 	"fmt"
-	"strings"
-
 	"gcode/internal/kernel"
+	"strings"
 )
 
 // ApprovalCmd 构造 /approval 命令插件。

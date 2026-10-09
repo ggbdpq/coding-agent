@@ -5,9 +5,8 @@ package commands
 
 import (
 	"fmt"
-	"strings"
-
 	"gcode/internal/kernel"
+	"strings"
 )
 
 // planSection 以空行起头追加到 system 提示词之后。

@@ -5,7 +5,6 @@ package commands
 import (
 	"context"
 	"fmt"
-
 	"gcode/internal/core"
 	"gcode/internal/kernel"
 )

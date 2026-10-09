@@ -5,10 +5,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"gcode/internal/kernel"
 	"os"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 const (

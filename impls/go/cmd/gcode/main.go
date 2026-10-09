@@ -6,13 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
 	"gcode/internal/core"
 	"gcode/internal/kernel"
 	"gcode/internal/plugins"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 const usage = `gcode —— 极简本地优先 coding agent

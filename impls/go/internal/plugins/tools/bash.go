@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gcode/internal/kernel"
 	"math"
 	"os"
 	"os/exec"
@@ -17,8 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
-
-	"gcode/internal/kernel"
 )
 
 const (

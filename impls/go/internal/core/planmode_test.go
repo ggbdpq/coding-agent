@@ -4,10 +4,9 @@ package core
 
 import (
 	"context"
+	"gcode/internal/kernel"
 	"strings"
 	"testing"
-
-	"gcode/internal/kernel"
 )
 
 // planModeTools write（写类，记录是否真的执行过）与 read（读类）两个测试工具。

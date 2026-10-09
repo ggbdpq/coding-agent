@@ -9,12 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gcode/internal/kernel"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 // OpenAIProvider OpenAI 兼容协议客户端。

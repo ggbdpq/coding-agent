@@ -6,10 +6,9 @@ package core
 import (
 	"context"
 	"errors"
+	"gcode/internal/kernel"
 	"reflect"
 	"testing"
-
-	"gcode/internal/kernel"
 )
 
 // fakeStore 假会话存储：只记录 Append 调用。

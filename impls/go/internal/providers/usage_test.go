@@ -5,13 +5,12 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"gcode/internal/kernel"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"gcode/internal/kernel"
 )
 
 func sseResponse(w http.ResponseWriter, events ...string) {

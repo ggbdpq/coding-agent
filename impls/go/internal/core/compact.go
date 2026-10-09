@@ -8,9 +8,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-
 	"gcode/internal/kernel"
+	"strings"
 )
 
 // MinCompactMessages system + 至少 4 条对话才值得压缩。

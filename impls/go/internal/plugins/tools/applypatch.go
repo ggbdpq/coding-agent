@@ -8,10 +8,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"gcode/internal/kernel"
 	"os"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 // preparedEdit 预验通过、待写入的一条编辑。

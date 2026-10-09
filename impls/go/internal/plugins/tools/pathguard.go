@@ -5,11 +5,10 @@
 package tools
 
 import (
+	"gcode/internal/kernel"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 // ResolvedPath 路径解析结果。

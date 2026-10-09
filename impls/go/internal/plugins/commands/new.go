@@ -3,7 +3,6 @@ package commands
 
 import (
 	"fmt"
-
 	"gcode/internal/kernel"
 )
 

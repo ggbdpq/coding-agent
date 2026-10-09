@@ -143,7 +143,8 @@ func LoadConfig() (*Config, error) {
 				"设置方式（二选一）：\n"+
 				"  1. 环境变量：export GCODE_API_KEY=sk-xxx GCODE_BASE_URL=https://xxx/v1 GCODE_MODEL=模型名\n"+
 				"  2. 配置文件：~/.gcode/config.json 写 {\"apiKey\":\"...\",\"baseUrl\":\"...\",\"model\":\"...\"}\n"+
-				"任何 OpenAI 兼容端点都可以（本地中转、云 API 均可）。", strings.Join(missing, "、"))
+				"任何 OpenAI 兼容端点都可以（本地中转、云 API 均可）。", strings.Join(missing, "、"),
+		)
 	}
 
 	return &Config{

@@ -4,11 +4,10 @@ package core
 import (
 	"context"
 	"errors"
+	"gcode/internal/kernel"
 	"reflect"
 	"strings"
 	"testing"
-
-	"gcode/internal/kernel"
 )
 
 func summarizerClient() kernel.ChatClient {

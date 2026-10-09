@@ -5,12 +5,11 @@ package tools
 import (
 	"context"
 	"fmt"
+	"gcode/internal/kernel"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
-
-	"gcode/internal/kernel"
 )
 
 // NewWrite 构造 write 工具插件。

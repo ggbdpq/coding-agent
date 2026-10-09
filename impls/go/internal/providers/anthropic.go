@@ -10,11 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gcode/internal/kernel"
 	"net/http"
 	"sort"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 // AnthropicVersion 协议版本头。
@@ -288,7 +287,8 @@ func (p *AnthropicProvider) attempt(ctx context.Context, messages []kernel.ChatM
 
 func orDefault(e *struct {
 	Message string `json:"message"`
-}, fallback string) string {
+}, fallback string,
+) string {
 	if e != nil && e.Message != "" {
 		return e.Message
 	}

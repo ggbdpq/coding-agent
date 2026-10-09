@@ -7,13 +7,12 @@ package tools
 import (
 	"context"
 	"fmt"
+	"gcode/internal/kernel"
 	"io"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
-
-	"gcode/internal/kernel"
 )
 
 const (

@@ -4,10 +4,9 @@ package providers
 import (
 	"context"
 	"errors"
+	"gcode/internal/kernel"
 	"net"
 	"time"
-
-	"gcode/internal/kernel"
 )
 
 // RetryableError 标记可重试的错误（HTTP 429/5xx/529、网络层失败）。

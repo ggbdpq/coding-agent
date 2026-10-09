@@ -3,12 +3,11 @@ package commands
 
 import (
 	"fmt"
+	"gcode/internal/kernel"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-
-	"gcode/internal/kernel"
 )
 
 // ResumeCmd 构造 /resume 命令插件。

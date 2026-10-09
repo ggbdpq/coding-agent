@@ -6,10 +6,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"gcode/internal/kernel"
 	"os"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 // EditResult ApplyEdit 的判定结果：OK=false 时 Message 为错误信息。

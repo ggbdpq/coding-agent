@@ -4,9 +4,8 @@ package core
 
 import (
 	"context"
-	"testing"
-
 	"gcode/internal/kernel"
+	"testing"
 )
 
 func TestLoopCircuitBreaker40Rounds(t *testing.T) {

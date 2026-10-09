@@ -8,10 +8,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"gcode/internal/kernel"
 	"strings"
 	"time"
-
-	"gcode/internal/kernel"
 )
 
 // MaxToolRounds 防失控：单轮对话最多允许的工具往返次数。

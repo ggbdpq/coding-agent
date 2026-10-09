@@ -6,9 +6,8 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strings"
-
 	"gcode/internal/kernel"
+	"strings"
 )
 
 type todoItem struct {

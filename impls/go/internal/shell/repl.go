@@ -9,12 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gcode/internal/core"
+	"gcode/internal/kernel"
 	"os"
 	"os/signal"
 	"strings"
-
-	"gcode/internal/core"
-	"gcode/internal/kernel"
 )
 
 // Repl 返回 REPL 壳插件。

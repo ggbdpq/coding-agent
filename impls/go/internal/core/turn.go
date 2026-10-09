@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-
 	"gcode/internal/kernel"
 )
 
@@ -66,8 +65,10 @@ func RunUserTurn(ctx context.Context, app *kernel.App, line string, hooks TurnHo
 			emit(kernel.AgentEvent{Type: kernel.EvToolCall, CallID: callID, Name: name, Args: args})
 		},
 		OnToolResult: func(callID, name, result string, ms int64) {
-			emit(kernel.AgentEvent{Type: kernel.EvToolResult, CallID: callID, Name: name,
-				Summary: firstLine(result), Ms: int(ms)})
+			emit(kernel.AgentEvent{
+				Type: kernel.EvToolResult, CallID: callID, Name: name,
+				Summary: firstLine(result), Ms: int(ms),
+			})
 		},
 	})
 	if err != nil {
