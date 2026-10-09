@@ -31,11 +31,13 @@ func pickTailStart(messages []kernel.ChatMessage, idealStart int) int {
 	if start < 1 {
 		start = 1
 	}
+
 	for i := start; i < len(messages); i++ {
 		if messages[i].Role == "user" {
 			return i
 		}
 	}
+
 	return len(messages)
 }
 
@@ -51,17 +53,21 @@ func CompactContext(app *kernel.App, opts CompactOpts) (savedTokens int, err err
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
 	if len(app.Messages) <= MinCompactMessages {
 		return 0, errors.New("对话太短，没什么可压缩的")
 	}
+
 	before := EstimateTokens(app.Messages)
 
 	var sb strings.Builder
+
 	for _, m := range app.Messages[1:] {
 		content := m.Text()
 		if content == "" {
 			content = fmt.Sprintf("(tool_calls: %d 个)", len(m.ToolCalls))
 		}
+
 		sb.WriteString(m.Role + ": " + content + "\n")
 	}
 
@@ -73,8 +79,10 @@ func CompactContext(app *kernel.App, opts CompactOpts) (savedTokens int, err err
 		if ctx.Err() != nil {
 			return 0, fmt.Errorf("已中止（用户取消）：%w", ctx.Err())
 		}
+
 		return 0, err
 	}
+
 	summary := res.Message.Text()
 	if summary == "" {
 		return 0, errors.New("模型返回了空摘要")
@@ -89,9 +97,11 @@ func CompactContext(app *kernel.App, opts CompactOpts) (savedTokens int, err err
 	})
 	next = append(next, app.Messages[tailStart:]...)
 	app.Messages = next
+
 	saved := before - EstimateTokens(app.Messages)
 	if saved < 0 {
 		saved = 0
 	}
+
 	return saved, nil
 }

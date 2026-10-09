@@ -50,20 +50,26 @@ func NewApplyPatch() *kernel.ToolDef {
 		NeedsPermission: true,
 		Preview: func(args map[string]any) string {
 			edits, _ := args["edits"].([]any)
+
 			var files []string
+
 			seen := map[string]bool{}
+
 			for _, e := range edits {
 				m, _ := e.(map[string]any)
+
 				f, _ := m["file_path"].(string)
 				if !seen[f] {
 					seen[f] = true
 					files = append(files, f)
 				}
 			}
+
 			lines := make([]string, 0, len(files))
 			for _, f := range files {
 				lines = append(lines, "  · "+f)
 			}
+
 			return fmt.Sprintf("批量补丁：%d 处编辑，涉及 %d 个文件\n%s",
 				len(edits), len(files), strings.Join(lines, "\n"))
 		},
@@ -81,22 +87,27 @@ func runApplyPatch(args map[string]any) string {
 	// 第一阶段：全量预验（读文件 + 唯一性检查），不改任何磁盘内容
 	cache := map[string]string{}
 	prepared := make([]preparedEdit, 0, len(raw))
+
 	var errs []string
+
 	for i, e := range raw {
 		m, _ := e.(map[string]any)
 		file, _ := m["file_path"].(string)
 		oldString, _ := m["old_string"].(string)
 		newString, _ := m["new_string"].(string)
 		replaceAll, _ := m["replace_all"].(bool)
+
 		if file == "" || oldString == "" {
 			errs = append(errs, fmt.Sprintf("#%d：缺少 file_path 或 old_string", i))
 			continue
 		}
+
 		abs := ResolvePath(file).Abs
 		if _, duplicate := cache[abs]; duplicate {
 			errs = append(errs, fmt.Sprintf("#%d：同一文件不能包含多条编辑：%s", i, file))
 			continue
 		}
+
 		original, ok := cache[abs]
 		if !ok {
 			data, err := os.ReadFile(abs)
@@ -104,9 +115,11 @@ func runApplyPatch(args map[string]any) string {
 				errs = append(errs, fmt.Sprintf("#%d：无法读取 %s", i, file))
 				continue
 			}
+
 			original = string(data)
 			cache[abs] = original
 		}
+
 		count := strings.Count(original, oldString)
 		if count == 0 {
 			errs = append(errs, fmt.Sprintf("#%d：%s 中未找到 old_string", i, file))
@@ -114,17 +127,21 @@ func runApplyPatch(args map[string]any) string {
 			errs = append(errs, fmt.Sprintf("#%d：%s 中 old_string 出现 %d 次（需 replace_all 或更多上下文）", i, file, count))
 			continue
 		}
+
 		next := strings.Replace(original, oldString, newString, 1)
 		if replaceAll && count > 1 {
 			next = strings.ReplaceAll(original, oldString, newString)
 		}
+
 		prepared = append(prepared, preparedEdit{abs: abs, display: file, next: next})
 	}
+
 	if len(errs) > 0 {
 		lines := make([]string, 0, len(errs))
 		for _, s := range errs {
 			lines = append(lines, "- "+s)
 		}
+
 		return "错误：预验未通过，未写入任何文件。\n" + strings.Join(lines, "\n")
 	}
 
@@ -134,13 +151,16 @@ func runApplyPatch(args map[string]any) string {
 			return fmt.Sprintf("错误：写入失败：%s", err)
 		}
 	}
+
 	displays := map[string]bool{}
 	uniq := 0
+
 	for _, p := range prepared {
 		if !displays[p.display] {
 			displays[p.display] = true
 			uniq++
 		}
 	}
+
 	return fmt.Sprintf("已应用补丁：%d 处编辑，涉及 %d 个文件", len(prepared), uniq)
 }

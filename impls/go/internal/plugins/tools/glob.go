@@ -26,6 +26,7 @@ func NewGlob() *kernel.ToolDef {
 			if pattern == "" {
 				return "错误：缺少 pattern"
 			}
+
 			return runRg([]string{"--files", "-g", pattern}, 8000)
 		},
 	}

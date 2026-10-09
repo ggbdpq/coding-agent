@@ -42,7 +42,9 @@ func main() {
 	}
 
 	var rest []string
+
 	yolo, cont := false, false
+
 	for _, a := range args {
 		switch a {
 		case "--yolo":
@@ -61,6 +63,7 @@ func main() {
 		shellName = "exec"
 		rest = rest[1:]
 	}
+
 	if shellName == "repl" && len(rest) > 0 {
 		fmt.Printf("提示：忽略多余参数：%s\n", strings.Join(rest, " "))
 	}
@@ -76,11 +79,14 @@ func run(shellName string, task []string, yolo, cont bool) error {
 	if err != nil {
 		return err
 	}
+
 	store, err := core.NewSessionStore(filepath.Join(config.GocodeDir, "sessions"))
 	if err != nil {
 		return err
 	}
+
 	registry := kernel.NewRegistry().MustRegister(plugins.Builtin()...)
+
 	app, err := kernel.CreateApp(config, registry, kernel.AppOptions{
 		// 审批策略 never 与 --yolo 等价（R4）
 		Yolo: yolo || config.Approval == "never",
@@ -89,6 +95,7 @@ func run(shellName string, task []string, yolo, cont bool) error {
 			if err != nil {
 				cwd = "."
 			}
+
 			return []kernel.ChatMessage{{Role: "system", Content: kernel.StrPtr(core.BuildSystemPrompt(cwd))}}
 		},
 		Store: store,
@@ -105,10 +112,12 @@ func run(shellName string, task []string, yolo, cont bool) error {
 		runExec(app, task) // 出错自行以退出码 1 收尾
 		return nil
 	}
+
 	shell := registry.Shell(shellName)
 	if shell == nil {
 		return fmt.Errorf("找不到 shell 插件：%s", shellName)
 	}
+
 	return shell.Start(app)
 }
 
@@ -120,12 +129,15 @@ func resumeLatest(app *kernel.App) {
 		fmt.Println("没有可恢复的会话，从新会话开始。")
 		return
 	}
+
 	var loaded []kernel.ChatMessage
+
 	for _, m := range app.Store.Load(latest[0].File) {
 		if m.Role != "system" {
 			loaded = append(loaded, m)
 		}
 	}
+
 	app.Messages = append(app.Messages, loaded...)
 	app.StartSession(map[string]any{"resumedFrom": filepath.Base(latest[0].File)})
 	fmt.Printf("已恢复最近会话（%d 条消息）。\n", len(loaded))
@@ -138,11 +150,13 @@ func runExec(app *kernel.App, rest []string) {
 		fmt.Fprintln(os.Stderr, "错误：exec 模式必须配合 --yolo（无交互环境无法逐次确认写操作）")
 		os.Exit(1)
 	}
+
 	task := core.ExpandAtRefs(strings.Join(rest, " "), core.ReadCapped)
 	if strings.TrimSpace(task) == "" {
 		fmt.Fprintln(os.Stderr, `错误：exec 需要任务描述：gcode exec "任务"`)
 		os.Exit(1)
 	}
+
 	failed := false
 	err := core.RunUserTurn(context.Background(), app, task, core.TurnHooks{
 		Emit: func(ev kernel.AgentEvent) {
@@ -157,16 +171,21 @@ func runExec(app *kernel.App, rest []string) {
 			case kernel.EvTurnEnd:
 				if ev.Reason != kernel.TurnCompleted {
 					fmt.Fprintf(os.Stderr, "\n[turn:%s]%s\n", ev.Reason, ev.Error)
+
 					failed = true
 				}
 			}
 		},
 	})
+
 	fmt.Println()
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误：%s\n", err)
+
 		failed = true
 	}
+
 	if failed {
 		os.Exit(1)
 	}

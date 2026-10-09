@@ -46,15 +46,19 @@ func TestRegistryRegisterAndQuery(t *testing.T) {
 	if len(r.Tools()) != 1 || r.Tools()[0].Name != "t1" {
 		t.Fatalf("tools 取用异常：%v", r.Tools())
 	}
+
 	if len(r.Providers()) != 1 || r.Providers()[0].Name != "fake" {
 		t.Fatalf("providers 取用异常：%v", r.Providers())
 	}
+
 	if len(r.Commands()) != 1 || r.Commands()[0].Name != "cmd1" {
 		t.Fatalf("commands 取用异常：%v", r.Commands())
 	}
+
 	if sh := r.Shell("repl"); sh == nil || sh.Name != "repl" {
 		t.Fatalf("shell(repl) 取用异常：%v", sh)
 	}
+
 	if r.Shell("不存在") != nil {
 		t.Fatalf("不存在的 shell 应返回 nil")
 	}
@@ -65,6 +69,7 @@ func TestRegistryDuplicateName(t *testing.T) {
 	if err := r.Register(Plugin{Tool: fakeTool}); err != nil {
 		t.Fatalf("首次注册不应报错：%v", err)
 	}
+
 	err := r.Register(Plugin{Tool: &ToolDef{Name: "t1"}})
 	if err == nil || !strings.Contains(err.Error(), "插件重名") {
 		t.Fatalf("同 kind 重名应拒绝，got %v", err)
@@ -85,6 +90,7 @@ func TestRegistryRejectsEmptyPlugin(t *testing.T) {
 func TestRegistryToolSchemas(t *testing.T) {
 	r := NewRegistry().MustRegister(Plugin{Tool: fakeTool})
 	schemas := r.ToolSchemas()
+
 	want := []ToolSchema{{
 		Type: "function",
 		Function: ToolSchemaFunction{
@@ -103,10 +109,12 @@ func TestRegistryPreservesRegistrationOrder(t *testing.T) {
 		Plugin{Tool: fakeTool},
 		Plugin{Tool: &ToolDef{Name: "t2"}},
 	)
+
 	got := make([]string, 0, len(r.Tools()))
 	for _, tool := range r.Tools() {
 		got = append(got, tool.Name)
 	}
+
 	if !reflect.DeepEqual(got, []string{"t1", "t2"}) {
 		t.Fatalf("注册顺序应保持（装配顺序即优先级），got %v", got)
 	}

@@ -52,6 +52,7 @@ func (m ChatMessage) Text() string {
 	if m.Content == nil {
 		return ""
 	}
+
 	return *m.Content
 }
 

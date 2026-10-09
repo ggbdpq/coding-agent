@@ -14,19 +14,24 @@ import (
 func SSEData(ctx context.Context, r io.Reader) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		br := bufio.NewReader(r)
+
 		var lines []string
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
 			}
+
 			line, err := br.ReadString('\n')
+
 			trimmed := strings.TrimRight(line, "\r\n")
 			if trimmed == "" {
 				if len(lines) > 0 {
 					data := strings.Join(lines, "\n")
 					lines = lines[:0]
+
 					if !yield(data) {
 						return
 					}
@@ -36,11 +41,13 @@ func SSEData(ctx context.Context, r io.Reader) iter.Seq[string] {
 					lines = append(lines, v)
 				}
 			}
+
 			if err != nil {
 				// EOF 或读错误：残留半事件也收尾
 				if len(lines) > 0 {
 					yield(strings.Join(lines, "\n"))
 				}
+
 				return
 			}
 		}

@@ -27,11 +27,14 @@ const DefaultMaxTokens = 8192
 // 纯函数，块用 map 表达（避免 omitempty 吞掉 "input":{}）。
 func ToAnthropicRequest(messages []kernel.ChatMessage, model string, maxTokens int, tools []kernel.ToolSchema) map[string]any {
 	var system []string
+
 	type flatMsg struct {
 		role    string
 		content []map[string]any
 	}
+
 	var flat []flatMsg
+
 	for _, m := range messages {
 		switch m.Role {
 		case "system":
@@ -49,18 +52,22 @@ func ToAnthropicRequest(messages []kernel.ChatMessage, model string, maxTokens i
 			if m.Text() != "" {
 				blocks = append(blocks, map[string]any{"type": "text", "text": m.Text()})
 			}
+
 			for _, tc := range m.ToolCalls {
 				var input any = map[string]any{}
+
 				if raw := tc.Function.Arguments; raw != "" {
 					var parsed any
 					if json.Unmarshal([]byte(raw), &parsed) == nil && parsed != nil {
 						input = parsed
 					}
 				}
+
 				blocks = append(blocks, map[string]any{
 					"type": "tool_use", "id": tc.ID, "name": tc.Function.Name, "input": input,
 				})
 			}
+
 			flat = append(flat, flatMsg{"assistant", blocks})
 		}
 	}
@@ -70,8 +77,10 @@ func ToAnthropicRequest(messages []kernel.ChatMessage, model string, maxTokens i
 		if n := len(merged); n > 0 && merged[n-1]["role"] == m.role {
 			prev := merged[n-1]["content"].([]map[string]any)
 			merged[n-1]["content"] = append(prev, m.content...)
+
 			continue
 		}
+
 		merged = append(merged, map[string]any{"role": m.role, "content": m.content})
 	}
 
@@ -84,6 +93,7 @@ func ToAnthropicRequest(messages []kernel.ChatMessage, model string, maxTokens i
 	if len(system) > 0 {
 		body["system"] = strings.Join(system, "\n")
 	}
+
 	if len(tools) > 0 {
 		ts := make([]map[string]any, 0, len(tools))
 		for _, t := range tools {
@@ -93,8 +103,10 @@ func ToAnthropicRequest(messages []kernel.ChatMessage, model string, maxTokens i
 				"input_schema": t.Function.Parameters,
 			})
 		}
+
 		body["tools"] = ts
 	}
+
 	return body
 }
 
@@ -163,10 +175,12 @@ func (p *AnthropicProvider) attempt(ctx context.Context, messages []kernel.ChatM
 	if err != nil {
 		return kernel.CompletionResult{}, err
 	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1/messages", bytes.NewReader(body))
 	if err != nil {
 		return kernel.CompletionResult{}, err
 	}
+
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-api-key", p.apiKey)
 	req.Header.Set("authorization", "Bearer "+p.apiKey)
@@ -177,33 +191,41 @@ func (p *AnthropicProvider) attempt(ctx context.Context, messages []kernel.ChatM
 		return kernel.CompletionResult{}, err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return kernel.CompletionResult{}, httpStatusError(resp, true, 500) // 529 也 >=500，一并可重试
 	}
 
 	// 事件装配：text_delta 累加正文；tool_use 块按 index 收 input_json_delta 碎片
 	var text strings.Builder
+
 	toolBlocks := map[int]*anthroSlot{}
+
 	for data := range SSEData(ctx, resp.Body) {
 		if err := ctx.Err(); err != nil {
 			return kernel.CompletionResult{}, err // 流中用户中止：立即放弃，不返回半截消息
 		}
+
 		var ev anthroEvent
 		if json.Unmarshal([]byte(data), &ev) != nil {
 			continue
 		}
+
 		if ev.Type == "error" {
 			return kernel.CompletionResult{}, errors.New("流内错误：" + orDefault(ev.Error, data))
 		}
+
 		if ev.Type == "content_block_start" && ev.ContentBlock.Type == "tool_use" {
 			toolBlocks[ev.Index] = &anthroSlot{id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
 			continue
 		}
+
 		if ev.Type == "content_block_delta" {
 			switch ev.Delta.Type {
 			case "text_delta":
 				if ev.Delta.Text != "" {
 					text.WriteString(ev.Delta.Text)
+
 					if opts.OnText != nil {
 						opts.OnText(ev.Delta.Text)
 					}
@@ -220,6 +242,7 @@ func (p *AnthropicProvider) attempt(ctx context.Context, messages []kernel.ChatM
 			if ev.Type == "message_start" && ev.Message != nil {
 				u = &ev.Message.Usage
 			}
+
 			if u != nil && opts.OnUsage != nil && (u.InputTokens > 0 || u.OutputTokens > 0) {
 				opts.OnUsage(kernel.Usage{PromptTokens: u.InputTokens, CompletionTokens: u.OutputTokens})
 			}
@@ -231,8 +254,11 @@ func (p *AnthropicProvider) attempt(ctx context.Context, messages []kernel.ChatM
 	for i := range toolBlocks {
 		indexes = append(indexes, i)
 	}
+
 	sort.Ints(indexes)
+
 	var toolCalls []kernel.ToolCall
+
 	for _, i := range indexes {
 		b := toolBlocks[i]
 		// 解析一遍再序列化：既验证 JSON 完整性，也归一成内部 arguments 字符串
@@ -242,10 +268,12 @@ func (p *AnthropicProvider) attempt(ctx context.Context, messages []kernel.ChatM
 		} else if normalized, err := json.Marshal(json.RawMessage(args)); err == nil {
 			args = string(normalized)
 		} // 流被截断时保留原文，工具层的参数解析会兜底报错
+
 		id := b.id
 		if id == "" {
 			id = fmt.Sprintf("toolu_%d", i)
 		}
+
 		toolCalls = append(toolCalls, kernel.ToolCall{
 			ID:       id,
 			Type:     "function",
@@ -254,6 +282,7 @@ func (p *AnthropicProvider) attempt(ctx context.Context, messages []kernel.ChatM
 	}
 
 	msg := kernel.ChatMessage{Role: "assistant", Content: nilOrText(text.String()), ToolCalls: toolCalls}
+
 	return kernel.CompletionResult{Message: msg}, nil
 }
 
@@ -263,6 +292,7 @@ func orDefault(e *struct {
 	if e != nil && e.Message != "" {
 		return e.Message
 	}
+
 	return fallback
 }
 

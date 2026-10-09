@@ -29,15 +29,19 @@ func PlanCmd() *kernel.CommandDef {
 					if sys.Content != nil {
 						base = *sys.Content
 					}
+
 					app.Messages[0].Content = kernel.StrPtr(base + planSection)
 				}
+
 				fmt.Println(kernel.Yellow("已进入 Plan Mode：只读探索与规划，写类工具将被拒绝。"))
 			} else {
 				if sys := app.Messages[0]; sys.Content != nil {
 					app.Messages[0].Content = kernel.StrPtr(strings.Split(*sys.Content, "\n# Plan Mode（当前生效）")[0])
 				}
+
 				fmt.Println(kernel.Green("已退出 Plan Mode，恢复正常执行。"))
 			}
+
 			return kernel.CommandOutcome{}
 		},
 	}

@@ -32,10 +32,12 @@ func NewWrite() *kernel.ToolDef {
 		},
 		Preview: func(args map[string]any) string {
 			outside := ResolvePath(argString(args, "file_path")).Outside
+
 			flag := ""
 			if outside {
 				flag = "\n⚠ 注意：该路径在当前工作目录之外！"
 			}
+
 			return fmt.Sprintf("写入 %s%s\n%s", argString(args, "file_path"), flag,
 				kernel.Ellipsis(argString(args, "content"), 4000))
 		},
@@ -48,17 +50,22 @@ func runWrite(args map[string]any) string {
 	if file == "" {
 		return "错误：缺少 file_path"
 	}
+
 	text, ok := args["content"].(string)
 	if !ok {
 		return "错误：缺少 content"
 	}
+
 	abs := ResolvePath(file).Abs
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return fmt.Sprintf("错误：创建父目录失败：%s", err)
 	}
+
 	if err := os.WriteFile(abs, []byte(text), 0o644); err != nil {
 		return fmt.Sprintf("错误：写入失败：%s", err)
 	}
+
 	lines := strings.Count(text, "\n") + 1
+
 	return fmt.Sprintf("已写入 %s（%d 字符 / %d 行）", file, utf8.RuneCountInString(text), lines)
 }

@@ -69,6 +69,7 @@ func TestNetguardPublicAllowedAndBadURL(t *testing.T) {
 			t.Fatalf("%s 应放行（字面层）", raw)
 		}
 	}
+
 	if !blocked(t, "not a url") {
 		t.Fatalf("坏 URL 应被拒绝")
 	}

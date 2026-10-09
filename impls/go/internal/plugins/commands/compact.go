@@ -20,7 +20,9 @@ func CompactCmd() *kernel.CommandDef {
 				fmt.Printf("压缩未执行：%s\n", err)
 				return kernel.CommandOutcome{}
 			}
+
 			fmt.Printf("已压缩：替换为任务摘要，节省约 %d tokens 的上下文预算。\n", saved)
+
 			return kernel.CommandOutcome{}
 		},
 	}

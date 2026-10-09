@@ -35,6 +35,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "冒烟：起服务器失败：%v\n", err)
 		os.Exit(1)
 	}
+
 	server := &http.Server{Handler: http.HandlerFunc(handleFakeSSE)}
 	go func() {
 		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -50,14 +51,18 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "冒烟：定位源码路径失败")
 		os.Exit(1)
 	}
+
 	root := filepath.Dir(filepath.Dir(filepath.Dir(thisFile))) // internal/smoke → 模块根
+
 	buildDir, err := os.MkdirTemp("", "gcode-smoke-build-")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "冒烟：建临时目录失败：%v\n", err)
 		os.Exit(1)
 	}
+
 	exePath = filepath.Join(buildDir, "gcode-smoke.exe")
 	build := exec.Command("go", "build", "-o", exePath, filepath.Join(root, "cmd", "gcode"))
+
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "冒烟：编译 gcode 失败：%v\n", err)
@@ -77,13 +82,16 @@ func TestMain(m *testing.M) {
 
 		code = 1
 	}
+
 	os.Exit(code)
 }
 
 // handleFakeSSE 按"最后一条消息角色 + 最新用户文本"分场（同 tcode 冒烟剧本）。
 func handleFakeSSE(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
+
 	bodiesMu.Lock()
+
 	bodies = append(bodies, string(raw))
 	bodiesMu.Unlock()
 
@@ -94,12 +102,14 @@ func handleFakeSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "冒烟：响应不支持流式刷新", http.StatusInternalServerError)
 		return
 	}
+
 	send := func(obj any) {
 		b, _ := json.Marshal(obj)
 		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
 			fmt.Fprintf(os.Stderr, "冒烟：发送 SSE 事件失败：%v\n", err)
 			return
 		}
+
 		flusher.Flush()
 	}
 	finish := func() {
@@ -107,6 +117,7 @@ func handleFakeSSE(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(os.Stderr, "冒烟：发送 SSE 结束事件失败：%v\n", err)
 			return
 		}
+
 		flusher.Flush()
 	}
 
@@ -133,19 +144,23 @@ func handleFakeSSE(w http.ResponseWriter, r *http.Request) {
 			send(map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "tool_use"}})
 			send(map[string]any{"type": "message_stop"})
 		}
+
 		return
 	}
 
 	// ---------- OpenAI 协议分支（/v1/chat/completions） ----------
-	var lastRole, lastText string
-	var parsed struct {
-		Messages []struct {
-			Role    string  `json:"role"`
-			Content *string `json:"content"`
-		} `json:"messages"`
-	}
+	var (
+		lastRole, lastText string
+		parsed             struct {
+			Messages []struct {
+				Role    string  `json:"role"`
+				Content *string `json:"content"`
+			} `json:"messages"`
+		}
+	)
 	if json.Unmarshal(raw, &parsed) == nil && len(parsed.Messages) > 0 {
 		last := parsed.Messages[len(parsed.Messages)-1]
+
 		lastRole = last.Role
 		if last.Content != nil {
 			lastText = *last.Content
@@ -213,9 +228,11 @@ type proc struct {
 // startGocode 启动 gcode 子进程；HOME/USERPROFILE 与 GCODE_* 全部隔离到临时目录。
 func startGocode(t *testing.T, home string, args []string, envExtra map[string]string) *proc {
 	t.Helper()
+
 	if home == "" {
 		home = t.TempDir()
 	}
+
 	p := &proc{t: t}
 	p.cmd = exec.Command(exePath, args...)
 	p.cmd.Dir = home
@@ -230,9 +247,11 @@ func startGocode(t *testing.T, home string, args []string, envExtra map[string]s
 	for k, v := range envExtra {
 		env = append(env, k+"="+v)
 	}
+
 	p.cmd.Env = env
 
 	var err error
+
 	p.stdin, err = p.cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin 管道失败：%v", err)
@@ -257,6 +276,7 @@ func startGocode(t *testing.T, home string, args []string, envExtra map[string]s
 	go func() {
 		_, _ = io.Copy(&p.out, stderr)
 	}()
+
 	t.Cleanup(func() {
 		_ = p.stdin.Close()
 		if p.cmd.Process != nil {
@@ -264,25 +284,31 @@ func startGocode(t *testing.T, home string, args []string, envExtra map[string]s
 			_, _ = p.cmd.Process.Wait()
 		}
 	})
+
 	return p
 }
 
 // filteredEnv 继承系统环境但去掉会干扰隔离的变量。
 func filteredEnv(t *testing.T) []string {
 	t.Helper()
+
 	var out []string
+
 	for _, kv := range os.Environ() {
 		key := strings.SplitN(kv, "=", 2)[0]
 		if key == "HOME" || key == "USERPROFILE" || strings.HasPrefix(key, "GCODE_") {
 			continue
 		}
+
 		out = append(out, kv)
 	}
+
 	return out
 }
 
 func (p *proc) write(s string) {
 	p.t.Helper()
+
 	if _, err := io.WriteString(p.stdin, s+"\n"); err != nil {
 		p.t.Fatalf("写 stdin 失败：%v", err)
 	}
@@ -291,20 +317,25 @@ func (p *proc) write(s string) {
 func (p *proc) snapshot() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	return p.out.String()
 }
 
 // waitContains 等输出里出现 substr。
 func (p *proc) waitContains(substr string, timeout time.Duration) {
 	p.t.Helper()
+
 	deadline := time.Now().Add(timeout)
+
 	for {
 		if strings.Contains(p.snapshot(), substr) {
 			return
 		}
+
 		if time.Now().After(deadline) {
 			p.t.Fatalf("等不到输出 %q；已有：\n%s", substr, truncateOut(p.snapshot()))
 		}
+
 		time.Sleep(50 * time.Millisecond)
 	}
 }
@@ -312,14 +343,18 @@ func (p *proc) waitContains(substr string, timeout time.Duration) {
 // waitContainsN 等输出里 substr 出现至少 n 次（用于第二轮同名提示）。
 func (p *proc) waitContainsN(substr string, n int, timeout time.Duration) {
 	p.t.Helper()
+
 	deadline := time.Now().Add(timeout)
+
 	for {
 		if strings.Count(p.snapshot(), substr) >= n {
 			return
 		}
+
 		if time.Now().After(deadline) {
 			p.t.Fatalf("等不到输出 %q ×%d；已有：\n%s", substr, n, truncateOut(p.snapshot()))
 		}
+
 		time.Sleep(50 * time.Millisecond)
 	}
 }
@@ -329,10 +364,13 @@ func (p *proc) sendExit() {
 	p.t.Helper()
 	_, _ = io.WriteString(p.stdin, "/exit\n")
 	done := make(chan struct{})
+
 	go func() {
 		_ = p.cmd.Wait()
+
 		close(done)
 	}()
+
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -344,30 +382,36 @@ func truncateOut(s string) string {
 	if len(s) > 8000 {
 		return s[:8000] + "\n…（冒烟输出过长已截断）"
 	}
+
 	return s
 }
 
 func bodiesSnapshot() int {
 	bodiesMu.Lock()
 	defer bodiesMu.Unlock()
+
 	return len(bodies)
 }
 
 func bodyContains(from int, substrs ...string) bool {
 	bodiesMu.Lock()
 	defer bodiesMu.Unlock()
+
 	for _, b := range bodies[from:] {
 		all := true
+
 		for _, s := range substrs {
 			if !strings.Contains(b, s) {
 				all = false
 				break
 			}
 		}
+
 		if all {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -375,11 +419,13 @@ func bodyContains(from int, substrs ...string) bool {
 func bodiesFrom(from int) []string {
 	bodiesMu.Lock()
 	defer bodiesMu.Unlock()
+
 	return append([]string(nil), bodies[from:]...)
 }
 
 func assertContains(t *testing.T, out string, subs ...string) {
 	t.Helper()
+
 	for _, s := range subs {
 		if !strings.Contains(out, s) {
 			t.Fatalf("输出缺 %q；实际：\n%s", s, truncateOut(out))
@@ -399,6 +445,7 @@ func TestSmokeAToolLoop(t *testing.T) {
 
 	out := p.snapshot()
 	assertContains(t, out, "我先跑个命令确认环境。", "验证完成：smoke-ok", "exit=0", "smoke-ok")
+
 	if !bodyContains(0, `"role":"tool"`, "smoke-ok") {
 		t.Fatalf("A: 第二轮请求未携带工具结果")
 	}
@@ -427,6 +474,7 @@ func TestSmokeBResume(t *testing.T) {
 
 	out := p.snapshot()
 	assertContains(t, out, "最近的会话", "跑一下冒烟测试", "已恢复", "好的，继续。")
+
 	if !bodyContains(before, "跑一下冒烟测试", "继续") {
 		t.Fatalf("B: 恢复的历史未随新请求发给模型")
 	}
@@ -443,9 +491,11 @@ func TestSmokeCAnthropic(t *testing.T) {
 
 	out := p.snapshot()
 	assertContains(t, out, "我先跑个命令确认环境。", "验证完成：smoke-anthropic", "smoke-anthropic")
+
 	if !bodyContains(before, `"tool_result"`, "smoke-anthropic") {
 		t.Fatalf("C: 第二轮请求未携带 tool_result")
 	}
+
 	if !bodyContains(before, `"input_schema"`, `"max_tokens"`, `"system"`) {
 		t.Fatalf("C: 请求缺 Anthropic 必备字段（input_schema/max_tokens/system）")
 	}
@@ -462,6 +512,7 @@ func TestSmokeDSSRFBlock(t *testing.T) {
 	p.sendExit()
 
 	assertContains(t, p.snapshot(), "SSRF 防护")
+
 	if !bodyContains(before, `"role":"tool"`, "SSRF 防护") {
 		t.Fatalf("D: 拦截结果未回流给模型")
 	}
@@ -502,6 +553,7 @@ func TestSmokeGCompact(t *testing.T) {
 
 	p.write("/compact")
 	p.waitContains("已压缩：替换为任务摘要，节省约", 30*time.Second)
+
 	afterCompact := bodiesSnapshot()
 
 	p.write("暗号是什么")
@@ -511,9 +563,11 @@ func TestSmokeGCompact(t *testing.T) {
 
 	out := p.snapshot()
 	assertContains(t, out, "已压缩：替换为任务摘要，节省约", "暗号是 smoke-secret")
+
 	if !bodyContains(afterCompact, "此前对话的摘要") {
 		t.Fatalf("G: 压缩后的请求未携带摘要消息")
 	}
+
 	if !bodyContains(before, "压缩成一份简洁的任务摘要") {
 		t.Fatalf("G: /compact 未向模型发出摘要请求")
 	}
@@ -539,16 +593,19 @@ func TestSmokeHExec(t *testing.T) {
 		"HOME="+home,
 		"USERPROFILE="+home,
 	)
+
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("exec 应以 0 退出，got %v；输出：\n%s", err, truncateOut(string(out)))
 	}
+
 	assertContains(t, string(out),
 		"我先跑个命令确认环境。",     // 流式正文直写
 		"[tool] bash",     // 工具调用行
 		"[result] exit=0", // 工具结果行（bash 输出首行）
 		"验证完成：smoke-ok",   // 最终回答
 	)
+
 	if !bodyContains(before, `"role":"tool"`, "smoke-ok") {
 		t.Fatalf("H: 第二轮请求未携带工具结果")
 	}
@@ -566,9 +623,11 @@ func TestSmokeHExecRequiresYolo(t *testing.T) {
 		"HOME="+home,
 		"USERPROFILE="+home,
 	)
+
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("exec 缺 --yolo 应以 1 退出，实际退出 0；输出：\n%s", truncateOut(string(out)))
 	}
+
 	assertContains(t, string(out), "--yolo")
 }

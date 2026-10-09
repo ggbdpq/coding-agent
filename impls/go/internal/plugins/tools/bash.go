@@ -40,18 +40,22 @@ func resolveShell() shellCmd {
 		if v := os.Getenv("GCODE_BASH"); v != "" {
 			candidates = append(candidates, v)
 		}
+
 		candidates = append(candidates, `C:\Program Files\Git\bin\bash.exe`)
 		for _, b := range candidates {
 			if _, err := os.Stat(b); err == nil {
 				return shellCmd{file: b, args: []string{"-c"}}
 			}
 		}
+
 		comspec := os.Getenv("COMSPEC")
 		if comspec == "" {
 			comspec = "cmd.exe"
 		}
+
 		return shellCmd{file: comspec, args: []string{"/d", "/s", "/c"}}
 	}
+
 	return shellCmd{file: "/bin/bash", args: []string{"-c"}}
 }
 
@@ -68,8 +72,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 			b.buf.Write(p[:room])
 			return len(p), nil
 		}
+
 		b.buf.Write(p)
 	}
+
 	return len(p), nil
 }
 
@@ -92,6 +98,7 @@ func NewBash() *kernel.ToolDef {
 			if err != nil {
 				cwd = "."
 			}
+
 			return fmt.Sprintf("执行命令（cwd=%s）\n$ %s", cwd, argString(args, "command"))
 		},
 		Run: runBash,
@@ -103,6 +110,7 @@ func runBash(ctx context.Context, args map[string]any) string {
 	if strings.TrimSpace(command) == "" {
 		return "错误：缺少 command"
 	}
+
 	timeoutSec := int(math.Max(1, math.Min(argNumber(args, "timeout_sec", bashDefaultSec), bashMaxSec)))
 	shell := resolveShell()
 
@@ -110,18 +118,23 @@ func runBash(ctx context.Context, args map[string]any) string {
 	if err != nil {
 		cwd = "."
 	}
+
 	cmd := exec.CommandContext(ctx, shell.file, append(shell.args, command)...)
 	cmd.Dir = cwd
+
 	var stdout, stderr limitedBuffer
+
 	stdout.limit = bashMaxOutput
 	stderr.limit = bashMaxOutput
 	cmd.Stdout = &stdout
+
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Sprintf("错误：无法启动 shell（%s）", err)
 	}
 
 	var killed, cancelled atomic.Bool
+
 	killTree := func() {
 		if runtime.GOOS == "windows" && cmd.Process != nil {
 			// Windows 上 kill 杀不掉子进程树，用 taskkill 连坐
@@ -130,6 +143,7 @@ func runBash(ctx context.Context, args map[string]any) string {
 			_ = cmd.Process.Kill()
 		}
 	}
+
 	timer := time.AfterFunc(time.Duration(timeoutSec)*time.Second, func() {
 		killed.Store(true)
 		killTree()
@@ -139,6 +153,7 @@ func runBash(ctx context.Context, args map[string]any) string {
 	// 用户中止（turnCtx 取消）：CommandContext 只杀直接子进程，这里补杀进程树
 	stopWatch := make(chan struct{})
 	defer close(stopWatch)
+
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -150,6 +165,7 @@ func runBash(ctx context.Context, args map[string]any) string {
 
 	waitErr := cmd.Wait()
 	exitCode := 0
+
 	if waitErr != nil {
 		var ee *exec.ExitError
 		if errors.As(waitErr, &ee) {
@@ -168,13 +184,16 @@ func runBash(ctx context.Context, args map[string]any) string {
 	case exitCode < 0:
 		exitStr = fmt.Sprintf("exit=signal:%d", -exitCode)
 	}
+
 	parts := []string{exitStr}
 	if strings.TrimSpace(stdout.buf.String()) != "" {
 		parts = append(parts, "--- stdout ---\n"+strings.TrimRight(capOutput(stdout.buf.String()), " \t\n\r"))
 	}
+
 	if strings.TrimSpace(stderr.buf.String()) != "" {
 		parts = append(parts, "--- stderr ---\n"+strings.TrimRight(capOutput(stderr.buf.String()), " \t\n\r"))
 	}
+
 	return strings.Join(parts, "\n")
 }
 
@@ -183,10 +202,13 @@ func capOutput(s string) string {
 	if utf8.RuneCountInString(s) < bashMaxOutput {
 		return s
 	}
+
 	runes := []rune(s)
+
 	cut := string(runes[:bashMaxOutput])
 	for !utf8.ValidString(cut) {
 		cut = cut[:len(cut)-1]
 	}
+
 	return cut + "\n…（输出超长已截断）"
 }

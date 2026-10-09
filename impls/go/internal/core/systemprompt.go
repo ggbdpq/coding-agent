@@ -18,6 +18,7 @@ func readIfExists(file string) string {
 	if err != nil {
 		return ""
 	}
+
 	return strings.TrimSpace(string(data))
 }
 
@@ -26,20 +27,24 @@ func homeDir() string {
 	if err != nil {
 		return ""
 	}
+
 	return home
 }
 
 // SkillIndex 技能索引：列出技能目录中每个 .md 的名字与首行说明；无任何条目返回空串。
 func SkillIndex(dirs []string) string {
 	var lines []string
+
 	for _, rawDir := range dirs {
 		dir, err := filepath.Abs(rawDir)
 		if err != nil {
 			continue
 		}
+
 		if _, err := os.Stat(dir); err != nil {
 			continue // 目录不存在跳过
 		}
+
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -48,51 +53,62 @@ func SkillIndex(dirs []string) string {
 			// 权限等错误：stderr 警告后跳过——不静默（让用户看得见），也不打断启动
 			// （SkillIndex 在 FreshMessages 闭包语境被调用，上抛会击穿提示词装配）
 			fmt.Fprintf(os.Stderr, "skill 索引：跳过不可读目录 %s（%v）\n", dir, err)
+
 			continue
 		}
+
 		for _, entry := range entries {
 			name := entry.Name()
 			if !strings.HasSuffix(name, ".md") {
 				continue
 			}
+
 			full := filepath.Join(dir, name)
 			// 边界自检（规范惯用法）：文件必须位于技能目录之内
 			if !strings.HasPrefix(full, dir+string(filepath.Separator)) {
 				continue
 			}
+
 			desc := ""
 			if data, err := os.ReadFile(full); err == nil {
 				desc = firstHeadingDesc(data)
 			} // 读不了就只列名字
+
 			lines = append(lines, fmt.Sprintf("- %s/%s：%s（用 read 工具按需读取全文）",
 				filepath.Base(dir), name, desc))
 		}
 	}
+
 	if len(lines) == 0 {
 		return ""
 	}
+
 	return strings.Join(append([]string{"## 可用技能（按需用 read 读取全文）"}, lines...), "\n")
 }
 
 // firstHeadingDesc 取第一条非空行，去前导 # 与紧随空白，按 rune 截 60（中文不碎）。
 func firstHeadingDesc(data []byte) string {
 	var first string
+
 	for _, l := range strings.Split(string(data), "\n") {
 		if strings.TrimSpace(l) != "" {
 			first = l
 			break
 		}
 	}
+
 	desc := strings.TrimLeft(strings.TrimLeft(first, "#"), " \t")
 	if runes := []rune(desc); len(runes) > 60 {
 		return string(runes[:60])
 	}
+
 	return desc
 }
 
 // BuildSystemPrompt 拼装 system 提示词。
 func BuildSystemPrompt(cwd string) string {
 	today := time.Now().Format("2006-01-02")
+
 	parts := []string{
 		"你是 gcode，一个直接运行在用户本地终端的极简 coding agent。",
 		"当前工作目录：" + cwd,
@@ -109,16 +125,20 @@ func BuildSystemPrompt(cwd string) string {
 	if global := readIfExists(filepath.Join(homeDir(), ".gcode", "AGENTS.md")); global != "" {
 		parts = append(parts, "", "# 用户全局指令（~/.gcode/AGENTS.md）", global)
 	}
+
 	if project := readIfExists(filepath.Join(cwd, "AGENTS.md")); project != "" {
 		parts = append(parts, "", "# 项目指令（AGENTS.md）", project)
 	}
+
 	var skillDirs []string
 	if home := homeDir(); home != "" {
 		skillDirs = append(skillDirs, filepath.Join(home, ".gcode", "skills"))
 	}
+
 	skillDirs = append(skillDirs, filepath.Join(cwd, ".gcode", "skills"))
 	if skills := SkillIndex(skillDirs); skills != "" {
 		parts = append(parts, "", skills)
 	}
+
 	return strings.Join(parts, "\n")
 }

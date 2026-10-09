@@ -28,11 +28,13 @@ func (s *fakeStore) Load(file string) []kernel.ChatMessage { return nil }
 func toolThenTextClient() kernel.ChatClient {
 	return fakeChat(func(ctx context.Context, messages []kernel.ChatMessage, opts kernel.ChatOptions) (kernel.CompletionResult, error) {
 		hasTool := false
+
 		for _, m := range messages {
 			if m.Role == "tool" {
 				hasTool = true
 			}
 		}
+
 		if !hasTool {
 			return kernel.CompletionResult{Message: kernel.ChatMessage{
 				Role: "assistant",
@@ -42,9 +44,11 @@ func toolThenTextClient() kernel.ChatClient {
 				}},
 			}}, nil
 		}
+
 		if opts.OnText != nil {
 			opts.OnText("完成")
 		}
+
 		return kernel.CompletionResult{Message: kernel.ChatMessage{Role: "assistant", Content: kernel.StrPtr("完成")}}, nil
 	})
 }
@@ -70,6 +74,7 @@ func fakeTurnApp(provider kernel.ChatClient, store *fakeStore) *kernel.App {
 	if err := registry.Register(kernel.Plugin{Tool: fakeTool}); err != nil {
 		panic(err)
 	}
+
 	return &kernel.App{
 		Config:   &kernel.Config{ContextLimit: 1_000_000},
 		Registry: registry,
@@ -90,6 +95,7 @@ func (c *eventCollector) emit(ev kernel.AgentEvent) { c.list = append(c.list, ev
 func TestTurnEventsCanonicalSequence(t *testing.T) {
 	store := &fakeStore{}
 	app := fakeTurnApp(toolThenTextClient(), store)
+
 	var events eventCollector
 
 	if err := RunUserTurn(context.Background(), app, "做事", TurnHooks{Emit: events.emit}); err != nil {
@@ -100,21 +106,26 @@ func TestTurnEventsCanonicalSequence(t *testing.T) {
 	for _, ev := range events.list {
 		types = append(types, ev.Type)
 	}
+
 	want := []string{"turn_start", "user", "tool_call", "tool_result", "text_delta", "turn_end"}
 	if !reflect.DeepEqual(types, want) {
 		t.Fatalf("事件序列不符：got %v want %v", types, want)
 	}
+
 	if events.list[0].ID == "" {
 		t.Fatalf("turn_start 应携带非空 id")
 	}
+
 	call := events.list[2]
 	if call.CallID != "c1" || call.Name != "fake" {
 		t.Fatalf("tool_call 应携带 call_id=c1 name=fake，got %+v", call)
 	}
+
 	result := events.list[3]
 	if result.Summary != "工具结果" {
 		t.Fatalf("tool_result 摘要应为首行文本，got %q", result.Summary)
 	}
+
 	end := events.list[len(events.list)-1]
 	if end.Reason != kernel.TurnCompleted {
 		t.Fatalf("turn_end reason 应为 completed，got %q", end.Reason)
@@ -131,13 +142,16 @@ func TestTurnEventsAborted(t *testing.T) {
 		<-ctx.Done()
 		return kernel.CompletionResult{}, ctx.Err()
 	}), &fakeStore{})
+
 	var events eventCollector
 
 	cancel()
+
 	err := RunUserTurn(ctx, app, "做事", TurnHooks{Emit: events.emit})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("中止错误应上抛，got %v", err)
 	}
+
 	end := events.list[len(events.list)-1]
 	if end.Type != "turn_end" || end.Reason != kernel.TurnAborted {
 		t.Fatalf("turn_end reason 应为 aborted，got %+v", end)
@@ -148,16 +162,19 @@ func TestTurnEventsError(t *testing.T) {
 	app := fakeTurnApp(fakeChat(func(context.Context, []kernel.ChatMessage, kernel.ChatOptions) (kernel.CompletionResult, error) {
 		return kernel.CompletionResult{}, errors.New("网络炸了")
 	}), &fakeStore{})
+
 	var events eventCollector
 
 	err := RunUserTurn(context.Background(), app, "做事", TurnHooks{Emit: events.emit})
 	if err == nil || err.Error() != "网络炸了" {
 		t.Fatalf("错误应原样上抛，got %v", err)
 	}
+
 	end := events.list[len(events.list)-1]
 	if end.Type != "turn_end" || end.Reason != kernel.TurnError {
 		t.Fatalf("turn_end reason 应为 error，got %+v", end)
 	}
+
 	if end.Error != "网络炸了" {
 		t.Fatalf("turn_end 应携带错误消息，got %q", end.Error)
 	}
@@ -169,6 +186,7 @@ func TestTurnEventsDanglingFixStillPersists(t *testing.T) {
 	app := fakeTurnApp(fakeChat(func(ctx context.Context, _ []kernel.ChatMessage, _ kernel.ChatOptions) (kernel.CompletionResult, error) {
 		if first {
 			first = false
+
 			return kernel.CompletionResult{Message: kernel.ChatMessage{
 				Role: "assistant",
 				ToolCalls: []kernel.ToolCall{{
@@ -177,14 +195,17 @@ func TestTurnEventsDanglingFixStillPersists(t *testing.T) {
 				}},
 			}}, nil
 		}
+
 		return kernel.CompletionResult{}, context.Canceled
 	}), store)
+
 	var events eventCollector
 
 	err := RunUserTurn(context.Background(), app, "做事", TurnHooks{Emit: events.emit})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("中止错误应上抛，got %v", err)
 	}
+
 	roles := make([]string, 0, len(app.Messages))
 	for _, m := range app.Messages {
 		roles = append(roles, m.Role)
@@ -194,9 +215,11 @@ func TestTurnEventsDanglingFixStillPersists(t *testing.T) {
 	if !reflect.DeepEqual(roles, want) {
 		t.Fatalf("消息角色序列不符：got %v want %v", roles, want)
 	}
+
 	if len(store.appended) < 3 {
 		t.Fatalf("断尾修复后的消息也应落盘，got %d", len(store.appended))
 	}
+
 	end := events.list[len(events.list)-1]
 	if end.Reason != kernel.TurnAborted {
 		t.Fatalf("turn_end reason 应为 aborted，got %q", end.Reason)
@@ -212,10 +235,12 @@ func TestFixDanglingToolCallsPlaceholder(t *testing.T) {
 			Function: kernel.ToolCallFunction{Name: "fake", Arguments: "{}"},
 		}}},
 	}
+
 	got := fixDanglingToolCalls(messages)
 	if len(got) != 3 {
 		t.Fatalf("悬空调用应被补占位，len=%d", len(got))
 	}
+
 	if *got[2].Content != "（用户中止，未执行）" {
 		t.Fatalf("占位文本是家族统一契约，got %q", *got[2].Content)
 	}

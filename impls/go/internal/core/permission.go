@@ -38,10 +38,12 @@ func NewPermissionGate(io PermissionIO, yolo *kernel.YoloRef) func(toolName, pre
 		if yolo.Value {
 			return true
 		}
+
 		decision := io.Ask(PermissionRequest{Tool: toolName, Preview: preview})
 		if decision == DecisionAlways {
 			yolo.Value = true
 		}
+
 		return decision != DecisionDeny
 	}
 }

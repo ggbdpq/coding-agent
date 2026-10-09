@@ -46,6 +46,7 @@ func htmlToText(html string) string {
 	html = reAnyTag.ReplaceAllString(html, " ")
 	html = reSpaces.ReplaceAllString(html, " ")
 	html = reNewlines.ReplaceAllString(html, "\n\n")
+
 	return strings.TrimSpace(html)
 }
 
@@ -72,51 +73,66 @@ func NewWebFetch() *kernel.ToolDef {
 
 func runWebFetch(ctx context.Context, args map[string]any) string {
 	raw := argString(args, "url")
+
 	check := CheckURLLiteral(raw)
 	if !check.OK {
 		return check.Reason
 	}
+
 	current := check.URL
 
 	var resp *http.Response
+
 	for hop := 0; hop <= fetchRedirects; hop++ {
 		if hc := CheckURLLiteral(current.String()); !hc.OK {
 			return hc.Reason
 		}
+
 		if err := AssertResolvesPublic(current.Hostname()); err != nil {
 			return err.Error()
 		}
+
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, current.String(), nil)
 		if err != nil {
 			return fmt.Sprintf("错误：构造请求失败：%s", err)
 		}
+
 		r, err := fetchClient.Do(req)
 		if err != nil {
 			if ctx.Err() != nil {
 				return "错误：已中止（用户取消）"
 			}
+
 			return fmt.Sprintf("错误：请求失败：%s", err)
 		}
+
 		resp = r
 		if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			loc := resp.Header.Get("Location")
 			if loc == "" {
 				break
 			}
+
 			next, perr := current.Parse(loc)
 			if perr != nil {
 				break
 			}
+
 			current = next
+
 			resp.Body.Close()
+
 			continue
 		}
+
 		break
 	}
+
 	if resp == nil {
 		return "错误：请求未发出"
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Sprintf("错误：HTTP %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
@@ -127,25 +143,32 @@ func runWebFetch(ctx context.Context, args map[string]any) string {
 	if err != nil {
 		return fmt.Sprintf("错误：读取失败：%s", err)
 	}
+
 	body := string(data)
+
 	text := body
 	if strings.Contains(strings.ToLower(ctype), "html") {
 		text = htmlToText(body)
 	}
+
 	maxChars := int(argNumber(args, "max_chars", fetchMaxChars))
 	if maxChars < 200 {
 		maxChars = 200
 	}
+
 	runes := []rune(text)
 	out := text
 	note := ""
+
 	if len(runes) > maxChars {
 		out = string(runes[:maxChars])
 		note = fmt.Sprintf("\n…（已截断，原文 %d 字符，可用 max_chars 调大）", len(runes))
 	}
+
 	displayType := ctype
 	if displayType == "" {
 		displayType = "未知类型"
 	}
+
 	return fmt.Sprintf("HTTP %d · %s · %s\n\n%s%s", resp.StatusCode, displayType, current.String(), out, note)
 }

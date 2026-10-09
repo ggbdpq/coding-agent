@@ -25,12 +25,15 @@ func ResolvePath(input string) ResolvedPath {
 	if err != nil {
 		abs = input
 	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."
 	}
+
 	rel, err := filepath.Rel(cwd, abs)
 	outside := err != nil || strings.HasPrefix(rel, "..")
+
 	return ResolvedPath{Abs: abs, Outside: outside}
 }
 
@@ -41,14 +44,17 @@ func InAllowWriteDirs(app *kernel.App, target string) bool {
 	if app == nil || app.Config == nil || len(app.Config.AllowWriteDirs) == 0 {
 		return false
 	}
+
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return false
 	}
+
 	for _, root := range app.Config.AllowWriteDirs {
 		if abs == root || strings.HasPrefix(abs, root+string(filepath.Separator)) {
 			return true
 		}
 	}
+
 	return false
 }

@@ -15,6 +15,7 @@ func NewCmd() *kernel.CommandDef {
 			app.ResetMessages()
 			app.StartSession(nil)
 			fmt.Println(kernel.Green("已开新会话，上下文已清空。"))
+
 			return kernel.CommandOutcome{}
 		},
 	}

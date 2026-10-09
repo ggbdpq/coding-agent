@@ -16,6 +16,7 @@ func summarizerClient() kernel.ChatClient {
 		if opts.OnText != nil {
 			opts.OnText("这是摘要")
 		}
+
 		return kernel.CompletionResult{Message: kernel.ChatMessage{Role: "assistant", Content: kernel.StrPtr("这是摘要")}}, nil
 	})
 }
@@ -28,6 +29,7 @@ func historyMessages() []kernel.ChatMessage {
 			kernel.ChatMessage{Role: "assistant", Content: kernel.StrPtr("回答 " + string(rune('0'+i)))},
 		)
 	}
+
 	return msgs
 }
 
@@ -51,6 +53,7 @@ func TestCompactKeepsRecentTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compact 不应报错：%v", err)
 	}
+
 	if saved <= 0 {
 		t.Fatalf("savedTokens 应 > 0，got %d", saved)
 	}
@@ -58,9 +61,11 @@ func TestCompactKeepsRecentTail(t *testing.T) {
 	if len(app.Messages) != 6 {
 		t.Fatalf("应为 system + 摘要 + 最近 4 条共 6 条，got %d", len(app.Messages))
 	}
+
 	if app.Messages[0].Role != "system" || app.Messages[0].Text() != "系统提示" {
 		t.Fatalf("system 消息应原样保留，got %+v", app.Messages[0])
 	}
+
 	if !strings.Contains(app.Messages[1].Text(), "这是摘要") {
 		t.Fatalf("摘要消息应含模型摘要，got %q", app.Messages[1].Text())
 	}
@@ -68,9 +73,11 @@ func TestCompactKeepsRecentTail(t *testing.T) {
 	if app.Messages[2].Role != "user" {
 		t.Fatalf("尾部应从 user 消息开始，got %q", app.Messages[2].Role)
 	}
+
 	if !reflect.DeepEqual(app.Messages[2:], messages[len(messages)-4:]) {
 		t.Fatalf("尾部 4 条应与原历史末尾一致：got %+v", app.Messages[2:])
 	}
+
 	if before <= len(app.Messages) {
 		t.Fatalf("消息条数应减少：before=%d after=%d", before, len(app.Messages))
 	}
@@ -106,6 +113,7 @@ func TestCompactTailStartSkipsToolBoundary(t *testing.T) {
 	if len(app.Messages) != 5 {
 		t.Fatalf("应为 system + 摘要 + 3 条尾部共 5 条，got %d", len(app.Messages))
 	}
+
 	if app.Messages[2].Text() != "u3" {
 		t.Fatalf("尾部应从 u3 开始，got %q", app.Messages[2].Text())
 	}
@@ -129,6 +137,7 @@ func TestCompactRejectsShortHistory(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "没什么可压缩") {
 		t.Fatalf("应拒绝过短历史，got %v", err)
 	}
+
 	if len(app.Messages) != 3 {
 		t.Fatalf("拒绝后原历史应保持原状，got %d 条", len(app.Messages))
 	}
@@ -145,6 +154,7 @@ func TestCompactFailureKeepsHistory(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "网络炸了") {
 		t.Fatalf("应上抛网络错误，got %v", err)
 	}
+
 	if !reflect.DeepEqual(app.Messages, snapshot) {
 		t.Fatalf("摘要失败后原历史应原封不动")
 	}
@@ -159,10 +169,12 @@ func TestCompactCancelKeepsHistory(t *testing.T) {
 	}), messages)
 
 	cancel()
+
 	_, err := CompactContext(app, CompactOpts{Ctx: ctx})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("取消应上抛，got %v", err)
 	}
+
 	if len(app.Messages) != 21 {
 		t.Fatalf("取消后原历史应原封不动，got %d 条", len(app.Messages))
 	}

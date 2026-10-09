@@ -28,14 +28,17 @@ func NewGrep() *kernel.ToolDef {
 			if pattern == "" {
 				return "错误：缺少 pattern"
 			}
+
 			rgArgs := []string{"-n", "-S"}
 			if include := argString(args, "include"); include != "" {
 				rgArgs = append(rgArgs, "-g", include)
 			}
+
 			rgArgs = append(rgArgs, "--", pattern, argString(args, "path"))
 			if argString(args, "path") == "" {
 				rgArgs[len(rgArgs)-1] = "."
 			}
+
 			return runRg(rgArgs, 8000)
 		},
 	}
