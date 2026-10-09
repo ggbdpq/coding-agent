@@ -8,3 +8,6 @@ __pycache__/
 # conformance 产物
 conformance/.artifacts/
 conformance/reports/
+
+# pnpm 本地缓存
+.pnpm-store/
