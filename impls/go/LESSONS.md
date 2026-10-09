@@ -17,3 +17,9 @@
 - 规则：`AssertResolvesPublic` 包装解析错误使用 `%w`，让 Go 调用方继续检查 `*net.DNSError`。
 - 为什么：`%s` 只留下文字，原来可判断的原因类型被丢失；`%w` 保持展示文本并保留错误链。
 - 证据：`internal/plugins/tools/netguard.go`；`go test ./internal/plugins/tools -run '^TestAssertResolvesPublicPreservesDNSError$' -count=1` 在旧代码的两个命名子测试均打印 `解析错误应保留 *net.DNSError，got *errors.errorString`，修复后通过。
+
+## 冒烟输出采集的读写必须共用锁（2026-10-10，Seen 1×）
+
+- 规则：stdout/stderr 的 `io.Copy` 写入与输出快照读取必须通过同一把锁；锁覆盖一个 Write，不覆盖整段 Copy。
+- 为什么：只给读取加锁不能保护 `strings.Builder`，整段 Copy 持锁又会让流式轮询等到管道关闭。
+- 证据：`internal/smoke/smoke_test.go`，`go test -race ./internal/smoke -run '^TestSmokeOutputWhilePolling$' -count=1`；旧采集器打印 `WARNING: DATA RACE` 与 `race detected during execution of test`。

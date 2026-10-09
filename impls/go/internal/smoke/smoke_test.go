@@ -271,10 +271,10 @@ func startGocode(t *testing.T, home string, args []string, envExtra map[string]s
 		t.Fatalf("启动 gcode 失败：%v", err)
 	}
 	go func() {
-		_, _ = io.Copy(&p.out, stdout)
+		_, _ = io.Copy(p, stdout)
 	}()
 	go func() {
-		_, _ = io.Copy(&p.out, stderr)
+		_, _ = io.Copy(p, stderr)
 	}()
 
 	t.Cleanup(func() {
@@ -312,6 +312,14 @@ func (p *proc) write(s string) {
 	if _, err := io.WriteString(p.stdin, s+"\n"); err != nil {
 		p.t.Fatalf("写 stdin 失败：%v", err)
 	}
+}
+
+// Write 与快照共用同一把锁，每个输出块完成后允许轮询继续读取。
+func (p *proc) Write(b []byte) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.out.Write(b)
 }
 
 func (p *proc) snapshot() string {
@@ -630,4 +638,30 @@ func TestSmokeHExecRequiresYolo(t *testing.T) {
 	}
 
 	assertContains(t, string(out), "--yolo")
+}
+
+// 真实 REPL 持续输出时，轮询快照也必须保留完整正文且不产生数据竞争。
+func TestSmokeOutputWhilePolling(t *testing.T) {
+	t.Parallel()
+
+	p := startGocode(t, "", []string{"--yolo"}, nil)
+	p.write("跑一下冒烟测试")
+
+	deadline := time.Now().Add(30 * time.Second)
+
+	for {
+		out := p.snapshot()
+		if strings.Contains(out, "验证完成：smoke-ok") {
+			assertContains(t, out, "我先跑个命令确认环境。", "exit=0", "smoke-ok")
+			p.sendExit()
+
+			return
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("真实 REPL 输出未完成：%s", truncateOut(out))
+		}
+
+		time.Sleep(time.Millisecond)
+	}
 }
