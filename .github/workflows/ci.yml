@@ -19,6 +19,8 @@ jobs:
         lang: [typescript, python, go, rust, csharp]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ matrix.lang == 'go' && '0' || '1' }}
       - uses: actions/setup-node@v4
         if: matrix.lang == 'typescript'
         with:
@@ -41,13 +43,31 @@ jobs:
         if: matrix.lang == 'go'
         working-directory: impls/go
         run: go vet ./...
+      - name: 准备增量 lint 后备基线
+        if: matrix.lang == 'go'
+        id: lint-config
+        working-directory: impls/go
+        run: |
+          config="$(mktemp .golangci-ci.XXXXXX)"
+          mv "$config" "$config.yml"
+          sed '/^issues:$/a\
+            new-from-rev: 65761d137406564a1ef4b291c1a00d92e498009b
+          ' .golangci.yml > "$config.yml"
+          printf 'path=%s\n' "$config.yml" >> "$GITHUB_OUTPUT"
       - name: golangci-lint（仅新增问题）
-        if: matrix.lang == 'go' && !startsWith(github.ref, 'refs/tags/')
+        if: matrix.lang == 'go'
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.14.0
           only-new-issues: true
           working-directory: impls/go
+          args: --config=${{ steps.lint-config.outputs.path }}
+      - name: 清理本次 lint 临时配置
+        if: always() && steps.lint-config.outputs.path != ''
+        working-directory: impls/go
+        env:
+          LINT_CONFIG: ${{ steps.lint-config.outputs.path }}
+        run: rm -- "$LINT_CONFIG"
       - name: 单元测试 + 冒烟（rust 分隔符契约等 POSIX 侧用例首次获得真实红能力）
         working-directory: impls/${{ matrix.lang }}
         run: |

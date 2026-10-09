@@ -105,7 +105,8 @@ go test ./...       # 单测（edit 唯一性、trim、compact、turn 事件序�
 ~/go/bin/golangci-lint run ./... # v2.14.0，含存量问题的本地完整检查
 ```
 
-根仓库 CI 的 Go matrix 分支运行 `go vet` 与 golangci-lint v2.14.0；lint 只阻挡 PR/分支 push diff 新增的问题，存量按类别逐步清理。Tag push 没有可比较的旧提交，跳过增量 lint，vet 与测试照常运行。
+根仓库 CI 的 Go matrix 分支运行 `go vet` 与 golangci-lint v2.14.0；lint 只阻挡 PR/push diff 新增的问题，存量按类别逐步清理。
+CI 仅在临时配置中加入固定基线 `65761d1`：事件 diff 可用时由 action 优先过滤；新分支/tag 首推或 API 取 diff 失败时，比较采纳前基线之后的变更，避免退回全量存量门禁。原 `.golangci.yml` 保持本地完整检查口径。
 
 冒烟测试在 `internal/smoke/`：测试内 `go build` 出真二进制，起本地假 SSE 服务器
 按剧本回包，子进程跑完整 REPL（工具闭环 / /resume / Anthropic 协议 / SSRF 拦截 /
