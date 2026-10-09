@@ -94,7 +94,7 @@ func NewBash() *kernel.ToolDef {
 			}
 			return fmt.Sprintf("执行命令（cwd=%s）\n$ %s", cwd, argString(args, "command"))
 		},
-		Run: func(ctx context.Context, args map[string]any) string { return runBash(ctx, args) },
+		Run: runBash,
 	}
 }
 

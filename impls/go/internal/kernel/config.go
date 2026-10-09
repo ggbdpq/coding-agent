@@ -93,7 +93,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// 写白名单（R4）：config.json allowWriteDirs 优先，否则环境变量 GCODE_ALLOW_WRITE
-	//（按 os.PathListSeparator 分隔）；全部 filepath.Abs 归一化，空段跳过（不误收 cwd）
+	// （按 os.PathListSeparator 分隔）；全部 filepath.Abs 归一化，空段跳过（不误收 cwd）
 	var rawDirs []string
 	if len(fc.AllowWriteDirs) > 0 {
 		rawDirs = fc.AllowWriteDirs

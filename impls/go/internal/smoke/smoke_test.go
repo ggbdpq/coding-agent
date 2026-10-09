@@ -158,22 +158,23 @@ func handleFakeSSE(w http.ResponseWriter, r *http.Request) {
 		finish()
 	}
 
-	if lastRole == "tool" {
+	switch {
+	case lastRole == "tool":
 		// 工具结果已回流（含被拦截的 web_fetch）：给最终回答
 		text("验证完成：smoke-ok", "stop")
-	} else if strings.Contains(lastText, "压缩成一份简洁的任务摘要") {
+	case strings.Contains(lastText, "压缩成一份简洁的任务摘要"):
 		// 场景G：/compact 的摘要请求——回一份含关键事实的假摘要
 		text("这是摘要：任务是验证冒烟；暗号 smoke-secret；未完成事项：无", "stop")
-	} else if strings.Contains(lastText, "对话") {
+	case strings.Contains(lastText, "对话"):
 		// 场景G：三轮闲聊（喂够可压缩的消息条数）
 		text("好的，已记下。", "stop")
-	} else if strings.Contains(lastText, "暗号") {
+	case strings.Contains(lastText, "暗号"):
 		// 场景G：压缩后凭摘要答暗号
 		text("暗号是 smoke-secret", "stop")
-	} else if strings.Contains(lastText, "继续") {
+	case strings.Contains(lastText, "继续"):
 		// 场景B：恢复历史后的追问
 		text("好的，继续。", "stop")
-	} else if strings.Contains(lastText, "试试抓取") {
+	case strings.Contains(lastText, "试试抓取"):
 		// 场景D：诱导抓取内网地址，验证 SSRF 拦截
 		send(map[string]any{"choices": []map[string]any{{"delta": map[string]any{"role": "assistant", "content": "我来抓取这个地址试试。"}}}})
 		send(map[string]any{"choices": []map[string]any{{"delta": map[string]any{
@@ -184,7 +185,7 @@ func handleFakeSSE(w http.ResponseWriter, r *http.Request) {
 		}}}})
 		send(map[string]any{"choices": []map[string]any{{"delta": map[string]any{}, "finish_reason": "tool_calls"}}, "usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 5}})
 		finish()
-	} else {
+	default:
 		// 场景A第一轮：流式正文 + 一个 bash 工具调用
 		send(map[string]any{"choices": []map[string]any{{"delta": map[string]any{"role": "assistant", "content": "我先跑个命令确认环境。"}}}})
 		send(map[string]any{"choices": []map[string]any{{"delta": map[string]any{
@@ -215,17 +216,17 @@ func startGocode(t *testing.T, home string, args []string, envExtra map[string]s
 	if home == "" {
 		home = t.TempDir()
 	}
-	filtered := filteredEnv(t)
 	p := &proc{t: t}
 	p.cmd = exec.Command(exePath, args...)
 	p.cmd.Dir = home
-	env := append(filtered,
+	env := append(filteredEnv(t),
 		"GCODE_API_KEY=test-key",
 		"GCODE_BASE_URL="+serverURL,
 		"GCODE_MODEL=fake-model",
 		"HOME="+home,
 		"USERPROFILE="+home,
 	)
+
 	for k, v := range envExtra {
 		env = append(env, k+"="+v)
 	}

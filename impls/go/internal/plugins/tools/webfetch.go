@@ -66,7 +66,7 @@ func NewWebFetch() *kernel.ToolDef {
 		Preview: func(args map[string]any) string {
 			return fmt.Sprintf("GET %s（出站网络请求）", argString(args, "url"))
 		},
-		Run: func(ctx context.Context, args map[string]any) string { return runWebFetch(ctx, args) },
+		Run: runWebFetch,
 	}
 }
 
