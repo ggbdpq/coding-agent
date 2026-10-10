@@ -6,6 +6,13 @@
 
 ## 活跃教训
 
+### 2026-10-10 路径越界判定要按符号链接的真实目标（Seen 1×）
+
+- 规则：判断"是否在工作目录 / allowWriteDirs 内"时，两侧都先 `EvalSymlinks`（目标不存在时解析最近的已存在祖先）；悬空链接按越界处理；分量比较用 `rel == ".." || HasPrefix(rel, ".."+sep)`。
+- 为什么：`filepath.Abs` 只做字面归一化，白名单目录里一个指向外部的链接就能让 write/edit 免确认写到外面；裸 `HasPrefix(rel, "..")` 又把 `..foo/` 误判为越界。
+- 证据：`internal/plugins/tools/pathguard.go`；`go test ./internal/plugins/tools -run '^TestPathGuardFollowsSymlinks$' -count=1 -v`，旧代码输出 `InAllowWriteDirs("link/x.txt") = true, want false`、`ResolvePath("dangling").Outside = false, want true`、`ResolvePath("..foo/a.txt").Outside = true, want false`。
+- 待查：`specs/permission.md` R4 只写了 `..` 归一化，其他语言实现是否同样只做字面比较未验证。
+
 ### 2026-10-10 工具子进程必须接收轮次 ctx（Seen 1×）
 
 - 规则：工具的 `Run(ctx, …)` 起子进程一律 `exec.CommandContext(ctx, …)`，不能把 ctx 写成 `_` 丢掉；取消后返回 `错误：… 已中止`，不返回半截结果。

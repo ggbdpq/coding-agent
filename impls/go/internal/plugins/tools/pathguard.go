@@ -30,30 +30,63 @@ func ResolvePath(input string) ResolvedPath {
 		cwd = "."
 	}
 
-	rel, err := filepath.Rel(cwd, abs)
-	outside := err != nil || strings.HasPrefix(rel, "..")
-
-	return ResolvedPath{Abs: abs, Outside: outside}
+	return ResolvedPath{Abs: abs, Outside: !within(cwd, input)}
 }
 
-// InAllowWriteDirs 白名单判定（R4）：目标 filepath.Abs 后落在 config allowWriteDirs
+// InAllowWriteDirs 白名单判定（R4）：目标解析符号链接后落在 config allowWriteDirs
 // 任一目录内（目录本身或其子路径）→ true。未配置/无法解析一律 false（仍逐次确认）。
 // 只有 write/edit 接这个判定；bash/web_fetch 不设（命令级操作无法按路径约束）。
 func InAllowWriteDirs(app *kernel.App, target string) bool {
-	if app == nil || app.Config == nil || len(app.Config.AllowWriteDirs) == 0 {
-		return false
-	}
-
-	abs, err := filepath.Abs(target)
-	if err != nil {
+	if app == nil || app.Config == nil {
 		return false
 	}
 
 	for _, root := range app.Config.AllowWriteDirs {
-		if abs == root || strings.HasPrefix(abs, root+string(filepath.Separator)) {
+		if within(root, target) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// within 判断 p 的真实位置（解析符号链接后）是否在 root 的真实位置之内；任一侧解析失败按不在内处理。
+func within(root, p string) bool {
+	realRoot, err := realPath(root)
+	if err != nil {
+		return false
+	}
+
+	realP, err := realPath(p)
+	if err != nil {
+		return false
+	}
+
+	rel, err := filepath.Rel(realRoot, realP)
+
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// realPath 是 filepath.Abs 加 EvalSymlinks；目标尚不存在时解析最近的已存在祖先再拼回余下部分。
+// 存在却解析失败（悬空链接）返回错误：写入会跟随链接落到未知位置。
+func realPath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+
+	rest := ""
+
+	for dir := abs; ; dir = filepath.Dir(dir) {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			return filepath.Join(resolved, rest), nil
+		}
+
+		if _, lerr := os.Lstat(dir); lerr == nil || filepath.Dir(dir) == dir {
+			return "", err
+		}
+
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
 }
