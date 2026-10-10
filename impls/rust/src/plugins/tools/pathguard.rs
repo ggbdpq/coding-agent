@@ -34,8 +34,31 @@ pub fn resolve_path(input: &str) -> ResolvedPath {
     let p = Path::new(input);
     let joined = if p.is_absolute() { p.to_path_buf() } else { cwd.join(p) };
     let abs = normalize(&joined);
-    let outside = !abs.starts_with(&cwd);
+    let outside = !within(&abs, &cwd);
     ResolvedPath { abs, outside }
+}
+
+/// 解析符号链接后的真实路径；目标不存在时解析最近的已存在祖先再拼回剩余段。
+fn real_path(p: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut cur = p;
+    loop {
+        if let Ok(r) = cur.canonicalize() {
+            return rest.iter().rev().fold(r, |acc, c| acc.join(c));
+        }
+        match (cur.parent(), cur.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_os_string());
+                cur = parent;
+            }
+            _ => return p.to_path_buf(),
+        }
+    }
+}
+
+/// 两侧都解析符号链接后再按分量比较，防止 root 内的符号链接把目标引到 root 外。
+fn within(target: &Path, root: &Path) -> bool {
+    real_path(target).starts_with(real_path(root))
 }
 
 /// 白名单判定（R4）：目标词法归一为绝对路径后，落在 config.allow_write_dirs
@@ -45,13 +68,12 @@ pub(crate) fn in_allow_write_dirs(app: &crate::kernel::app::App, target: &str) -
     if app.config.allow_write_dirs.is_empty() || target.trim().is_empty() {
         return false;
     }
-    let resolved = resolve_path(target);
-    let t = resolved.abs;
-    app.config.allow_write_dirs.iter().any(|d| {
-        let root = PathBuf::from(d);
-        // 分量级 starts_with 已排除前缀同名字符串（/a/b 不匹配 /a/bc）
-        t == root || t.starts_with(&root)
-    })
+    let t = resolve_path(target).abs;
+    // 分量级 starts_with 已排除前缀同名字符串（/a/b 不匹配 /a/bc）
+    app.config
+        .allow_write_dirs
+        .iter()
+        .any(|d| within(&t, Path::new(d)))
 }
 
 #[cfg(test)]
@@ -163,5 +185,19 @@ mod allowwrite_tests {
         let sibling = root.to_string_lossy().to_string() + "c";
         assert!(!in_allow_write_dirs(&app, &format!("{}{}x.txt", sibling, std::path::MAIN_SEPARATOR)));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn 白名单内符号链接指向外部_仍需确认() {
+        let root = temp_dir("link");
+        let other = temp_dir("linktarget");
+        std::os::unix::fs::symlink(&other, root.join("link")).unwrap();
+        let app = fake_app(&[&root.to_string_lossy()]);
+        assert!(!in_allow_write_dirs(&app, &root.join("link").join("x.txt").to_string_lossy()));
+        assert!(!within(&root.join("link").join("x.txt"), &root));
+        assert!(within(&root.join("new").join("x.txt"), &root), "不存在的子路径仍在内");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
     }
 }
