@@ -22,11 +22,12 @@ class ResolvedPath:
 def resolve_path(user_input: str) -> ResolvedPath:
     abs_path = os.path.abspath(user_input)
     try:
-        rel = os.path.relpath(abs_path, os.getcwd())
+        # 两侧都解析符号链接（含悬空链接）：写入会跟随链接，越界看真实目标
+        rel = os.path.relpath(os.path.realpath(abs_path), os.path.realpath(os.getcwd()))
     except ValueError:
         # Windows 跨盘符算不出相对路径：目标必然在 cwd 之外
         return ResolvedPath(abs=abs_path, outside=True)
-    outside = rel.startswith('..') or os.path.isabs(rel)
+    outside = rel == '..' or rel.startswith('..' + os.sep) or os.path.isabs(rel)
     return ResolvedPath(abs=abs_path, outside=outside)
 
 
