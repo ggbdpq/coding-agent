@@ -3,6 +3,7 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,29 +13,34 @@ import (
 )
 
 // runRg 执行 ripgrep 并按约定整理输出。
-func runRg(rgArgs []string, cap int) string {
+func runRg(ctx context.Context, rgArgs []string, maxRunes int) string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."
 	}
 
-	cmd := exec.Command("rg", rgArgs...)
+	cmd := exec.CommandContext(ctx, "rg", rgArgs...) //nolint:gosec // 程序固定为 rg、无 shell，模型参数只作为 argv（grep 的 pattern 在 -- 之后）
 	cmd.Dir = cwd
 
 	var stdout limitedBuffer
 
-	stdout.limit = cap + 1000
+	stdout.limit = maxRunes + 1000
 
 	var stderr bytes.Buffer
 
 	cmd.Stdout = &stdout
 
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil && ctx.Err() == nil {
 		return fmt.Sprintf("错误：无法启动 rg（%s）。本工具依赖 ripgrep，请先安装。", err)
 	}
 
 	waitErr := cmd.Wait()
+
+	if ctx.Err() != nil {
+		return fmt.Sprintf("错误：rg 已中止（%s）", ctx.Err())
+	}
+
 	code := 0
 
 	if waitErr != nil {
@@ -60,15 +66,10 @@ func runRg(rgArgs []string, cap int) string {
 	}
 
 	out := stdout.buf.String()
-	if utf8.RuneCountInString(out) > cap {
+	if utf8.RuneCountInString(out) > maxRunes {
 		runes := []rune(out)
 
-		cut := string(runes[:cap])
-		for !utf8.ValidString(cut) {
-			cut = cut[:len(cut)-1]
-		}
-
-		out = cut + "\n…（结果超长已截断）"
+		out = string(runes[:maxRunes]) + "\n…（结果超长已截断）"
 	}
 
 	out = strings.TrimRight(out, " \t\n\r")

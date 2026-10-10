@@ -22,7 +22,7 @@ func NewGrep() *kernel.ToolDef {
 		},
 		NeedsPermission: false,
 		Preview:         func(args map[string]any) string { return "grep " + argString(args, "pattern") },
-		Run: func(_ context.Context, args map[string]any) string {
+		Run: func(ctx context.Context, args map[string]any) string {
 			pattern := argString(args, "pattern")
 			if pattern == "" {
 				return "错误：缺少 pattern"
@@ -38,7 +38,7 @@ func NewGrep() *kernel.ToolDef {
 				rgArgs[len(rgArgs)-1] = "."
 			}
 
-			return runRg(rgArgs, 8000)
+			return runRg(ctx, rgArgs, 8000)
 		},
 	}
 }

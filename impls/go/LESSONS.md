@@ -6,6 +6,12 @@
 
 ## 活跃教训
 
+### 2026-10-10 工具子进程必须接收轮次 ctx（Seen 1×）
+
+- 规则：工具的 `Run(ctx, …)` 起子进程一律 `exec.CommandContext(ctx, …)`，不能把 ctx 写成 `_` 丢掉；取消后返回 `错误：… 已中止`，不返回半截结果。
+- 为什么：用户 Ctrl+C 取消的是 turnCtx，丢掉 ctx 的子进程会照常跑完，大目录下的 rg 停不下来。
+- 证据：`internal/plugins/tools/rg.go`（grep/glob 共用）；`go test ./internal/plugins/tools -run '^TestRgToolsStopWhenTurnCancelled$' -count=1 -v`，旧代码在已取消 ctx 下仍返回文件列表：`取消后输出 = "webfetch.go\ntodo.go\n…"，want 含 已中止`。
+
 ### 2026-10-10 网页正文读取中断不能当成功（Seen 1×）
 
 - 规则：`web_fetch` 必须检查 `io.ReadAll` 错误；读取中断时返回既有 `错误：...` 格式，不把部分正文交给模型。
