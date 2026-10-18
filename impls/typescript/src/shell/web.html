@@ -186,6 +186,8 @@
   .menu { position: fixed; z-index: 150; min-width: 200px; padding: 4px; border-radius: var(--r-lg); background: var(--menu-fill); -webkit-backdrop-filter: var(--menu-blur); backdrop-filter: var(--menu-blur); box-shadow: var(--elev-prominent); display: flex; flex-direction: column; }
   .menu-label { padding: 6px 8px 2px; font-size: 11px; line-height: 15px; color: var(--text-3); }
   .menu [role^="menuitem"] { width: 100%; min-height: 34px; padding: 6px 8px; border: 0; border-radius: var(--r-md); background: transparent; display: flex; align-items: center; gap: 8px; text-align: left; font-size: var(--fs-caption); line-height: 20px; color: var(--text); }
+  .menu [role="option"] { width: 100%; min-height: 32px; padding: 5px 8px; border: 0; border-radius: var(--r-md); background: transparent; text-align: left; font-size: var(--fs-caption); line-height: 20px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .menu [role="option"]:hover { background: var(--hover); }
   .menu [role^="menuitem"]:hover:not(:disabled), .menu [role^="menuitem"]:focus-visible { background: var(--hover); outline: none; }
   .menu [role^="menuitem"] .nav-icon { color: var(--text-2); }
   .menu kbd { margin-left: auto; font: 11px/16px var(--font); color: var(--caption); }
@@ -728,8 +730,8 @@
         <form id="settings-form">
           <label>配置名称<input id="config-profile-name" maxlength="80" autocomplete="off" placeholder="填写名称可保存到模型列表"></label>
           <label>API 端点<input id="config-base-url" name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
-          <label>模型<input id="config-model" name="model" required autocomplete="off" list="model-options"></label>
-          <div class="bar"><button type="button" id="model-discover" title="使用已保存的配置请求端点的模型列表（10 秒超时）">获取模型列表</button><datalist id="model-options"></datalist></div>
+          <label>模型<input id="config-model" name="model" required autocomplete="off"></label>
+          <div class="bar"><button type="button" id="model-discover" title="使用已保存的配置请求端点的模型列表（10 秒超时）">获取模型列表</button><div id="model-picker" class="menu" role="listbox" aria-label="候选模型" style="min-width:260px" hidden></div></div>
           <label>API Key<input id="config-api-key" name="apiKey" type="password" autocomplete="new-password" placeholder="填写密钥；已保存时留空保留"></label>
           <p id="model-key-hint" class="settings-description"></p>
           <button type="button" id="model-advanced-toggle" class="sub-toggle" aria-expanded="false" aria-controls="model-advanced">自定义设置</button>
@@ -1108,7 +1110,7 @@
     $('config-api-key').value = ''; $('config-protocol').value = config.protocol || 'auto';
     $('config-context-limit').value = config.contextLimit || 100000;
     $('config-error').textContent = view.configError || '';
-    $('model-options').replaceChildren();
+    $('model-picker').replaceChildren(); closeModelPicker();
     modelKeyHint(); renderModelProfiles();
   }
   function modelKeyHint() {
@@ -1170,16 +1172,34 @@
     button.disabled = true; settingsFeedback('');
     try {
       const result = await api('/model/discover');
-      $('model-options').replaceChildren(...result.models.map((name) => {
-        const option = document.createElement('option'); option.value = name; return option;
+      $('model-picker').replaceChildren(...result.models.map((name) => {
+        const option = document.createElement('button');
+        option.type = 'button'; option.setAttribute('role', 'option'); option.dataset.value = name; option.textContent = name;
+        return option;
       }));
       settingsFeedback(result.models.length ? `发现 ${result.models.length} 个模型，模型输入框可下拉选择` : '端点未返回任何模型');
     } catch (error) { settingsFeedback(error.message, true); }
     finally { button.disabled = !connected || !!view?.busy || saving || changing; }
   };
-  // 原生 datalist 单击输入框不弹层（只能点右缘小箭头），自定义样式下箭头不可见；
-  // 点击时程序化打开，showPicker 不可用（旧 WebKit）则维持原行为
-  $('config-model').onclick = (event) => { try { event.target.showPicker(); } catch { /* 旧 WebKit 无此 API */ } };
+  // 模型候选下拉：自绘弹层（webview 里原生 datalist 的弹层定位错乱）；点输入框弹出，自由填写不受影响
+  function closeModelPicker() { $('model-picker').hidden = true; }
+  $('config-model').onclick = () => {
+    const picker = $('model-picker');
+    if (!picker.children.length) return;
+    if (!picker.hidden) return closeModelPicker();
+    picker.hidden = false;
+    const box = $('config-model').getBoundingClientRect();
+    picker.style.top = `${Math.min(box.bottom + 6, Math.max(8, innerHeight - picker.offsetHeight - 8))}px`;
+    picker.style.left = `${Math.max(8, Math.min(box.left, innerWidth - picker.offsetWidth - 8))}px`;
+  };
+  $('config-model').addEventListener('keydown', (event) => { if (event.key === 'Escape' && !$('model-picker').hidden && !event.isComposing) { event.stopPropagation(); closeModelPicker(); } });
+  $('model-picker').onmousedown = (event) => event.preventDefault(); // 选项点击不抢输入框焦点
+  $('model-picker').onclick = (event) => {
+    const value = event.target.closest('[data-value]')?.dataset.value;
+    if (!value) return;
+    $('config-model').value = value; closeModelPicker();
+  };
+  document.addEventListener('mousedown', (event) => { if (!$('model-picker').hidden && !$('config-model').contains(event.target) && !$('model-picker').contains(event.target)) closeModelPicker(); });
   function renderProjectManagement() {
     const fragment = document.createDocumentFragment();
     for (const [projects, archived] of [[view?.projects || [], false], [view?.archivedProjects || [], true]]) {
@@ -1546,7 +1566,7 @@
   }
   function applyState(state) {
     if (view && state.currentSessionId === view.currentSessionId && state.config?.workspace === view.config?.workspace && Number(state.seq) < lastSeq) return;
-    if (view && (view.activeModelProfileId !== state.activeModelProfileId || ['baseUrl', 'model', 'protocol', 'contextLimit'].some((field) => view.config?.[field] !== state.config?.[field]))) { connectionResult(''); $('model-options').replaceChildren(); }
+    if (view && (view.activeModelProfileId !== state.activeModelProfileId || ['baseUrl', 'model', 'protocol', 'contextLimit'].some((field) => view.config?.[field] !== state.config?.[field]))) { connectionResult(''); $('model-picker').replaceChildren(); closeModelPicker(); }
     const workspaceChanged = view && view.config?.workspace !== state.config?.workspace;
     if (view && (workspaceChanged || view.currentSessionId !== state.currentSessionId)) queueAttempt = null;
     const refreshDiff = view && ((view.busy && !state.busy) || workspaceChanged);
