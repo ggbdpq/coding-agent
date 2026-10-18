@@ -17,7 +17,7 @@
     --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-panel: 28px;
     --fs-xs: 10px; --fs-sm: 12px; --fs-caption: 13px; --fs-base: 14px; --fs-lg: 16px; --fs-xl: 18px;
     --ease: cubic-bezier(.4, 0, .2, 1);
-    --sidebar-w: 280px; --rail-w: 56px; --tooltip-2: #cfd3d6; --content-width: clamp(680px, 64%, 920px); --message-size: 16px;
+    --sidebar-w: 280px; --rail-w: 56px; --tooltip-2: #cfd3d6; --watermark: #dcdfe3; --content-width: clamp(680px, 64%, 920px); --message-size: 16px;
     /* 颜色：亮色 */
     --bg: #ffffff; --sidebar: #f9fafb; --card: #ffffff; --new-session: rgba(255, 255, 255, .55);
     --nav-hover: #f1f3f5; --nav-active: #ebeef2; --selector: #f5f6f7;
@@ -61,7 +61,7 @@
     --bg: #151517; --sidebar: #1b1b1c; --card: #232324; --new-session: rgba(255, 255, 255, .08);
     --nav-hover: #2c2c2e; --nav-active: #43454a; --selector: #353638;
     --hover: rgba(255, 255, 255, .06); --active: rgba(255, 255, 255, .10);
-    --text: #f9fafb; --text-2: #cfd3d6; --text-3: #adb2b8; --caption: #81858c;
+    --text: #f9fafb; --text-2: #cfd3d6; --text-3: #adb2b8; --caption: #81858c; --watermark: #43454a;
     --border-1: rgba(255, 255, 255, .06); --border-2: rgba(255, 255, 255, .12); --border-3: rgba(255, 255, 255, .16); --border-4: rgba(255, 255, 255, .20);
     --brand: #7aaaff; --brand-soft: #34415b; --brand-ink: #f9fafb; --primary: #f9fafb; --primary-fg: #0f1115;
     --layer-2: #2c2c2e; --layer-3: #353638; --module: #353638; --hover-solid: #353638;
@@ -98,12 +98,12 @@
   .sidebar { width: var(--sidebar-w); flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; padding: 40px 12px 6px; background: var(--sidebar); border-right: .5px solid var(--border-2); }
   /* 侧栏开关在侧栏外：收起后仍可点；展开时贴在侧栏顶条右侧 */
   #sidebar-toggle { position: absolute; z-index: 6; top: 12px; left: calc(var(--sidebar-w) - 40px); }
-  .workbench:has(> .sidebar[hidden]) #sidebar-toggle { left: calc((var(--rail-w) - 28px) / 2); }
-  /* 折叠 rail：56 宽图标列，开关占顶部 52，设置沉底 */
-  .compact-nav { width: var(--rail-w); flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 52px 0 12px; background: var(--sidebar); border-right: .5px solid var(--border-2); }
-  .compact-nav button { width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--text-2); }
+  /* 侧栏收起：开关留在左上角，快捷入口作为同一行的图标按钮 */
+  .workbench:has(> .sidebar[hidden]) #sidebar-toggle { left: 12px; }
+  .workbench:has(> .sidebar[hidden]) .chat > header { padding-left: 48px; }
+  .compact-nav { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .compact-nav button { width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--text-2); }
   .compact-nav button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-  #compact-settings { margin-top: auto; }
   .brand { height: 60px; margin-bottom: 4px; padding: 8px 0 8px 4px; display: flex; align-items: center; gap: 8px; }
   .brand-mark { width: 24px; height: 24px; flex-shrink: 0; border-radius: 7px; display: grid; place-items: center; background: var(--text); color: var(--bg); font: 600 11px/1 var(--mono); }
   .brand-name { font-size: var(--fs-xl); font-weight: 600; letter-spacing: .04em; }
@@ -221,7 +221,6 @@
   /* composer 上方的一条提示：设置缺失为中性色，错误为红色 */
   #notice, #storage-warning { width: 100%; max-width: none; margin: 0 auto 6px; padding: 4px 8px; border-radius: var(--r-md); background: var(--hover); color: var(--text-2); font-size: var(--fs-sm); line-height: 18px; display: flex; align-items: center; gap: 8px; }
   #notice[hidden], #storage-warning[hidden] { display: none; }
-  #notice::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
   #notice.error, #storage-warning { color: var(--danger); background: var(--danger-soft); }
   #notice.error::before { background: var(--danger); }
   #notice button { height: auto; min-height: 0; padding: 0; border: 0; background: none; color: var(--brand); font-size: inherit; }
@@ -361,14 +360,30 @@
 
   /* —— Git 变更面板：对照 harness SidebarRight（贴边的 dock 栏）与 FileDiff —— */
   .diff-panel { width: clamp(360px, 32vw, 480px); flex-shrink: 0; display: flex; flex-direction: column; border-left: .5px solid var(--border-3); background: var(--bg); min-width: 0; overflow: hidden; }
-  .diff-heading { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 12px 0 16px; border-bottom: .5px solid var(--border-3); gap: 8px; flex-shrink: 0; }
-  .diff-heading h2 { font-size: var(--fs-base); line-height: 20px; margin: 0; font-weight: 500; }
-  .diff-heading .bar { gap: 4px; }
-  .diff-heading .bar button { height: 28px; min-height: 28px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); font-size: var(--fs-sm); line-height: 18px; }
+  .diff-heading { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 12px 0 16px; gap: 8px; flex-shrink: 0; }
+  .diff-heading h2 { display: flex; align-items: center; gap: 6px; font-size: var(--fs-caption); line-height: 20px; margin: 0; font-weight: 500; }
+  .diff-heading h2 .nav-icon { color: var(--text-3); }
+  .diff-heading .bar { gap: 8px; }
+  .diff-heading .bar button { width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); }
   .diff-heading .bar button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
   .diff-note { color: var(--text-3); font-size: var(--fs-caption); line-height: 20px; padding: 4px 16px 8px; }
   .diff-scope { align-self: flex-start; margin: 12px 16px 4px; height: 28px; padding: 0 8px; border: .5px solid var(--border-3); border-radius: var(--r-sm); background: transparent; color: var(--text-2); font-size: var(--fs-caption); font-weight: 500; }
-  #diff-content { flex: 1; overflow: auto; padding: 0 0 16px; }
+  #diff-content { flex: 1; overflow: auto; padding: 0 0 16px; display: flex; flex-direction: column; }
+  /* 空态引导：harness 右栏「开始」页——水印图标 + 居中胶囊入口 */
+  .diff-guide { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 0 24px; }
+  .diff-guide::after { content: ""; flex: 0 1 10%; }
+  .diff-guide-hero { display: flex; margin-bottom: 16px; color: var(--watermark); }
+  .diff-guide-hero .nav-icon { width: 56px; height: 56px; stroke-width: 1.2; }
+  .diff-guide > .dim { margin: -22px 0 2px; font-size: var(--fs-sm); line-height: 18px; }
+  .guide-entry { width: 380px; max-width: 100%; min-height: 56px; padding: 14px 20px; display: flex; align-items: center; gap: 14px; border: .5px solid var(--border-3); border-radius: var(--r-xl); background: var(--card); color: var(--text); text-align: left; height: auto; }
+  .guide-entry:hover:not(:disabled) { background: var(--hover-solid); }
+  .guide-entry > .nav-icon { width: 22px; height: 22px; color: var(--text-2); flex: none; }
+  .guide-entry-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .guide-entry-title { font-size: var(--fs-base); line-height: 1.4; }
+  .guide-entry-desc { font-size: 11px; line-height: 1.4; color: var(--text-3); }
+  .diff-panel:has(.diff-guide) .diff-note,
+  .diff-panel:has(.diff-guide):has(#diff-scope option[value="all"]:checked) .diff-scope,
+  .diff-panel:has(.diff-guide) .commit-form:not(:has(#commit-status:not(:empty))) { display: none; }
   .diff-file { border-bottom: .5px solid var(--border-3); }
   .diff-file summary { list-style: none; height: 38px; padding: 0 6px 0 16px; cursor: pointer; display: flex; align-items: center; gap: 6px; font: var(--fs-caption)/20px var(--font); color: var(--text); }
   .diff-file summary::-webkit-details-marker { display: none; }
@@ -552,6 +567,7 @@
     #composer-model { flex: 0 1 auto; max-width: 120px; }
     .composer-foot { flex-wrap: wrap; row-gap: 2px; }
   }
+  .workbench > .diff-panel.full { position: absolute; z-index: 4; inset: 0; width: auto; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
 </style>
 </head>
 <body>
@@ -578,6 +594,10 @@
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.4 3 8.2 7 9.5 4-1.3 7-5.1 7-9.5V6z"/></symbol>
   <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6.5v13.5L9 17.5l6 2.5 6-2.5V4l-6 2.5zM9 4v13.5M15 6.5V20"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
   <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></symbol>
@@ -607,14 +627,13 @@
     <button id="settings-home" class="icon-btn" aria-label="设置" aria-keyshortcuts="Meta+, Control+," data-tip="设置" data-keys="⌘ ,"><svg class="nav-icon" aria-hidden="true"><use href="#i-gear"/></svg></button>
   </div>
 </aside>
-<nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden>
-  <button id="compact-new" aria-label="新任务" data-tip="新会话" data-keys="⌘ N"><svg class="nav-icon" aria-hidden="true"><use href="#i-plus-chat"/></svg></button>
-  <button id="compact-search" aria-label="搜索" data-tip="搜索会话" data-keys="⌘ K"><svg class="nav-icon" aria-hidden="true"><use href="#i-search"/></svg></button>
-  <button id="compact-project" aria-label="添加项目" data-tip="添加项目" data-keys="⌘ O"><svg class="nav-icon" aria-hidden="true"><use href="#i-folder-plus"/></svg></button>
-  <button id="compact-settings" aria-label="设置" data-tip="设置" data-keys="⌘ ,"><svg class="nav-icon" aria-hidden="true"><use href="#i-gear"/></svg></button>
-</nav>
 <main class="chat" id="chat">
 <header>
+  <nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden>
+    <button id="compact-new" aria-label="新任务" data-tip="新会话" data-keys="⌘ N"><svg class="nav-icon" aria-hidden="true"><use href="#i-plus-chat"/></svg></button>
+    <button id="compact-search" aria-label="搜索" data-tip="搜索会话" data-keys="⌘ K"><svg class="nav-icon" aria-hidden="true"><use href="#i-search"/></svg></button>
+    <button id="compact-settings" aria-label="设置" data-tip="设置" data-keys="⌘ ,"><svg class="nav-icon" aria-hidden="true"><use href="#i-gear"/></svg></button>
+  </nav>
   <div class="heading"><h1 id="title">tcode</h1><span id="header-path" class="header-path"></span></div>
   <span id="status" role="status">连接中</span>
   <button id="diff-toggle" class="icon-btn" aria-label="查看变更" aria-expanded="false" aria-controls="diff-panel" aria-keyshortcuts="Meta+Shift+D Control+Shift+D" data-tip="查看变更" data-keys="⌘ ⇧ D"><svg class="nav-icon" aria-hidden="true"><use href="#i-panel-r"/></svg></button>
@@ -644,7 +663,7 @@
 </footer>
 </main>
 <aside id="diff-panel" class="diff-panel" aria-label="Git 变更" hidden>
-  <div class="diff-heading"><h2>Git 变更</h2><div class="bar"><button id="diff-refresh">刷新</button><button id="diff-close" aria-label="关闭变更">关闭</button></div></div>
+  <div class="diff-heading"><h2><svg class="nav-icon s14" aria-hidden="true"><use href="#i-git"/></svg>Git 变更</h2><div class="bar"><button id="diff-refresh" class="icon-btn" aria-label="刷新" data-tip="刷新"><svg class="nav-icon" aria-hidden="true"><use href="#i-refresh"/></svg></button><button id="diff-full" class="icon-btn" aria-label="全屏查看变更" aria-pressed="false" data-tip="全屏"><svg class="nav-icon" aria-hidden="true"><use href="#i-expand"/></svg></button><button id="diff-close" class="icon-btn" aria-label="关闭变更" data-tip="关闭"><svg class="nav-icon" aria-hidden="true"><use href="#i-x"/></svg></button></div></div>
   <select id="diff-scope" class="diff-scope" aria-label="审查范围"><option value="all">仓库全部变更</option><option value="snapshots">本轮快照文件</option></select>
   <div class="diff-note" role="note">差异相对 HEAD，包含同一路径的用户修改。本轮快照不覆盖命令、超大文件或无有效快照的写入；“撤销”恢复到本轮修改前。筛选仅影响展示，提交仍覆盖仓库全部已暂存文件。</div>
   <div id="diff-content" aria-live="polite"></div>
@@ -1372,7 +1391,15 @@
       else row('dim', file.diff === null ? '差异未展示（文件较多或较大），完整内容请在终端查看' : '（无正文差异）', details);
       fragment.append(details);
     }
-    if (!fragment.childNodes.length) row('dim', snapshots ? '本轮没有可展示的快照文件' : '没有 Git 变更', fragment);
+    if (!fragment.childNodes.length) {
+      const guide = row('diff-guide', undefined, fragment), hero = document.createElement('span');
+      hero.className = 'diff-guide-hero'; hero.append(icon('git')); guide.append(hero);
+      row('dim', snapshots ? '本轮没有可展示的快照文件' : '没有 Git 变更', guide);
+      const entry = document.createElement('button'); entry.type = 'button'; entry.className = 'guide-entry';
+      const text = row('guide-entry-text', undefined, entry);
+      row('guide-entry-title', '刷新变更', text); row('guide-entry-desc', '重新读取工作区的 Git 状态', text);
+      entry.prepend(icon('refresh')); entry.onclick = loadChanges; guide.append(entry);
+    }
     $('diff-content').replaceChildren(fragment);
     updateCommitBar();
   }
@@ -1390,7 +1417,16 @@
     } catch (error) { if (requestId === diffRequest) { changes = null; $('diff-content').textContent = error.message; updateCommitBar(); } }
     finally { if (requestId === diffRequest) { $('diff-refresh').disabled = false; updateDiffToggle(); } }
   }
+  function setDiffFull(on) {
+    $('diff-panel').classList.toggle('full', on);
+    $('diff-full').setAttribute('aria-pressed', String(on));
+    $('diff-full').setAttribute('aria-label', on ? '退出全屏' : '全屏查看变更');
+    $('diff-full').dataset.tip = on ? '退出全屏' : '全屏';
+    $('diff-full').querySelector('use').setAttribute('href', on ? '#i-shrink' : '#i-expand');
+  }
+  $('diff-full').onclick = () => setDiffFull(!$('diff-panel').classList.contains('full'));
   function toggleDiff(open) {
+    if (!open) setDiffFull(false);
     $('diff-panel').hidden = !open; $('diff-toggle').setAttribute('aria-expanded', String(open));
     $('diff-toggle').setAttribute('aria-label', open ? '收起变更' : '查看变更');
     $('diff-toggle').dataset.tip = open ? '收起变更' : '查看变更';
@@ -1613,7 +1649,7 @@
   }
   // 设置是工作区之上的模态：背后保持可见，但不可聚焦、不进可访问性树
   function workbenchInert(on) {
-    for (const el of ['workspace-sidebar', 'compact-nav', 'chat', 'diff-panel'].map($)) {
+    for (const el of ['workspace-sidebar', 'chat', 'diff-panel'].map($)) {
       el.inert = on;
       if (on) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden');
     }
@@ -1632,7 +1668,6 @@
   if (narrow.matches) setSidebar(true);
   $('compact-new').onclick = () => $('new').click();
   $('compact-settings').onclick = () => $('settings-home').click();
-  $('compact-project').onclick = () => $('workspace-pick').click();
   function renderCommands() {
     const commands = document.createDocumentFragment(), tools = document.createDocumentFragment();
     for (const command of view.capabilities?.commands || []) {

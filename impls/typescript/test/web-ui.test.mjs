@@ -2119,26 +2119,52 @@ test('助手回复渲染引用、分隔线与表格，表格单元格支持行�
   });
 });
 
-test('窗口窄于 1024 自动折叠为 56px 图标 rail，入口仍可用，展开后 rail 消失', async () => {
+test('窗口窄于 1024 自动收起侧栏，标题栏左侧只留 28px 图标按钮（同 harness 的 leading controls）', async () => {
   await withPage(initialState(), {}, async (page) => {
     const sidebar = page.getByRole('complementary', { name: '项目与会话', exact: true });
-    const rail = page.getByRole('navigation', { name: '快捷入口', exact: true });
     await page.setViewportSize({ width: 1000, height: 800 });
-    await rail.waitFor();
+    await page.getByRole('button', { name: '展开侧栏', exact: true }).waitFor();
     assert.equal(await sidebar.isVisible(), false);
-    const box = await rail.boundingBox();
-    assert.equal(box.x, 0); assert.equal(box.width, 56); assert.equal(box.height, 800);
+    const toggle = await page.getByRole('button', { name: '展开侧栏', exact: true }).boundingBox();
+    let previous = toggle;
     for (const name of ['新任务', '搜索', '设置']) {
-      const button = rail.getByRole('button', { name, exact: true });
-      assert.equal((await button.boundingBox()).width, 32, `${name} 为 32px 图标按钮`);
+      const button = page.getByRole('navigation', { name: '快捷入口', exact: true }).getByRole('button', { name, exact: true });
+      const box = await button.boundingBox();
+      assert.equal(box.width, 28, `${name} 为 28px 图标按钮`); assert.equal(box.height, 28);
       assert.equal((await button.innerText()).trim(), '', `${name} 不显示文字`);
+      assert.equal(box.y, toggle.y, `${name} 与侧栏开关同一行`);
+      assert.equal(box.x - (previous.x + previous.width), 8, `${name} 与前一个按钮间距 8px`);
+      previous = box;
     }
     await page.getByRole('button', { name: '展开侧栏', exact: true }).click();
     assert.equal(await sidebar.isVisible(), true);
-    assert.equal(await rail.isVisible(), false);
+    assert.equal(await page.getByRole('navigation', { name: '快捷入口', exact: true }).isVisible(), false);
   });
 });
 
+test('变更面板头部为图标按钮，可全屏查看；没有变更时显示居中的引导卡片', async () => {
+  let empty = false;
+  const file = { path: 'a.txt', diff: '', staged: false, untracked: true, deleted: false, revertable: false };
+  await withPage(initialState(), { '/changes': () => ({ files: empty ? [] : [file] }) }, async (page) => {
+    empty = true;
+    await page.getByRole('button', { name: '查看变更', exact: true }).click({ timeout: 2000 });
+    const panel = page.getByRole('complementary', { name: 'Git 变更', exact: true });
+    await panel.getByText('没有 Git 变更', { exact: true }).waitFor();
+    for (const name of ['刷新', '全屏查看变更', '关闭变更']) {
+      const box = await panel.getByRole('button', { name, exact: true }).boundingBox();
+      assert.equal(box.width, 28, `${name} 为 28px 图标按钮`);
+    }
+    const guide = panel.getByRole('button', { name: /重新读取/ });
+    const guideBox = await guide.boundingBox(), panelBox = await panel.boundingBox();
+    assert.ok(Math.abs(guideBox.x + guideBox.width / 2 - (panelBox.x + panelBox.width / 2)) <= 2, '引导卡片水平居中');
+    assert.ok(guideBox.height >= 56, '引导卡片至少 56px 高');
+    await panel.getByRole('button', { name: '全屏查看变更', exact: true }).click();
+    const full = await panel.boundingBox(), viewport = page.viewportSize();
+    assert.equal(full.x, 0); assert.equal(full.width, viewport.width);
+    await panel.getByRole('button', { name: '退出全屏', exact: true }).click();
+    assert.ok((await panel.boundingBox()).width < viewport.width);
+  });
+});
 test('视图选项可按名称排序、显示已归档项目，选择保存在本地并在刷新后恢复', async () => {
   const sessions = [{ id: 's1', title: 'beta', cwd: '/tmp/ui-project', mtime: Date.now() - 60e3 }, { id: 's2', title: 'alpha', cwd: '/tmp/ui-project', mtime: Date.now() - 3600e3 }];
   const archivedProjects = [{ path: '/tmp/old-project', name: 'old-project', available: true, sessionCount: 2 }];
