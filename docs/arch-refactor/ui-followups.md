@@ -27,3 +27,14 @@
   HTTP 用例）覆盖，浏览器渲染验证待本条补齐时一并做。
 - 来源：WP4 审批 scoped 第四态（分支 feat/wp4-permission-scope）。
 - 状态：等待 UI 分支（ui/refresh-workbench）合并后补。
+
+## WP2（feat/wp2-midturn-governance）
+
+- 事件：`context_edit { strategy: 'clear_tool_outputs', cleared, savedTokens, at }`。
+- 期望渲染：web 侧 renderLog 增加一个 `case 'context_edit'`，输出一行灰字
+  （形如 `（已清理 {cleared} 条旧工具输出，节省 {savedTokens} Tokens）`），只用现有
+  CSS 类，不加新布局。
+- repl 侧已随包落地（`src/shell/repl.ts` renderToTerminal，一行 c.dim 灰字）。
+- web.html 本轮冻结未改；事件本身经 web.ts SSE 透传，壳对未知事件类型静默跳过。
+- 来源：WP2 轮内上下文治理（分支 feat/wp2-midturn-governance）。
+- 状态：等待 UI 分支（ui/refresh-workbench）合并后补。
