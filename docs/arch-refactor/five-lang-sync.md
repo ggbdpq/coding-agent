@@ -13,3 +13,4 @@
 | event R8 | 断尾占位文案家族统一（ts 长文案为登记偏差，待收敛） | 集成分支 | ts 欠家族文本、rs 已登记、四版待核对 | WP6 合并时裁定 |
 | agent-loop R9 | 中间件管线：planMode → 用户中间件 → permission（固定最内层，注册时断言）+ beforeModel/afterModel/wrapToolCall 洋葱 | feat/wp1-middleware | 四版待同步 | WP1 |
 | context 触发点+摘要输入 | 治理挂轮前+每次模型调用前（清理→压缩→裁剪，压缩摘要输入含工具名/参数 200/结果 300） | feat/wp2-midturn-governance | 四版待同步 | WP2 |
+| agent-loop R2 | 上限可配（TurnDeps.maxRounds / config.maxToolRounds，缺省 40）+ 触发先发 limit 事件 + 强制总结调用前 beforeModel | feat/wp5-limits | 四版待同步 | WP5 |

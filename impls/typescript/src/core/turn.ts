@@ -66,6 +66,7 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
       // WP2：轮内治理每次模型调用前执行（skipTurnStart：轮前那次已由 governTurnStart
       // 在用户消息入列前完成）；其余用户中间件依次内层排列（固定管线见 agentloop）
       middleware: [governanceMiddleware({ skipTurnStart: true, compactBudget }), ...(hooks.middleware ?? [])],
+      maxRounds: app.config.maxToolRounds, // WP5：轮次上限可配（缺省 40）
       onMessage: (m) => app.store.append(m), // WP6：轮内每 push 一条消息就落盘
     });
   } catch (e) {

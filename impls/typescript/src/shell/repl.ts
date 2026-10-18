@@ -154,6 +154,9 @@ export function renderToTerminal(ev: AgentEvent): void {
     case 'context_edit': // WP2：轮内/轮前清理旧工具输出
       console.log(c.dim(`（已清理 ${ev.cleared} 条旧工具输出，节省 ${ev.savedTokens} Tokens）`));
       break;
+    case 'limit': // WP5：轮次上限
+      console.log(c.yellow(`已达工具轮次上限（${ev.limit}），正在总结`));
+      break;
     default:
       break; // turn_start/user/turn_end 的展示由横幅与提示符逻辑承担
   }

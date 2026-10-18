@@ -52,7 +52,7 @@ export interface TurnDeps {
   onEvent?: (ev: AgentEvent) => void;
   /** WP6：每 push 一条消息就回调（增量持久化用） */
   onMessage?: (m: ChatMessage) => void;
-  /** WP5：轮内工具往返上限；缺省 MAX_TOOL_ROUNDS；WP0 仅契约，runTurn 暂不消费 */
+  /** WP5：轮内工具往返上限；缺省 MAX_TOOL_ROUNDS（40）；turn 层从 config.maxToolRounds 传入 */
   maxRounds?: number;
 }
 
@@ -166,14 +166,21 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
     }
   };
 
-  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+  // WP5：轮次上限可配（TurnDeps.maxRounds / config.maxToolRounds），缺省仍 40
+  const maxRounds = deps.maxRounds ?? MAX_TOOL_ROUNDS;
+  // 仅循环自然耗尽（达到上界）才算熔断；中间件 jump summarize 是主动收尾，不发 limit 事件
+  let summarizeByJump = false;
+  for (let round = 0; round < maxRounds; round++) {
     deps.signal?.throwIfAborted();
     // jump 语义（spec R2 修订）：summarize → 跳出循环走强制总结；end → 直接结束本轮。
     // 钩子未声明时不 await：空管线的承诺拓扑与无中间件时逐位一致（不引入微任务跳变）。
     if (mw.beforeModel) {
       const jumpBefore = await mw.beforeModel(state);
       if (jumpBefore?.jumpTo === 'end') return;
-      if (jumpBefore?.jumpTo === 'summarize') break;
+      if (jumpBefore?.jumpTo === 'summarize') {
+        summarizeByJump = true;
+        break;
+      }
     }
     const opts: ChatOptions = {
       tools: schemas,
@@ -189,7 +196,10 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
     if (mw.afterModel) {
       const jumpAfter = await mw.afterModel(state, { message, finishReason });
       if (jumpAfter?.jumpTo === 'end') return;
-      if (jumpAfter?.jumpTo === 'summarize') break;
+      if (jumpAfter?.jumpTo === 'summarize') {
+        summarizeByJump = true;
+        break;
+      }
     }
     if (!message.tool_calls?.length) return;
 
@@ -251,7 +261,11 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
     }
   }
 
-  // 轮次熔断：不带工具再要一次总结，防止无限打转（R2 修订：总结调用前同样执行 beforeModel）
+  // 轮次熔断（WP5）：达到上界先发 limit 事件（中间件 jump 主动收尾不算超限，不发），
+  // 再走 beforeModel（R2 修订：总结调用同样过治理钩子），最后不带工具再要一次总结。
+  if (!summarizeByJump) {
+    deps.onEvent?.({ type: 'limit', kind: 'model_calls', limit: maxRounds, behavior: 'summarize' });
+  }
   if (mw.beforeModel) {
     const jumpSummary = await mw.beforeModel(state);
     if (jumpSummary?.jumpTo === 'end') return;

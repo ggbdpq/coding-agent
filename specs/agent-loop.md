@@ -104,10 +104,18 @@
 
 > 状态：WP0 起草，随对应工作包合并定稿。定稿前现行规则仍然生效。
 
-- **R2 熔断**：上限可配置（`TurnDeps.maxRounds`，缺省 40）；触发时先发
-  `limit { kind, limit, behavior }` 事件，强制总结那次调用之前同样执行
-  beforeModel（治理钩子）（其中"强制总结调用前执行 beforeModel"已由 WP1
-  落地定稿；上限配置与 limit 事件待 WP5）。
+- **R2 熔断（WP5 已定稿）**：上限可配置（`TurnDeps.maxRounds` /
+  `config.maxToolRounds`，缺省 40；配置值必须是正整数，非法值报错不静默回退）；
+  循环自然耗尽（达到上界）时先发
+  `limit { kind:'model_calls', limit, behavior:'summarize' }` 事件，再执行
+  beforeModel（治理钩子），最后追加一次**不带工具 schema** 的请求强制总结；
+  中间件 jump summarize 的主动收尾不属于超限，不发 limit 事件（其中"强制总结
+  调用前执行 beforeModel"已由 WP1 落地定稿；上限配置与 limit 事件已由 WP5
+  落地定稿）。另有可选工具侧限流 `core/limits.ts` 的
+  `toolCallLimitMiddleware({ max, behavior })`（默认不注册）：wrapToolCall 无
+  jump 通道，达到 max 时发 `limit { kind:'tool_calls', ... }` 事件并拒绝执行
+  （status:'error' 回灌）。其他四版仍为旧语义（固定 40、无 limit 事件），
+  漂移登记在五版同步清单。
 - **R3 出口**：由五出口增为六出口——新增"参数非法"：不执行工具、不发
   `tool_call` 事件、不计工具次数，回灌固定话术（含工具名、原始参数前 200 字符、
   必需字段列表、"请重新生成完整参数"），发

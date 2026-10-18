@@ -38,3 +38,13 @@
 - web.html 本轮冻结未改；事件本身经 web.ts SSE 透传，壳对未知事件类型静默跳过。
 - 来源：WP2 轮内上下文治理（分支 feat/wp2-midturn-governance）。
 - 状态：等待 UI 分支（ui/refresh-workbench）合并后补。
+
+## WP5（feat/wp5-limits）
+
+- 事件：`limit { kind:'model_calls'|'tool_calls', limit, behavior }`
+- 期望渲染：web 侧 renderLog 增加一个 `case 'limit'`，输出一行灰字
+  「已达工具轮次上限（40），正在总结」（数字取 `ev.limit`），只用现有 CSS 类，
+  不加新布局。
+- repl 侧已随包落地（`src/shell/repl.ts` renderToTerminal，一行 `c.yellow`）。
+- 来源：WP5 轮次与调用上限（分支 feat/wp5-limits）。
+- 状态：等待 UI 分支（ui/refresh-workbench）合并后补。
