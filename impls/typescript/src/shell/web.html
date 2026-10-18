@@ -168,25 +168,35 @@
 
   /* —— 主区：会话卡片 —— */
   .chat { height: 100%; flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); overflow: hidden; }
-  header { display: flex; gap: 8px; align-items: center; min-height: 52px; padding: 8px 16px 8px 12px; border-bottom: 0.5px solid var(--border); background: var(--page); }
+  .chat > header { display: flex; gap: 8px; align-items: center; height: 52px; flex-shrink: 0; padding: 0 12px 0 20px; background: var(--bg); }
+  .chat:not(.empty-session) > header { border-bottom: .5px solid var(--border-1); }
   .compact-nav { display: flex; gap: 4px; flex-wrap: wrap; }
   .compact-nav button { font-size: 12px; padding: 0 8px; }
-  .heading { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-  .heading h1 { display: block; font-size: 15px; margin: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; letter-spacing: -.005em; }
-  #status { display: inline-flex; align-items: center; gap: 6px; height: 28px; font-size: 12px; color: var(--muted); white-space: nowrap; padding: 0 10px 0 8px; border-radius: 999px; background: var(--field); }
-  #status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--subtle); flex-shrink: 0; }
-  #status[data-status="running"] { color: var(--info); background: var(--info-surface); }
-  #status[data-status="running"]::before { background: var(--info); animation: pulse 1.4s ease-in-out infinite; }
-  #status[data-status="waiting_approval"] { color: var(--warning); background: var(--warning-surface); }
+  .heading { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 12px; }
+  .heading h1 { display: block; font-size: var(--fs-base); line-height: 20px; margin: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .header-path { font: 12px/16px var(--mono); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; margin-left: auto; }
+  .chat.empty-session .header-path { display: none; }
+  /* 状态只做安静的点 + 文字；未就绪原因交给 composer 上方的 #notice */
+  #status { display: inline-flex; align-items: center; gap: 6px; height: 28px; font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; }
+  #status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
+  #status[data-status="setup"] { display: none; }
+  #status[data-status="running"]::before { background: var(--brand); animation: pulse 1.4s ease-in-out infinite; }
+  #status[data-status="waiting_approval"] { color: var(--warning); }
   #status[data-status="waiting_approval"]::before { background: var(--warning); animation: pulse 1.4s ease-in-out infinite; }
-  #status[data-status="setup"] { color: var(--warning); background: var(--warning-surface); }
-  #status[data-status="setup"]::before, #status[data-status="offline"]::before { background: var(--warning); }
-  #status[data-status="error"] { color: var(--danger); background: var(--danger-surface); }
+  #status[data-status="offline"]::before { background: var(--warning); }
+  #status[data-status="error"] { color: var(--danger); }
   #status[data-status="error"]::before { background: var(--danger); }
   #status[data-status="completed"]::before, #status[data-status="idle"]::before { background: var(--success); }
   @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.8); } }
-  #diff-toggle { flex-shrink: 0; min-height: 36px; font-size: 13px; padding: 0 14px; }
-  #notice, #storage-warning { padding: 9px 20px; color: var(--danger); background: var(--danger-surface); font-size: 13px; }
+  #diff-toggle[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+  /* composer 上方的一条提示：设置缺失为中性色，错误为红色 */
+  #notice, #storage-warning { width: 100%; max-width: var(--content-width); margin: 0 auto 8px; padding: 6px 12px; border-radius: var(--r-md); background: var(--hover); color: var(--text-2); font-size: var(--fs-sm); line-height: 18px; display: flex; align-items: center; gap: 8px; }
+  #notice[hidden], #storage-warning[hidden] { display: none; }
+  #notice::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
+  #notice.error, #storage-warning { color: var(--danger); background: var(--danger-soft); }
+  #notice.error::before { background: var(--danger); }
+  #notice button { height: auto; min-height: 0; padding: 0; border: 0; background: none; color: var(--brand); font-size: inherit; }
+  #notice button:hover:not(:disabled) { background: none; text-decoration: underline; }
 
   /* —— 会话流 —— */
   #log { flex: 1; min-height: 0; overflow-y: auto; padding: 32px max(24px, calc((100% - var(--content-width)) / 2)) 24px; display: flex; flex-direction: column; gap: 18px; font-size: var(--message-size); scroll-padding-bottom: 24px; }
@@ -194,18 +204,10 @@
   /* 空会话：标题、说明与输入框（footer）作为一组在视口垂直居中 */
   .chat.empty-session #log { flex: 0 1 auto; margin-top: auto; padding-bottom: 8px; }
   .chat.empty-session .composer { margin-bottom: auto; }
-  .empty { text-align: center; color: var(--muted); padding-bottom: 8px; }
-  .empty-icon { position: relative; display: block; width: 48px; height: 48px; margin: 0 auto 16px; border-radius: 12px; background: var(--field); border: 1px solid var(--border); }
-  .empty-icon::before { content: ""; position: absolute; inset: 0; margin: auto; width: 24px; height: 24px; background: var(--subtle);
-    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 8 4 4-4 4M12.5 16H18'/%3E%3C/svg%3E") center / contain no-repeat;
-            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 8 4 4-4 4M12.5 16H18'/%3E%3C/svg%3E") center / contain no-repeat; }
-  .empty h1 { font-size: 28px; font-weight: 500; letter-spacing: -.02em; color: var(--text); margin: 0 0 10px; }
-  .empty p { max-width: 460px; margin: 0 auto 22px; font-size: 14px; line-height: 1.7; }
-  .setup-steps { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
-  .setup-steps button { min-height: 36px; display: inline-flex; align-items: center; font-size: 14px; padding: 0 16px; border-radius: var(--radius-control); }
-  .setup-steps button:first-child { background: transparent; border-color: var(--border-strong); color: var(--muted); }
-  .setup-steps button:last-child { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
-  .setup-steps button:last-child:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+  .empty { display: flex; align-items: center; justify-content: center; gap: 12px; padding-bottom: 32px; }
+  .empty-icon { width: 32px; height: 32px; border-radius: 9px; background: var(--primary); color: var(--primary-fg); display: grid; place-items: center; font: 600 12px/1 var(--mono); }
+  .empty h1 { font-size: 26px; line-height: 32px; font-weight: 500; color: var(--text); margin: 0; }
+  .empty-badge { align-self: flex-start; height: 20px; padding: 0 6px; border-radius: var(--r-xs); background: var(--brand-soft); color: var(--brand); font-size: 11px; line-height: 20px; }
   .user { align-self: flex-end; max-width: 78%; border-radius: 18px 18px 6px 18px; padding: 10px 16px; background: var(--bubble); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
   .assistant { line-height: 1.8; overflow-wrap: anywhere; }
   .assistant p { margin: 0 0 12px; white-space: pre-wrap; }
@@ -258,41 +260,47 @@
   .bar { display: flex; gap: 8px; flex-wrap: wrap; }
 
   /* —— 输入区 —— */
-  .composer { padding: 8px max(16px, calc((100% - var(--content-width)) / 2)) 12px; flex-shrink: 0; background: linear-gradient(to bottom, transparent, var(--page) 16px); }
-  .queued-line { width: 100%; max-width: var(--content-width); margin: 0 auto 8px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 8px 12px; background: var(--card); }
+  .composer { padding: 0 max(16px, calc((100% - var(--content-width)) / 2)) 16px; flex-shrink: 0; background: linear-gradient(to bottom, transparent, var(--bg) 16px); }
+  .queued-line { width: 100%; max-width: var(--content-width); margin: 0 auto 8px; border: .5px solid var(--border-2); border-radius: var(--r-xl); padding: 8px 12px; background: var(--card); }
   .queued-line .bar { justify-content: space-between; align-items: center; }
   #queued-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; margin: 6px 0; font-size: var(--caption-size); }
-  .input-box { position: relative; width: 100%; max-width: var(--content-width); margin: 0 auto; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); padding: 12px 12px 8px; box-shadow: var(--shadow-sm); transition: border-color .15s; }
-  .input-box:focus-within { border-color: var(--border-strong); }
-  #input { display: block; width: 100%; background: transparent; color: inherit; border: 0; padding: 4px 4px 8px; resize: none; min-height: 52px; max-height: 240px; overflow-y: auto; font-size: 15px; line-height: 1.6; }
-  #input::placeholder { color: var(--subtle); }
+  /* 空会话专属：项目 chip 与模式 chip，位于输入框上方 */
+  .hero-chips { display: none; width: 100%; max-width: var(--content-width); margin: 0 auto 8px; gap: 16px; padding: 0 4px; }
+  .chat.empty-session .hero-chips { display: flex; }
+  .chip { height: 28px; min-height: 28px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-caption); font-weight: 500; max-width: 240px; }
+  .chip:hover:not(:disabled), .chip[aria-expanded="true"] { background: var(--hover); }
+  .chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-icon.chev { width: 12px; height: 12px; color: var(--text-3); }
+  .input-box { position: relative; width: 100%; max-width: var(--content-width); margin: 0 auto; border-radius: var(--r-panel); background: var(--card); padding: 8px 8px 0; box-shadow: var(--elev-soft); transition: box-shadow .15s; }
+  .input-box:focus-within { box-shadow: var(--elev-prominent); }
+  #input { display: block; width: 100%; background: transparent; color: inherit; border: 0; padding: 6px 8px; resize: none; min-height: 52px; max-height: 240px; overflow-y: auto; font-size: var(--fs-base); line-height: 22px; }
+  #input::placeholder { color: var(--text-3); }
   #input:focus { outline: none; }
-  .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding-top: 8px; }
-  .composer-options { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; flex: 1; }
-  .composer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; }
-  .project-chip { display: inline-flex; align-items: center; gap: 6px; height: 36px; min-width: 0; max-width: 200px; padding: 0 12px; border-radius: var(--radius-control); background: var(--field); color: var(--muted); font-size: 12px; }
-  .project-chip .nav-icon { color: var(--subtle); }
-  #composer-workspace { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-  /* 权限模式选择器：状态点表达当前模式，禁用时保持可读不发灰 */
-  #composer-permissions { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-control); cursor: pointer; font-size: 12px; color: var(--text); white-space: nowrap; }
-  #composer-permissions::before { content: ""; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--success); }
+  .composer-toolbar { display: flex; align-items: center; gap: 4px; padding: 2px 0 8px; min-width: 0; }
+  .composer-toolbar .spacer { flex: 1; }
+  #composer-plus { border-radius: 50%; border: .5px solid var(--border-3); }
+  #composer-workspace { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 权限：外观是下拉，行为仍是勾选「全部免审批」 */
+  #composer-permissions { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--r-sm); cursor: pointer; font-size: var(--fs-caption); font-weight: 500; color: var(--text-2); white-space: nowrap; }
   #composer-permissions:hover { background: var(--hover); }
-  #composer-permissions:has(input:checked) { color: var(--warning); background: var(--warning-surface); border-color: color-mix(in srgb, var(--warning) 32%, transparent); }
-  #composer-permissions:has(input:checked)::before { background: var(--warning); }
+  #composer-permissions .perm-on, #composer-permissions:has(input:checked) .perm-off { display: none; }
+  #composer-permissions:has(input:checked) .perm-on { display: inline; }
+  #composer-permissions:has(input:checked) { color: var(--warning); }
   #composer-permissions:has(input:disabled) { cursor: default; }
-  #composer-permissions:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--link) 70%, transparent); outline-offset: 2px; }
-  #settings { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; font-size: 12px; background: transparent; border-color: transparent; color: var(--muted); white-space: nowrap; }
-  #settings:hover:not(:disabled) { color: var(--text); background: var(--hover); border-color: transparent; }
-  #composer-model { min-width: 0; max-width: 180px; }
-  #model-profile-switch { width: 100%; max-width: 180px; min-width: 0; height: 36px; padding: 0 4px 0 10px; border: 1px solid transparent; border-radius: var(--radius-control); color: var(--text); background: transparent; font-size: 12px; text-overflow: ellipsis; }
+  #composer-permissions:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--brand) 70%, transparent); outline-offset: 2px; }
+  #composer-model { min-width: 0; max-width: 200px; }
+  #model-profile-switch { width: 100%; max-width: 200px; min-width: 0; height: 28px; min-height: 28px; padding: 0 4px 0 8px; border: 0; border-radius: var(--r-sm); color: var(--text-2); background: transparent; font-size: var(--fs-caption); font-weight: 500; text-overflow: ellipsis; }
   #model-profile-switch:hover:not(:disabled) { background: var(--hover); }
-  #stop { width: 36px; height: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
-  #send { width: 36px; height: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
-  /* 发送默认为 32px 圆形图标按钮；排队/确认时由 JS 切到文字胶囊形态 */
-  #send.as-text { width: auto; min-width: 32px; padding: 0 12px; font-weight: 550; }
+  #model-profile-switch.missing { color: var(--warning); }
+  #stop, #send { width: 34px; height: 34px; min-height: 34px; margin-left: 4px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; border-radius: 50%; }
+  #send, #send:hover:not(:disabled) { border: 0; background: var(--brand); color: var(--on-brand); }
+  #send:disabled { opacity: .45; }
+  /* 发送默认为圆形图标按钮；排队/确认时由 JS 切到文字胶囊形态 */
+  #send.as-text { width: auto; min-width: 34px; padding: 0 12px; border-radius: 17px; font-weight: 550; }
   #send.as-text .nav-icon { display: none; }
   #send.as-text .sr-only { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip-path: none; white-space: nowrap; }
-  .composer-foot { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 8px 8px 0; min-width: 0; color: var(--subtle); font-size: 12px; line-height: 18px; }
+  .composer-foot { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: var(--content-width); margin: 4px auto 0; min-width: 0; color: var(--caption); font-size: var(--fs-sm); line-height: 18px; }
+  .composer-foot[hidden] { display: none; }
   #model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #usage { display: block; white-space: nowrap; font-variant-numeric: tabular-nums; }
   #usage:not(:empty)::before { content: "·"; margin-right: 8px; }
@@ -422,19 +430,15 @@
 
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
   @media (max-width: 700px) { .settings-panel { grid-template-columns: 1fr; grid-template-rows: 48px auto 1fr; } .settings-sidebar { border-right: 0; border-bottom: 0.5px solid var(--border); padding: 8px; } .settings-sidebar nav { display: flex; overflow-x: auto; } .settings-sidebar nav button { white-space: nowrap; min-height: 36px; } .settings-nav-group { display: none; } .settings-main { padding: 16px; } .settings-row { flex-wrap: wrap; } .settings-row-control { max-width: 100%; } }
-  @media (max-width: 850px) { header { padding: 8px 12px; gap: 8px; } #log { padding: 20px 16px; } .composer { padding: 8px 16px 12px; } #status { max-width: 120px; overflow: hidden; text-overflow: ellipsis; } }
+  @media (max-width: 850px) { #log { padding: 20px 16px; } .composer { padding: 0 16px 12px; } #status { max-width: 120px; overflow: hidden; text-overflow: ellipsis; } }
   @media (max-width: 850px) { .diff-panel { position: fixed; z-index: 2; top: 8px; right: 8px; height: calc(100% - 16px); width: min(420px, calc(100% - 24px)); box-shadow: -16px 0 40px var(--overlay); } }
   @media (max-width: 560px) {
     /* 窄屏手动展开的侧栏浮在主区上方，不挤压内容 */
     .sidebar { position: absolute; z-index: 5; inset: 0 auto 0 0; box-shadow: var(--elev-prominent); }
-    header { min-height: 52px; padding: 8px 12px; flex-wrap: wrap; } .heading { flex: 1; }
-    #status { font-size: 11px; } #diff-toggle { padding: 0 8px; }
+    .header-path { display: none; }
     .diff-panel { top: 0; right: 0; height: 100%; border-radius: 0; }
-    .composer { padding: 8px 12px 12px; } #input { min-height: 44px; }
-    .composer-toolbar { flex-wrap: wrap; }
-    .composer-options { width: 100%; }
-    .composer-actions { width: 100%; justify-content: flex-end; }
-    #composer-model { flex: 1; max-width: none; } #model-profile-switch { max-width: none; }
+    .composer { padding: 0 12px 12px; } #input { min-height: 44px; }
+    #composer-model { flex: 0 1 auto; max-width: 120px; }
     .composer-foot { flex-wrap: wrap; row-gap: 2px; }
   }
 </style>
@@ -457,6 +461,12 @@
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0-8.2-5.3L3 21l5.3-.8A9 9 0 0 0 12 21z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.4 3 8.2 7 9.5 4-1.3 7-5.1 7-9.5V6z"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6.5v13.5L9 17.5l6 2.5 6-2.5V4l-6 2.5zM9 4v13.5M15 6.5V20"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
 </svg>
 <div class="workbench">
@@ -485,24 +495,29 @@
 <main class="chat" id="chat">
 <header>
   <nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden><button id="compact-new" aria-label="新任务">＋ 新任务</button><button id="compact-search" aria-label="搜索">搜索</button><button id="compact-settings" aria-label="设置">设置</button></nav>
-  <div class="heading"><h1 id="title">tcode</h1></div>
+  <div class="heading"><h1 id="title">tcode</h1><span id="header-path" class="header-path"></span></div>
   <span id="status" role="status">连接中</span>
-  <button id="diff-toggle" aria-expanded="false" aria-controls="diff-panel">查看变更</button>
+  <button id="diff-toggle" class="icon-btn" aria-label="查看变更" aria-expanded="false" aria-controls="diff-panel" aria-keyshortcuts="Meta+Shift+D Control+Shift+D" data-tip="查看变更" data-keys="⌘ ⇧ D"><svg class="nav-icon" aria-hidden="true"><use href="#i-panel-r"/></svg></button>
 </header>
-<div id="notice" role="alert" hidden></div>
-<div id="storage-warning" role="alert" hidden></div>
 <div id="log" role="log" aria-label="会话记录"></div>
 <footer class="composer">
   <section id="queued-line" class="queued-line" aria-label="排队指令" aria-live="polite" hidden><div class="bar"><span class="hint">下一条 · 当前完整轮次结束后执行</span><button id="queue-cancel">取消排队</button></div><p id="queued-text"></p><span class="hint">仅本次服务有效；停止或失败会取消排队。</span></section>
+  <div class="hero-chips">
+    <button id="project-chip" type="button" class="chip" aria-haspopup="menu" aria-expanded="false" aria-controls="project-menu"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-folder"/></svg><span id="composer-workspace">选择项目</span><svg class="nav-icon chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+    <button id="mode-chip" type="button" class="chip" aria-haspopup="menu" aria-expanded="false" aria-controls="mode-menu"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-map"/></svg><span id="mode-label">标准模式</span><svg class="nav-icon chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+  </div>
+  <div id="notice" role="alert" hidden></div>
+  <div id="storage-warning" role="alert" hidden></div>
   <div class="input-box">
-    <textarea id="input" aria-label="消息" placeholder="描述要完成的任务；/help 查看命令"></textarea>
+    <textarea id="input" aria-label="消息" placeholder="描述要完成的任务，/ 调用命令"></textarea>
     <div class="composer-toolbar">
-      <div class="composer-options">
-        <span class="project-chip"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z"/></svg><span id="composer-workspace">选择项目后开始任务</span></span>
-        <label id="composer-permissions"><input type="checkbox" id="yolo" class="sr-only"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6Z"/><path d="M12 8.5v4M12 15.8v.2"/></svg>全部免审批</label>
-        <button id="settings" type="button"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="5"/></svg>模型设置</button>
-      </div>
-      <div class="bar composer-actions"><div id="composer-model"><select id="model-profile-switch" aria-label="切换模型配置"><option value="">当前模型 · 未命名配置</option></select></div><button id="stop" type="button" hidden disabled><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:currentColor;stroke:none"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg><span class="sr-only">停止</span></button><button class="primary" id="send" type="button" disabled><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg><span id="send-label" class="sr-only">发送</span></button></div>
+      <button id="composer-plus" type="button" class="icon-btn" aria-label="插入命令" data-tip="插入命令"><svg class="nav-icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+      <label id="composer-permissions" data-tip="审批模式"><input type="checkbox" id="yolo" class="sr-only" aria-label="全部免审批"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-shield"/></svg><span class="perm-off">逐次审批</span><span class="perm-on">全部免审批</span><svg class="nav-icon chev" aria-hidden="true"><use href="#i-chev"/></svg></label>
+      <span class="spacer"></span>
+      <button id="settings" type="button" class="icon-btn" aria-label="模型设置" data-tip="模型设置"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-gear"/></svg></button>
+      <div id="composer-model"><select id="model-profile-switch" aria-label="切换模型配置"><option value="">未配置模型</option></select></div>
+      <button id="stop" type="button" hidden disabled><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:currentColor;stroke:none"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg><span class="sr-only">停止</span></button>
+      <button class="primary" id="send" type="button" disabled><svg class="nav-icon" aria-hidden="true"><use href="#i-arrow-up"/></svg><span id="send-label" class="sr-only">发送</span></button>
     </div>
   </div>
   <div class="composer-foot" id="composer-foot"><span id="model">连接中…</span><span id="usage" aria-label="会话 Token 用量" hidden></span><span id="send-hint"></span></div>
@@ -671,6 +686,11 @@
   <div class="menu-sep" role="separator"></div>
   <button type="button" role="menuitem" data-action="about"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-info"/></svg>关于 tcode<kbd id="about-version" aria-hidden="true"></kbd></button>
 </div>
+<div id="project-menu" class="menu" role="menu" aria-label="选择项目" style="width:240px" hidden></div>
+<div id="mode-menu" class="menu" role="menu" aria-label="模式" style="width:232px" hidden>
+  <button type="button" role="menuitemradio" data-plan="false" aria-checked="true"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-map"/></svg>标准模式</button>
+  <button type="button" role="menuitemradio" data-plan="true" aria-checked="false"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-list"/></svg>计划模式</button>
+</div>
 <div id="view-menu" class="menu" role="menu" aria-label="视图选项" style="width:232px" hidden>
   <div class="menu-label" aria-hidden="true">搜索范围</div>
   <button type="button" role="menuitemradio" data-scope="current" aria-checked="true"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-folder"/></svg>本项目</button>
@@ -710,8 +730,20 @@
     if (!res.ok || result.error) throw Object.assign(new Error(result.error || `请求失败 (${res.status})`), { status: res.status });
     return result;
   }
-  function showError(error) { $('notice').textContent = error.message || String(error); $('notice').hidden = false; if (settingsSection) settingsFeedback(error.message || String(error), true); }
-  function clearError() { $('notice').hidden = true; }
+  // composer 上方唯一一条提示：有错误显示错误，否则在未就绪时显示原因和「配置模型」
+  let noticeText = '', noticeIsError = false;
+  function renderNotice() {
+    const notice = $('notice'), modelMissing = view && !(view.config?.hasApiKey && view.config.baseUrl && view.config.model);
+    const text = noticeText || (connected && view && !view.ready ? readinessHint() : '');
+    notice.replaceChildren(text); notice.hidden = !text; notice.classList.toggle('error', !!noticeText && noticeIsError);
+    if (!noticeText && modelMissing) {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = '配置模型';
+      button.disabled = $('settings').disabled; button.onclick = () => openSettings('model'); notice.append(button);
+    }
+  }
+  function showNotice(text, isError) { noticeText = text; noticeIsError = isError; renderNotice(); }
+  function showError(error) { showNotice(error.message || String(error), true); if (settingsSection) settingsFeedback(error.message || String(error), true); }
+  function clearError() { showNotice('', false); }
   function row(cls, text, parent = log) {
     const node = document.createElement('div'); node.className = cls;
     if (text !== undefined) node.textContent = text;
@@ -815,6 +847,15 @@
     const labels = { idle: '就绪', running: '正在执行', waiting_approval: '等待审批', completed: '已完成', aborted: '已停止', error: '执行失败' };
     $('status').textContent = !connected ? '连接断开，正在重连' : !view?.ready ? (view?.config?.workspace ? '未配置' : '未选项目') : view.busy && view.status === 'completed' ? '正在完成任务' : labels[view.status] || '就绪';
     $('status').dataset.status = !connected ? 'offline' : !view?.ready ? 'setup' : view?.status || 'idle';
+    $('composer-foot').hidden = !!view && !view.config?.model;
+    $('model-profile-switch').classList.toggle('missing', !!view && !view.config?.model);
+    $('header-path').textContent = shortPath(view?.config?.workspace || '');
+    $('mode-label').textContent = view?.planMode ? '计划模式' : '标准模式';
+    for (const item of $('mode-menu').querySelectorAll('[data-plan]')) item.setAttribute('aria-checked', String(item.dataset.plan === String(!!view?.planMode)));
+    $('project-chip').disabled = navigationBlocked();
+    $('mode-chip').disabled = navigationBlocked();
+    $('composer-plus').disabled = input.disabled;
+    renderNotice();
     renderProjects(); renderProjectManagement(); renderSessions(); if (settingsSection === 'commands') renderCommands(); if (settingsSection === 'skills') renderSkills();
   }
   function navigationBlocked() { return !connected || !view || view.busy || sending || saving || changing || testingConnection || cancellingConnection || cancellingQueue; }
@@ -825,7 +866,7 @@
     $('send-label').textContent = label;
     $('send').classList.toggle('as-text', label !== '发送');
     $('send').disabled = !connected || !view?.ready || sending || saving || changing || testingConnection || cancellingConnection || cancellingQueue || (!confirming && !!view.busy && (!queueing || !!view.queued || input.value.trim().startsWith('/')));
-    input.placeholder = queueing ? '继续输入以排队下一条；命令须等待当前轮次结束' : '描述要完成的任务；/help 查看命令';
+    input.placeholder = queueing ? '继续输入以排队下一条；命令须等待当前轮次结束' : '描述要完成的任务，/ 调用命令';
   }
   // WebKit（Tauri 壳）不支持 field-sizing：用 JS 让输入框随内容自动增高，上限 240px。
   function autosize() {
@@ -837,7 +878,8 @@
   input.addEventListener('blur', () => $('composer-foot').classList.remove('input-focused'));
   function renderModelProfiles() {
     for (const choice of [$('model-profile-switch'), $('settings-model-profile')]) {
-      const current = document.createElement('option'); current.value = ''; current.textContent = '当前模型 · 未命名配置';
+      const current = document.createElement('option'); current.value = '';
+      current.textContent = choice.id === 'model-profile-switch' ? view?.config?.model || '未配置模型' : '当前模型 · 未命名配置';
       current.disabled = !!view?.activeModelProfileId;
       choice.replaceChildren(current);
       for (const profile of view?.modelProfiles || []) {
@@ -1175,7 +1217,8 @@
   }
   function toggleDiff(open) {
     $('diff-panel').hidden = !open; $('diff-toggle').setAttribute('aria-expanded', String(open));
-    $('diff-toggle').textContent = open ? '收起变更' : '查看变更';
+    $('diff-toggle').setAttribute('aria-label', open ? '收起变更' : '查看变更');
+    $('diff-toggle').dataset.tip = open ? '收起变更' : '查看变更';
     updateDiffToggle();
     if (open) void loadChanges();
   }
@@ -1262,17 +1305,9 @@
     for (const ev of view.pending || []) permissionCard(ev, fragment);
     if (!fragment.childNodes.length) {
       const empty = row('empty', undefined, fragment);
-      const icon = document.createElement('span'); icon.className = 'empty-icon'; icon.setAttribute('aria-hidden', 'true');
-      const projectName = (view.config?.workspace || '').split(/[\\/]/).filter(Boolean).at(-1) || '尚未选择项目';
-      const heading = document.createElement('h1'); heading.textContent = view.ready ? `在 ${projectName} 中开始任务` : '开始你的第一个编码任务';
-      const p = document.createElement('p'); p.textContent = view.ready ? '描述要修改、排查或理解的内容。执行前会展示需要审批的操作。' : readinessHint();
-      empty.append(icon, heading, p);
-      if (!view.ready) {
-        const steps = row('setup-steps', undefined, empty);
-        const project = document.createElement('button'); project.textContent = '选择项目'; project.disabled = navigationBlocked(); project.onclick = pickWorkspace;
-        const model = document.createElement('button'); model.textContent = '配置模型'; model.disabled = $('settings').disabled; model.onclick = () => openSettings('model');
-        steps.append(project, model);
-      }
+      const heading = document.createElement('h1'); heading.textContent = '今天要改哪段代码？';
+      row('empty-icon', '>_', empty).setAttribute('aria-hidden', 'true');
+      empty.append(heading); row('empty-badge', '预览版', empty);
     }
     $('chat').classList.toggle('empty-session', !!fragment.querySelector('.empty'));
     const previousScroll = log.scrollTop; log.replaceChildren(fragment);
@@ -1296,7 +1331,7 @@
     $('title').textContent = state.title || 'tcode';
     $('title').title = state.title || 'tcode';
     const workspace = state.config?.workspace || '';
-    const projectName = workspace.split(/[\\/]/).filter(Boolean).at(-1) || '尚未选择项目';
+    const projectName = workspace.split(/[\\/]/).filter(Boolean).at(-1) || '选择项目';
     $('composer-workspace').textContent = projectName;
     $('composer-workspace').title = workspace;
     $('workspace-name').textContent = (workspace.split(/[\\/]/).filter(Boolean).at(-1) || '当前项目') + ' · 会话';
@@ -1397,6 +1432,10 @@
     $('compact-nav').hidden = !collapsed;
   }
   $('sidebar-toggle').onclick = () => { if (!settingsSection) setSidebar(!sidebarCollapsed); };
+  // 窄屏侧栏是浮层：进入窄屏时自动收起，之后尊重手动展开
+  const narrow = matchMedia('(max-width: 560px)');
+  narrow.addEventListener('change', (event) => { if (event.matches) setSidebar(true); });
+  if (narrow.matches) setSidebar(true);
   $('compact-new').onclick = () => $('new').click();
   $('compact-settings').onclick = () => $('settings-home').click();
   function renderCommands() {
@@ -1830,6 +1869,37 @@
   };
   // 搜索范围：菜单项同步隐藏 select 的值并触发 change，保持原有搜索逻辑
   $('view-options').onclick = () => openMenu($('view-menu'), $('view-options'));
+  // 项目 chip：列出已有项目，末项打开目录选择器
+  $('project-chip').onclick = () => {
+    const menu = $('project-menu'), items = [];
+    for (const project of (view?.projects || []).filter((item) => item.available)) {
+      const item = document.createElement('button'); item.type = 'button'; item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', String(project.path === view.config?.workspace));
+      item.append(icon('folder', 's14'), project.name); item.title = project.path;
+      item.onclick = () => { closeMenu(true); void changeWorkspace(project.path); };
+      items.push(item);
+    }
+    const other = document.createElement('button'); other.type = 'button'; other.setAttribute('role', 'menuitem');
+    other.append(icon('folder-plus', 's14'), '打开其他目录…'); other.onclick = () => { closeMenu(true); void pickWorkspace(); };
+    if (items.length) { const sep = document.createElement('div'); sep.className = 'menu-sep'; sep.setAttribute('role', 'separator'); items.push(sep); }
+    menu.replaceChildren(...items, other);
+    openMenu(menu, $('project-chip'));
+  };
+  $('mode-chip').onclick = () => openMenu($('mode-menu'), $('mode-chip'));
+  $('mode-menu').onclick = async (event) => {
+    const value = event.target.closest('[data-plan]')?.dataset.plan;
+    if (!value) return;
+    closeMenu(true);
+    if (value === String(!!view?.planMode) || navigationBlocked()) return;
+    changing = true; controls(); clearError();
+    try { const result = await api('/command', { line: '/plan' }); if (result.state) applyState(result.state); }
+    catch (error) { showError(error); }
+    finally { changing = false; controls(); }
+  };
+  $('composer-plus').onclick = () => {
+    if (!input.value.startsWith('/')) input.value = '/' + input.value;
+    input.focus(); input.setSelectionRange(1, 1); updateSendButton(); autosize();
+  };
   $('view-menu').onclick = (event) => {
     const value = event.target.closest('[data-scope]')?.dataset.scope;
     if (!value) return;
@@ -1954,6 +2024,7 @@
       if (settingsSection && !document.querySelector('dialog[open]')) { event.preventDefault(); closeSettings(); }
       return;
     }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd' && !event.repeat && !document.querySelector('dialog[open]')) { event.preventDefault(); if (!$('diff-toggle').disabled && !$('diff-toggle').hidden) $('diff-toggle').click(); return; }
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing || event.repeat || document.querySelector('dialog[open]')) return;
     if (event.key.toLowerCase() === 'k') { event.preventDefault(); openSearch(); return; }
     const button = { n: 'new', ',': 'settings-home', b: 'sidebar-toggle' }[event.key.toLowerCase()];
@@ -2002,8 +2073,7 @@
       if (ev.type === 'automation') {
         const labels = { completed: '已完成', stopped: '已停止', error: '失败' };
         if (ev.name && labels[ev.status]) {
-          $('notice').textContent = `自动化任务「${ev.name}」${labels[ev.status]}`;
-          $('notice').hidden = false;
+          showNotice(`自动化任务「${ev.name}」${labels[ev.status]}`, ev.status === 'error');
         }
         if (settingsSection === 'automation') void renderAutomations();
         return;

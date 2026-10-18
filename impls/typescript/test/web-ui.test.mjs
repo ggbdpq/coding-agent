@@ -2025,3 +2025,54 @@ test('底部账户行向上弹出菜单，Esc 关闭，菜单中的设置与齿�
     assert.equal(await menu.isVisible(), false);
   });
 });
+
+test('缺少模型时 hero 不放操作按钮，只在 composer 上方显示一条 notice，顶栏只留面板图标', async () => {
+  const state = initialState({ ready: false, configError: '请先配置模型', config: { ...initialState().config, baseUrl: '', model: '', hasApiKey: false } });
+  await withPage(state, {}, async (page) => {
+    await page.getByRole('heading', { name: '今天要改哪段代码？', exact: true }).waitFor();
+    assert.equal(await page.locator('#log').getByRole('button').count(), 0, 'hero 不再放操作按钮');
+    const notices = page.getByRole('alert').filter({ visible: true });
+    assert.equal(await notices.count(), 1);
+    const notice = notices.first();
+    assert.equal(await notice.getByRole('button', { name: '配置模型', exact: true }).isVisible(), true);
+    const [noticeBox, inputBox] = [await notice.boundingBox(), await page.locator('.input-box').boundingBox()];
+    assert.ok(noticeBox.y + noticeBox.height <= inputBox.y, 'notice 位于 composer 上方');
+    assert.equal(await page.locator('#status').isVisible(), false, '顶栏不再显示「未配置」状态胶囊');
+    const changes = page.getByRole('button', { name: '查看变更', exact: true });
+    assert.equal((await changes.innerText()).trim(), '', '变更入口只是面板图标');
+    assert.equal(await page.locator('#composer-foot').isVisible(), false, '没有可用模型时隐藏说明行');
+  });
+});
+
+test('空会话的项目 chip 与模式 chip 位于输入框上方，composer 底行依次为 + / 权限 / 模型 / 发送', async () => {
+  const commands = [];
+  const state = initialState();
+  await withPage(state, { '/command': (body) => { commands.push(body.line); state.planMode = !state.planMode; return { state }; } }, async (page) => {
+    const composer = page.locator('footer.composer');
+    const project = composer.getByRole('button', { name: 'ui-project', exact: true });
+    const mode = composer.getByRole('button', { name: '标准模式', exact: true });
+    const inputBox = await page.locator('.input-box').boundingBox();
+    for (const chip of [project, mode]) {
+      const box = await chip.boundingBox();
+      assert.ok(box.y + box.height <= inputBox.y, 'chip 位于输入框上方');
+    }
+    await project.click();
+    const projectMenu = page.getByRole('menu', { name: '选择项目', exact: true });
+    assert.equal(await projectMenu.getByRole('menuitem', { name: '打开其他目录…', exact: true }).isVisible(), true);
+    await page.keyboard.press('Escape');
+    await projectMenu.waitFor({ state: 'hidden' });
+    await mode.click();
+    await page.getByRole('menu', { name: '模式', exact: true }).getByRole('menuitemradio', { name: '计划模式', exact: true }).click();
+    await composer.getByRole('button', { name: '计划模式', exact: true }).waitFor();
+    assert.deepEqual(commands, ['/plan']);
+    const row = page.locator('.composer-toolbar');
+    const xs = [];
+    for (const control of [row.getByRole('button', { name: '插入命令', exact: true }), row.getByRole('checkbox', { name: '全部免审批', exact: true }), row.getByRole('combobox', { name: '切换模型配置', exact: true }), row.getByRole('button', { name: '发送', exact: true })]) {
+      xs.push((await control.boundingBox()).x);
+    }
+    assert.deepEqual([...xs].sort((a, b) => a - b), xs, '底行顺序为 + / 权限 / 模型 / 发送');
+    assert.ok(xs[2] > inputBox.x + inputBox.width / 2, '模型选择靠右');
+    await row.getByRole('button', { name: '插入命令', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), '/');
+  });
+});
