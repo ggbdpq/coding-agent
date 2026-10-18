@@ -71,6 +71,7 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
       onEvent: (ev) => emit(ev), // WP0 补丁 2：中间件治理/限额事件（context_edit/limit 等）
       onUsage: (usage) => emit({ type: 'usage', ...usage }),
       middleware: hooks.middleware, // WP1：透传给 runTurn（固定管线见 agentloop）
+      maxRounds: app.config.maxToolRounds, // WP5：轮次上限可配（缺省 40）
       onMessage: (m) => app.store.append(m), // WP6：轮内每 push 一条消息就落盘
     });
   } catch (e) {

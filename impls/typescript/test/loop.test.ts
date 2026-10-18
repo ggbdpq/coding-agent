@@ -3,9 +3,15 @@
 // + WP3 参数校验：非法/截断/缺字段参数不执行工具，固定话术回灌 + tool_error 事件。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { runUserTurn } from '../src/core/turn.ts';
+import { runTurn } from '../src/core/agentloop.ts';
+import { loadConfig } from '../src/kernel/config.ts';
 import { Registry } from '../src/kernel/registry.ts';
 import { definePlugin } from '../src/kernel/plugin.ts';
+import type { TurnMiddleware } from '../src/core/middleware.ts';
 import type { AgentEvent, ChatClient, ChatMessage } from '../src/kernel/types.ts';
 import type { App } from '../src/kernel/app.ts';
 
@@ -266,4 +272,94 @@ test('WP3 未知工具：沿用既有出口文本，补发 tool_error(unknown_to
   assert.equal(te.kind, 'unknown_tool');
   assert.equal(te.call_id, 'c4');
   assert.equal(te.name, 'nope');
+});
+
+// —— WP5：轮次上限可配 + limit 事件 + 强制总结调用前 beforeModel ——
+
+/** WP5 用例共用：一直要求同一个工具的假 provider，记录每次请求是否带工具 */
+function toolLoopClient(log: Array<'tools' | 'summary'>): ChatClient {
+  let calls = 0;
+  return {
+    async chat(_messages, opts) {
+      calls++;
+      const withTools = (opts?.tools?.length ?? 0) > 0;
+      log.push(withTools ? 'tools' : 'summary');
+      if (!withTools) return { message: { role: 'assistant', content: '总结' } };
+      return {
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{ id: `c${calls}`, type: 'function', function: { name: 'fake', arguments: '{}' } }],
+        },
+      };
+    },
+  };
+}
+
+test('WP5 maxRounds=3：第 3 轮后发 limit(model_calls) 事件，最后一次请求不带工具', async () => {
+  const log: Array<'tools' | 'summary'> = [];
+  const client = toolLoopClient(log);
+  const events: AgentEvent[] = [];
+  const messages: ChatMessage[] = [{ role: 'user', content: '做事' }];
+
+  await runTurn(messages, {
+    provider: client,
+    tools: [echoTool],
+    maxRounds: 3,
+    onEvent: (e) => events.push(e),
+  });
+
+  assert.deepEqual(log, ['tools', 'tools', 'tools', 'summary'], '3 轮带工具请求 + 1 次无工具总结');
+  const limit = events.find((e) => e.type === 'limit');
+  assert.ok(limit?.type === 'limit', '应发 limit 事件');
+  assert.equal(limit.kind, 'model_calls');
+  assert.equal(limit.limit, 3);
+  assert.equal(limit.behavior, 'summarize');
+});
+
+test('WP5 达到上限后、强制总结调用之前，beforeModel 被调用（记录型中间件验证顺序）', async () => {
+  const log: Array<'tools' | 'summary'> = [];
+  const client = toolLoopClient(log);
+  const order: string[] = [];
+  const recorder: TurnMiddleware = {
+    name: 'recorder',
+    async beforeModel() {
+      order.push('beforeModel');
+    },
+  };
+  const messages: ChatMessage[] = [{ role: 'user', content: '做事' }];
+
+  await runTurn(messages, { provider: client, tools: [echoTool], maxRounds: 3, middleware: [recorder] });
+
+  assert.equal(order.length, 4, '3 轮开头 + 总结前，共 4 次 beforeModel');
+  assert.deepEqual(order.slice(-1), ['beforeModel'], '总结请求前最后一步是 beforeModel');
+  assert.deepEqual(log.slice(-1), ['summary'], 'beforeModel 之后才是强制总结请求');
+});
+
+/** WP5 config 用例：隔离 TCODE_DATA_DIR，写入含 maxToolRounds 的 config.json */
+function loadConfigWithMaxToolRounds(value: unknown): ReturnType<typeof loadConfig> {
+  const dir = mkdtempSync(path.join(tmpdir(), 'tcode-wp5-'));
+  const payload: Record<string, unknown> = { apiKey: 'k', baseUrl: 'https://example.test/v1', model: 'm' };
+  if (value !== undefined) payload.maxToolRounds = value;
+  writeFileSync(path.join(dir, 'config.json'), JSON.stringify(payload));
+  const prev = process.env.TCODE_DATA_DIR;
+  process.env.TCODE_DATA_DIR = dir;
+  try {
+    return loadConfig();
+  } finally {
+    if (prev === undefined) delete process.env.TCODE_DATA_DIR;
+    else process.env.TCODE_DATA_DIR = prev;
+  }
+}
+
+test('WP5 config.maxToolRounds：缺省 40，合法值生效，0/负数/非整数/非数字抛错含字段名', () => {
+  assert.equal(loadConfigWithMaxToolRounds(undefined).maxToolRounds, 40, '缺省 40');
+  assert.equal(loadConfigWithMaxToolRounds(25).maxToolRounds, 25, '合法值生效');
+  for (const bad of [0, -3, 2.5, 'abc']) {
+    assert.throws(
+      () => loadConfigWithMaxToolRounds(bad),
+      (e: Error) => e.message.includes('maxToolRounds'),
+      `非法值 ${JSON.stringify(bad)} 须抛错且错误信息含字段名`
+    );
+  }
 });

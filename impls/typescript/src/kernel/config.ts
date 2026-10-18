@@ -49,6 +49,8 @@ export interface Config {
   beforeTurn?: string;
   /** 估算 token 上限，超过即触发上下文裁剪 */
   contextLimit: number;
+  /** 工具往返轮次上限（WP5）：超过即熔断强制总结收尾；正整数，缺省 40 */
+  maxToolRounds?: number;
   /** ~/.tcode 目录，配置/会话/全局指令都住这里 */
   tcodeDir: string;
   /** Web 的单一工作目录；终端模式仍使用调用目录。 */
@@ -94,6 +96,7 @@ interface FileConfig {
   afterTurn?: string;
   beforeTurn?: string;
   contextLimit?: number;
+  maxToolRounds?: number;
   workspace?: string;
   projects?: string[];
   archivedProjects?: string[];
@@ -194,6 +197,17 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
   const model = process.env.TCODE_MODEL ?? file.model ?? '';
   const contextLimit = Number(process.env.TCODE_CONTEXT_LIMIT || file.contextLimit) || 100_000;
 
+  // WP5：工具往返轮次上限——必须正整数，非法值报错且信息含字段名，不静默回退默认
+  //（readJsonConfig 的 catch 会吞字段名，故校验在此做；allowIncomplete 时进 configError 可见）
+  let maxToolRounds = 40;
+  if (file.maxToolRounds !== undefined) {
+    const raw = file.maxToolRounds as unknown;
+    if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw <= 0) {
+      if (!options.allowIncomplete) throw new Error('maxToolRounds 必须是正整数');
+      configError = 'maxToolRounds 无效，必须是正整数，已回退默认 40';
+    } else maxToolRounds = raw;
+  }
+
   const rawProtocol = (process.env.TCODE_PROTOCOL ?? file.protocol ?? '').toLowerCase();
   let protocol: Protocol | undefined;
   if (rawProtocol) {
@@ -245,7 +259,7 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
     : apiKey === selected.apiKey) : false;
   const activeModelProfileId = selected && keyMatches && selected.baseUrl === baseUrl && selected.model === model
     && selected.protocol === protocol && selected.contextLimit === contextLimit ? selected.id : null;
-  return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, afterTurn: file.afterTurn, beforeTurn: file.beforeTurn, contextLimit, tcodeDir, modelProfiles: file.modelProfiles ?? [], mcpServers: file.mcpServers ?? [], activeModelProfileId,
+  return { apiKey, baseUrl, model, protocol, approval, allowWriteDirs, afterTurn: file.afterTurn, beforeTurn: file.beforeTurn, contextLimit, maxToolRounds, tcodeDir, modelProfiles: file.modelProfiles ?? [], mcpServers: file.mcpServers ?? [], activeModelProfileId,
     ...(options.allowIncomplete ? { workspace: file.workspace || (options.desktop ? '' : process.cwd()), projects: file.projects ?? [], archivedProjects: file.archivedProjects ?? [], preferences: file.preferences ?? { ...defaultPreferences }, configError } : {}),
   };
 }

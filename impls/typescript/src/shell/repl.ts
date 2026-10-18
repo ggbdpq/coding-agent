@@ -151,6 +151,9 @@ export function renderToTerminal(ev: AgentEvent): void {
     case 'trimmed':
       console.log(c.dim(`（上下文超预算，已省略 ${ev.count} 条早期工具输出）`));
       break;
+    case 'limit':
+      console.log(c.yellow(`已达工具轮次上限（${ev.limit}），正在总结`));
+      break;
     default:
       break; // turn_start/user/turn_end 的展示由横幅与提示符逻辑承担
   }
