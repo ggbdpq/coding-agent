@@ -1177,6 +1177,9 @@
     } catch (error) { settingsFeedback(error.message, true); }
     finally { button.disabled = !connected || !!view?.busy || saving || changing; }
   };
+  // 原生 datalist 单击输入框不弹层（只能点右缘小箭头），自定义样式下箭头不可见；
+  // 点击时程序化打开，showPicker 不可用（旧 WebKit）则维持原行为
+  $('config-model').onclick = (event) => { try { event.target.showPicker(); } catch { /* 旧 WebKit 无此 API */ } };
   function renderProjectManagement() {
     const fragment = document.createDocumentFragment();
     for (const [projects, archived] of [[view?.projects || [], false], [view?.archivedProjects || [], true]]) {
