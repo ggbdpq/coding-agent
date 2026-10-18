@@ -101,12 +101,19 @@
 ## 修订草案（ADR-003，未定稿）
 
 > 状态：WP0 起草，随 WP4 合并定稿。定稿前现行规则仍然生效。
+> WP4（feat/wp4-permission-scope）已实现并验证以下条目，标注"（WP4 已定稿）"；
+> 合并后本注记整体转正。
 
+- **R1 闸门顺序**：增 ②b——grants 里有本次 grantKey → 放行。全序：① yolo →
+  ② skipPermission 白名单（仍在调用方 agentloop，先于闸门）→ ②b grants 命中 →
+  ③ 询问四态；④ 非 deny 即放行本次（WP4 已定稿）。
 - **R2 三态**：增量为四态——新增 `s`（scoped，"本会话允许此类"）；y/n/a
-  含义不变。
+  含义不变（WP4 已定稿）。
 - **新增 R3b scoped 记忆**：进程内 `Set<grantKey>`，不持久化；授权键缺省 =
   工具名，bash 返回 `bash:<命令首词>`；复合 shell 命令（`bash -c`、含
-  `; && || | $(` 反引号、重定向 `>`）与首词属于 `bash/sh/zsh/env/xargs/sudo/
-  eval/exec` 时不提供 scoped，只显示原三档（R3 风险）。
+  `; && || | $(` 反引号、重定向 `>`）与首词属于 `bash/sh/zsh/fish/env/xargs/
+  sudo/eval/exec/nohup/time` 时不提供 scoped，只显示原三档（R3 风险）
+  （WP4 已定稿）。
 - **R3 always 语义**：**不改**。偏离清单里"按工具名分粒度"那条只约束 always，
-  需补一句说明：scoped 是会话内按授权键的新记忆，不是对 always 的分粒度改造。
+  补充说明：按工具名分粒度只约束 always，scoped 是会话内按授权键的新记忆，
+  不是对 always 的分粒度改造（WP4 已定稿）。

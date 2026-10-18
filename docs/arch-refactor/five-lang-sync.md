@@ -8,3 +8,4 @@
 
 | 规则编号 | 规则摘要 | TS 提交/分支 | 四版状态 | 登记来源 |
 |---|---|---|---|---|
+| permission R2/R3b | scoped 第四态（"本会话允许此类"）：进程内 Set<grantKey> 会话记忆；复合 shell 命令不可 scoped | feat/wp4-permission-scope | 四版待同步 | WP4 |

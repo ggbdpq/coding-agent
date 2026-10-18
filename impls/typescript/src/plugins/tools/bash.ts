@@ -10,6 +10,11 @@ const MAX_OUTPUT = 64 * 1024;
 const DEFAULT_TIMEOUT_SEC = 120;
 const MAX_TIMEOUT_SEC = 600;
 
+// 首词属于这些解释器/包装器 → 命令内容不可由首词代表，不给 scoped（WP4 表格 / 05-风险 R3）
+const UNSCOPED_FIRST_WORDS = new Set([
+  'bash', 'sh', 'zsh', 'fish', 'env', 'xargs', 'sudo', 'eval', 'exec', 'nohup', 'time',
+]);
+
 interface ShellCmd {
   file: string;
   args: string[];
@@ -46,6 +51,15 @@ export default definePlugin({
   },
   needsPermission: true,
   preview: (a) => `执行命令（cwd=${baseCwd()}）\n$ ${String(a.command ?? '')}`,
+  // scoped 授权键（WP4）：`bash:<首词>`；首词是解释器/包装器，或命令含复合结构
+  // （; && || | $( 反引号 > < 换行）时返回 undefined = 不可 scoped，防"本会话允许 npm"被夹带（05 R3）
+  grantKey(a) {
+    const command = String(a.command ?? '');
+    const first = command.trim().split(/\s+/)[0] ?? '';
+    if (!first || UNSCOPED_FIRST_WORDS.has(first)) return undefined;
+    if (/[;|`><\n]|&&|\$\(/.test(command)) return undefined;
+    return `bash:${first}`;
+  },
   async run(args, signal) {
     const command = String(args.command ?? '');
     if (!command.trim()) return '错误：缺少 command';

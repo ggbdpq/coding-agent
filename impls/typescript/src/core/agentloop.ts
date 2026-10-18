@@ -17,8 +17,8 @@ export interface TurnDeps {
   tools: ToolDef[];
   /** 白名单免确认（skipPermission）所需的运行环境（config.allowWriteDirs） */
   app?: App;
-  /** 权限闸门（needsPermission 的工具会被询问）；缺省视为全部放行 */
-  check?: (toolName: string, preview: string) => Promise<boolean>;
+  /** 权限闸门（needsPermission 的工具会被询问）；第三参为授权键（scoped 记忆粒度），缺省视为全部放行 */
+  check?: (toolName: string, preview: string, grantKey?: string) => Promise<boolean>;
   signal?: AbortSignal;
   onText?: (delta: string) => void;
   onToolCall?: (callId: string, name: string, args: Record<string, unknown>) => void;
@@ -85,10 +85,13 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
         deps.onToolResult?.(call.id, tool.name, denyText, 0);
         continue;
       }
-      // 白名单优先（skipPermission 声明受信）→ 闸门逐次确认
+      // 白名单优先（skipPermission 声明受信）→ 闸门逐次确认。
+      // 授权键（WP4）：工具声明 grantKey 就用它的返回值（复合 bash 命令返回空 = 不可 scoped）；
+      // 未声明才兜底用工具名。两种情况不能合并成 `grantKey?.() ?? name`，否则复合命令会被兜底成可 scoped。
+      const grantKey = tool.grantKey ? tool.grantKey(args) : tool.name;
       const allowed =
         tool.needsPermission && deps.check && !tool.skipPermission?.(args, deps.app as App)
-          ? await deps.check(tool.name, tool.preview(args))
+          ? await deps.check(tool.name, tool.preview(args), grantKey)
           : true;
       if (!allowed) {
         messages.push({
