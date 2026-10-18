@@ -9,6 +9,10 @@ export type PermissionDecision = 'allow' | 'deny' | 'always';
 export interface PermissionRequest {
   tool: string;
   preview: string;
+  /** 授权键（WP4 再改成必填）：scoped 决定按它记忆粒度 */
+  grantKey?: string;
+  /** 给 UI 的 scoped 选项文案，例如"本会话允许所有 edit"/"本会话允许 npm 命令" */
+  grantLabel?: string;
 }
 
 export interface PermissionIO {

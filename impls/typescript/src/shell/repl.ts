@@ -127,8 +127,8 @@ export async function startRepl(app: App): Promise<void> {
   rl.close();
 }
 
-/** 终端渲染器：AgentEvent → 直接写终端（REPL 壳的展示层，无状态） */
-function renderToTerminal(ev: AgentEvent): void {
+/** 终端渲染器：AgentEvent → 直接写终端（REPL 壳的展示层，无状态）。导出供事件契约测试用 */
+export function renderToTerminal(ev: AgentEvent): void {
   switch (ev.type) {
     case 'text_delta':
       process.stdout.write(ev.delta);

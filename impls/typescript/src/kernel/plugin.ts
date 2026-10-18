@@ -22,6 +22,11 @@ export interface ToolPlugin {
    * （如写路径落在 config.allowWriteDirs 内）。返回 true 则跳过逐次确认。
    */
   skipPermission?: (args: Record<string, unknown>, app: App) => boolean;
+  /**
+   * 授权键（ADR-003/WP4）：用户选"本会话允许此类"（scoped）时按它记忆粒度；
+   * 缺省 = 工具名。bash 返回 `bash:<命令首词>`；复合命令（R3 风险）不提供 scoped。
+   */
+  grantKey?: (args: Record<string, unknown>) => string;
   /** signal：轮中用户中止时传入（bash/web_fetch 等长任务应尽快终止） */
   run: (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string>;
 }

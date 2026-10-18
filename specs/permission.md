@@ -97,3 +97,16 @@
 - 单测：rcode 52/52（含新增分隔符契约锁）；本主题未改 ts/py/go/cs 源码
   （tcode 47/47、pcode 51/51、gcode core ok 均为此前验证）。
 - 冒烟：rcode 7/7（config 源码改动后复跑）；其余版本源码未动。
+
+## 修订草案（ADR-003，未定稿）
+
+> 状态：WP0 起草，随 WP4 合并定稿。定稿前现行规则仍然生效。
+
+- **R2 三态**：增量为四态——新增 `s`（scoped，"本会话允许此类"）；y/n/a
+  含义不变。
+- **新增 R3b scoped 记忆**：进程内 `Set<grantKey>`，不持久化；授权键缺省 =
+  工具名，bash 返回 `bash:<命令首词>`；复合 shell 命令（`bash -c`、含
+  `; && || | $(` 反引号、重定向 `>`）与首词属于 `bash/sh/zsh/env/xargs/sudo/
+  eval/exec` 时不提供 scoped，只显示原三档（R3 风险）。
+- **R3 always 语义**：**不改**。偏离清单里"按工具名分粒度"那条只约束 always，
+  需补一句说明：scoped 是会话内按授权键的新记忆，不是对 always 的分粒度改造。

@@ -103,3 +103,15 @@ py 的 append 捕获范围收窄已按写作约定 1 裁决修复（见"分歧�
 - 单测：pcode 56/56（新增 `test_session.py` 2 例，其中"非 OSError 静默"红转绿）；
   本主题未改 ts/go/rust/cs 源码。
 - 冒烟：pcode A/B/C/D/F/H 全过（session.py 改动后复跑）；其余版本源码未动。
+
+## 修订草案（ADR-003，未定稿）
+
+> 状态：WP0 起草，随 WP6 合并定稿。定稿前现行规则仍然生效。
+
+- **落盘时机**：从"轮末 appendSince 批量"改为"每产生一条消息就 append"
+  （`TurnDeps.onMessage`）；单条写失败只告警不中断，不做 fsync（R6）。
+- **断尾修复**：加载会话时对历史文件里悬空的 `tool_calls` 补占位 tool 消息，
+  复用轮内中断的同一个修复函数（R7）。
+- **checkpoint 一致性**：轮内治理改写历史仍走既有
+  `{type:'context_checkpoint'}` 机制，加载以最后一个 checkpoint 为起点
+  （R8）；修复断尾发生在 checkpoint 回放之后。

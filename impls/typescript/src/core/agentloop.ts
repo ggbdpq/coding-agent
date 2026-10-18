@@ -5,6 +5,7 @@
 import type { ChatClient, ChatMessage, ChatOptions } from '../kernel/types.ts';
 import type { ToolDef } from '../kernel/plugin.ts';
 import type { App } from '../kernel/app.ts';
+import type { TurnMiddleware } from './middleware.ts';
 import { toSchemas } from '../kernel/registry.ts';
 
 /** 防失控：单轮对话最多允许的工具往返次数 */
@@ -22,6 +23,12 @@ export interface TurnDeps {
   onToolCall?: (callId: string, name: string, args: Record<string, unknown>) => void;
   onToolResult?: (callId: string, name: string, result: string, ms: number) => void;
   onUsage?: (usage: { prompt_tokens: number; completion_tokens: number }) => void;
+  /** ADR-003：轮内中间件（外→内）；WP0 仅契约，runTurn 暂不消费（WP1 接线） */
+  middleware?: TurnMiddleware[];
+  /** WP6：每 push 一条消息就回调（增量持久化用）；WP0 仅契约，runTurn 暂不消费 */
+  onMessage?: (m: ChatMessage) => void;
+  /** WP5：轮内工具往返上限；缺省 MAX_TOOL_ROUNDS；WP0 仅契约，runTurn 暂不消费 */
+  maxRounds?: number;
 }
 
 export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<void> {
