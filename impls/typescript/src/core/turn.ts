@@ -61,6 +61,7 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
       onToolCall: (callId, name, args) => emit({ type: 'tool_call', call_id: callId, name, args }),
       onToolResult: (callId, name, result, ms) =>
         emit({ type: 'tool_result', call_id: callId, name, summary: result.split('\n')[0], output: result, ms }),
+      onToolError: (e) => emit({ type: 'tool_error', ...e }), // WP3：参数校验失败/未知工具事件
       onUsage: (usage) => emit({ type: 'usage', ...usage }),
     });
   } catch (e) {

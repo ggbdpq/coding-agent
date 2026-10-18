@@ -107,9 +107,14 @@
 - **R2 熔断**：上限可配置（`TurnDeps.maxRounds`，缺省 40）；触发时先发
   `limit { kind, limit, behavior }` 事件，强制总结那次调用之前同样执行
   beforeModel（治理钩子）。
-- **R3 出口**：由五出口增为六出口——新增"参数非法"：不执行工具，回灌固定
-  话术（含工具名、原始参数前 200 字符、必需字段列表），发
-  `tool_error { call_id, name, kind, detail }` 事件。
-- **R4 静默降级**：废止"非法 JSON 参数静默变为 `{}`"，由上述第六出口取代。
+- **R3 出口**：由五出口增为六出口——新增"参数非法"：不执行工具、不发
+  `tool_call` 事件、不计工具次数，回灌固定话术（含工具名、原始参数前 200 字符、
+  必需字段列表、"请重新生成完整参数"），发
+  `tool_error { call_id, name, kind, detail }` 事件；`kind` 取
+  `invalid_args / truncated_args / schema_mismatch`（`truncated_args` 覆盖
+  `finishReason='length'` 且带工具调用的响应，参数即使 JSON 合法也不执行，R5）。
+  未知工具沿用原出口文本并补发 `kind:'unknown_tool'` 事件（WP3 已定稿）。
+- **R4 静默降级**：废止"非法 JSON 参数静默变为 `{}`"，由上述第六出口取代
+  （WP3 已定稿）。
 - **新增 R9 中间件顺序**：`planMode → 用户中间件 → permission`（权限闸门固定
   最内层，不可移除；组合器注册时断言）。中间件由 turn 固定顺序组装，不进注册表。

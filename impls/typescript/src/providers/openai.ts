@@ -4,7 +4,24 @@ import { sseData } from './sse.ts';
 import { RetryableError, withRetry } from './retry.ts';
 import { definePlugin } from '../kernel/plugin.ts';
 import { keyStoreFor, peekSecret } from '../kernel/keyring.ts';
-import type { ChatClient, ChatMessage, ChatOptions, CompletionResult, ToolSchema } from '../kernel/types.ts';
+import type { ChatClient, ChatMessage, ChatOptions, CompletionResult, FinishReason, ToolSchema } from '../kernel/types.ts';
+
+/** WP3：openai finish_reason → 归一化 FinishReason（映射表见 specs/provider.md；未知值落 unknown 不报错，05-风险 R4） */
+export function mapOpenAiFinishReason(raw: string | null | undefined): FinishReason {
+  switch (raw) {
+    case 'stop':
+      return 'stop';
+    case 'tool_calls':
+    case 'function_call':
+      return 'tool_calls';
+    case 'length':
+      return 'length';
+    case 'content_filter':
+      return 'content_filter';
+    default:
+      return 'unknown';
+  }
+}
 
 export class Provider implements ChatClient {
   // 注意：Node 类型剥离不支持构造函数参数属性，字段必须显式声明
@@ -62,6 +79,7 @@ export class Provider implements ChatClient {
     // （TypeError 会命中重试白名单，必须在源头改写；AbortError 保持原样上抛）
     let content = '';
     const calls = new Map<number, { id: string; name: string; args: string }>();
+    let finish: string | null = null;
 
     try {
       for await (const data of sseData(res.body)) {
@@ -93,6 +111,8 @@ export class Provider implements ChatClient {
         }
         const choice = chunk.choices?.[0];
         if (!choice) continue;
+        // WP3：流中可能多次出现 finish_reason，取最后一个非空值
+        if (choice.finish_reason) finish = choice.finish_reason;
         const delta = choice.delta ?? {};
         if (delta.content) {
           content += delta.content;
@@ -120,6 +140,7 @@ export class Provider implements ChatClient {
       }));
 
     return {
+      finishReason: mapOpenAiFinishReason(finish),
       message: {
         role: 'assistant',
         content: content || null,

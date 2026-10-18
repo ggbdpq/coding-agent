@@ -139,6 +139,9 @@ export function renderToTerminal(ev: AgentEvent): void {
     case 'tool_result':
       console.log(c.dim(`  ↳ ${ellipsis(ev.summary, 100)} (${ev.ms}ms)`));
       break;
+    case 'tool_error':
+      console.log(c.red(`✗ ${ev.name} 参数错误（${ev.kind}）`) + c.dim(` ${ellipsis(ev.detail, 120)}`));
+      break;
     case 'trimmed':
       console.log(c.dim(`（上下文超预算，已省略 ${ev.count} 条早期工具输出）`));
       break;
