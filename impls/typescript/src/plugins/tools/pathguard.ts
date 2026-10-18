@@ -35,8 +35,11 @@ export function baseCwd(): string {
 export function resolvePath(input: string): ResolvedPath {
   const base = baseCwd();
   const abs = path.resolve(base, input);
-  const rel = path.relative(base, abs);
-  const outside = rel.startsWith('..') || path.isAbsolute(rel);
+  let rel: string;
+  // 按真实落点比较，root 内的符号链接指向外部时也要提示；无法解析（如悬空链接）按越界处理
+  try { rel = path.relative(realDestination(base), realDestination(abs)); }
+  catch { return { abs, outside: true }; }
+  const outside = rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel);
   return { abs, outside };
 }
 
