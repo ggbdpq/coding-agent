@@ -58,7 +58,7 @@
   }
   :root[data-color="dark"] {
     color-scheme: dark;
-    --bg: #151517; --sidebar: #1b1b1c; --card: #232324; --new-session: rgba(255, 255, 255, .08);
+    --bg: #151517; --sidebar: #1b1b1c; --card: #232324; --new-session: #43454a;
     --nav-hover: #2c2c2e; --nav-active: #43454a; --selector: #353638;
     --hover: rgba(255, 255, 255, .06); --active: rgba(255, 255, 255, .10);
     --text: #f9fafb; --text-2: #cfd3d6; --text-3: #adb2b8; --caption: #81858c; --watermark: #43454a;
@@ -95,11 +95,11 @@
 
   /* —— 外框：侧栏 | 主区 | 变更面板 —— */
   .workbench { position: relative; display: flex; height: 100%; background: var(--bg); }
-  .sidebar { width: var(--sidebar-w); flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; padding: 40px 12px 6px; background: var(--sidebar); border-right: .5px solid var(--border-2); }
+  .sidebar { width: var(--sidebar-w); flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; padding: 6px 12px; background: var(--sidebar); border-right: .5px solid var(--border-2); }
   /* 侧栏开关在侧栏外：收起后仍可点；展开时贴在侧栏顶条右侧 */
-  #sidebar-toggle { position: absolute; z-index: 6; top: 12px; left: calc(var(--sidebar-w) - 40px); }
+  #sidebar-toggle { position: absolute; z-index: 6; top: 22px; left: calc(var(--sidebar-w) - 40px); }
   /* 侧栏收起：开关留在左上角，快捷入口作为同一行的图标按钮 */
-  .workbench:has(> .sidebar[hidden]) #sidebar-toggle { left: 12px; }
+  .workbench:has(> .sidebar[hidden]) #sidebar-toggle { top: 11px; left: 12px; }
   .workbench:has(> .sidebar[hidden]) .chat > header { padding-left: 48px; }
   .compact-nav { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .compact-nav button { width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--text-2); }
@@ -113,10 +113,10 @@
   /* 不可用时保持可读：不整体压灰，只降低文字层级 */
   #new:disabled { opacity: 1; color: var(--text-3); }
   .panel-list { display: flex; flex-direction: column; gap: 4px; }
-  .nav-button { min-height: 36px; margin: 0 2px; padding: 7px 8px; border: 0; border-radius: var(--r-md); background: transparent; display: flex; align-items: center; gap: 8px; text-align: left; font-size: var(--fs-base); line-height: 20px; }
+  .nav-button { min-height: 36px; margin: 0 2px; padding: 7px 8px; border: 0; border-radius: var(--r-md); background: transparent; display: flex; align-items: center; gap: 8px; text-align: left; font-size: var(--fs-base); line-height: 22px; }
   .nav-button:hover:not(:disabled) { background: var(--hover); }
   /* 分区头：「项目」+ 搜索 / 视图选项 / 添加项目；搜索框收起时就是一个 28px 图标，聚焦或有关键词时展开 */
-  .section-head { height: 36px; margin-top: 12px; padding-left: 4px; display: flex; align-items: center; gap: 4px; color: var(--text-3); font-size: var(--fs-caption); }
+  .section-head { height: 36px; margin-top: 10px; padding-left: 4px; display: flex; align-items: center; gap: 4px; color: var(--text-3); font-size: var(--fs-base); line-height: 20px; }
   .section-label { flex: 1; }
   .search-box { position: relative; width: 28px; height: 28px; flex-shrink: 0; }
   .search-box > .nav-icon { position: absolute; left: 6px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-2); }
@@ -139,7 +139,7 @@
   .project-entry[aria-current] .nav-icon { color: var(--brand); }
   .project-entry span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #projects.searching .project-row { display: none; }
-  .project-row { position: relative; }
+  .project-row { position: relative; margin-top: 4px; }
   .project-entry.archived { color: var(--text-3); }
   .project-tag { flex: 0 0 auto !important; font-size: var(--fs-xs); line-height: 16px; color: var(--text-3); }
   .project-actions { position: absolute; top: 7px; right: 6px; display: none; gap: 2px; }
@@ -147,11 +147,11 @@
   .project-row:hover .project-entry span:not(.project-tag) { padding-right: 44px; }
   .project-actions button { width: 20px; height: 20px; min-height: 20px; padding: 0; border: 0; border-radius: var(--r-xs); display: grid; place-items: center; background: transparent; color: var(--text-3); }
   .project-actions button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
-  .session-entry { position: relative; display: flex; align-items: center; border-radius: var(--r-md); }
+  .session-entry { position: relative; display: flex; align-items: center; margin-top: 2px; border-radius: var(--r-md); }
   .session-entry:hover, .session-entry.current { background: var(--hover); }
   .session-entry button { border: 0; background: transparent; text-align: left; }
   .session-entry button:hover:not(:disabled) { background: transparent; }
-  .session-open { flex: 1; min-width: 0; height: 32px; min-height: 32px; padding: 0 8px 0 36px; display: flex; align-items: center; gap: 6px; font-size: var(--fs-base); line-height: 20px; color: var(--text); }
+  .session-open { flex: 1; min-width: 0; height: 32px; min-height: 32px; padding: 0 8px 0 28px; display: flex; align-items: center; gap: 6px; font-size: var(--fs-base); line-height: 20px; color: var(--text); }
   .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-time { flex-shrink: 0; font-size: var(--fs-xs); line-height: 16px; color: var(--text-3); }
   .session-pending { flex-shrink: 0; font-size: var(--fs-xs); line-height: 16px; color: var(--warning); }
@@ -199,7 +199,7 @@
   /* —— 主区：会话卡片 —— */
   .chat { height: 100%; flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); overflow: hidden; }
   /* 顶栏：harness ConversationRoot 面包屑「项目 / 会话」，空会话无分隔线 */
-  .chat > header { display: flex; gap: 8px; align-items: center; height: 52px; flex-shrink: 0; padding: 0 12px 0 12px; background: var(--bg); }
+  .chat > header { display: flex; gap: 8px; align-items: center; height: 40px; flex-shrink: 0; padding: 10px 12px 0 20px; background: var(--bg); }
   .chat:not(.empty-session) > header { border-bottom: .5px solid var(--border-3); }
   .heading { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0; }
   .heading h1 { display: block; padding: 4px 8px; font-size: var(--fs-base); line-height: 20px; margin: 0; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -232,7 +232,7 @@
   /* 空会话：标题、说明与输入框（footer）作为一组在视口垂直居中 */
   .chat.empty-session #log { flex: 0 1 auto; margin-top: auto; padding-bottom: 8px; }
   .chat.empty-session .composer { margin-bottom: auto; }
-  .empty { display: flex; align-items: center; justify-content: center; gap: 10px; padding-bottom: 32px; }
+  .empty { display: flex; align-items: center; justify-content: center; gap: 10px; padding-bottom: 16px; }
   .empty-icon { width: 32px; height: 32px; border-radius: 9px; background: var(--primary); color: var(--primary-fg); display: grid; place-items: center; font: 600 12px/1 var(--mono); }
   .empty h1 { font-size: 26px; line-height: 32px; font-weight: 500; color: var(--text); margin: 0; }
   .empty-badge { align-self: flex-start; margin: 2px 0 0 -3px; padding: 1px 7px 0; border: .5px solid var(--hover); border-radius: 999px; background: var(--brand-soft); color: var(--brand-ink); font: 500 var(--fs-sm)/18px var(--mono); }
@@ -309,9 +309,9 @@
   .queued-line .bar { justify-content: space-between; align-items: center; }
   #queued-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; margin: 6px 0; font-size: var(--caption-size); }
   /* 空会话专属：项目 chip 与模式 chip，位于输入框上方 */
-  .hero-chips { display: none; width: 100%; max-width: none; margin: 0 auto 8px; gap: 16px; padding: 0 4px; }
+  .hero-chips { display: none; width: 100%; max-width: none; margin: 0 auto 8px; gap: 2px; padding: 0 4px; }
   .chat.empty-session .hero-chips { display: flex; }
-  .chip { height: 28px; min-height: 28px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-caption); font-weight: 500; max-width: 240px; }
+  .chip { height: 28px; min-height: 28px; padding: 0 8px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text); display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-caption); line-height: 20px; font-weight: 500; max-width: 240px; }
   .chip:hover:not(:disabled), .chip[aria-expanded="true"] { background: var(--hover); }
   .chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-icon.chev { width: 12px; height: 12px; color: var(--text-3); }
@@ -319,7 +319,7 @@
   #input { display: block; width: 100%; background: transparent; color: inherit; border: 0; padding: 4px 8px 0 14px; resize: none; min-height: 52px; max-height: 240px; overflow-y: auto; font-size: var(--fs-base); line-height: 24px; caret-color: var(--brand); }
   #input::placeholder { color: var(--caption); }
   #input:focus { outline: none; }
-  .composer-toolbar { display: flex; align-items: center; gap: 4px; padding: 2px 8px 6px; min-width: 0; }
+  .composer-toolbar { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 2px 8px 6px; min-width: 0; }
   .composer-toolbar .spacer { flex: 1; }
   #composer-plus { width: 28px; height: 28px; min-height: 28px; border-radius: 50%; border: 0; background: var(--selector); color: var(--text); }
   #composer-plus:hover:not(:disabled) { background: var(--hover-solid); }
@@ -333,9 +333,9 @@
   #composer-permissions:has(input:disabled) { cursor: default; }
   #composer-permissions:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--brand) 70%, transparent); outline-offset: 2px; }
   #composer-model { min-width: 0; max-width: 200px; }
-  #model-profile-switch { width: 100%; max-width: 200px; min-width: 0; height: 28px; min-height: 28px; padding: 0 4px 0 8px; border: 0; border-radius: var(--r-sm); color: var(--text-2); background: transparent; font-size: var(--fs-caption); font-weight: 500; text-overflow: ellipsis; }
+  #model-profile-switch { width: 100%; max-width: 200px; min-width: 0; height: 28px; min-height: 28px; padding: 0 4px 0 8px; border: 0; border-radius: var(--r-sm); color: var(--text-2); background: transparent; font-size: var(--fs-caption); font-weight: 400; line-height: 20px; text-overflow: ellipsis; }
   #model-profile-switch:hover:not(:disabled) { background: var(--hover); }
-  #model-profile-switch.missing { color: var(--warning); }
+  #model-profile-switch.missing { color: var(--text-2); }
   #stop, #send { width: 34px; height: 34px; min-height: 34px; margin-left: 4px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; border-radius: 50%; }
   #send { transform: translateY(-2px); }
   #stop { border: 0; background: var(--brand); color: var(--on-brand); transform: translateY(-2px); }
