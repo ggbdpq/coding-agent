@@ -28,7 +28,7 @@ export interface TurnDeps {
   onUsage?: (usage: { prompt_tokens: number; completion_tokens: number }) => void;
   /** ADR-003：轮内中间件（外→内）；WP0 仅契约，runTurn 暂不消费（WP1 接线） */
   middleware?: TurnMiddleware[];
-  /** WP6：每 push 一条消息就回调（增量持久化用）；WP0 仅契约，runTurn 暂不消费 */
+  /** WP6：每 push 一条消息就回调（增量持久化用） */
   onMessage?: (m: ChatMessage) => void;
   /** WP5：轮内工具往返上限；缺省 MAX_TOOL_ROUNDS；WP0 仅契约，runTurn 暂不消费 */
   maxRounds?: number;
@@ -48,6 +48,7 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
     const { message, finishReason } = await deps.provider.chat(messages, opts);
     deps.signal?.throwIfAborted();
     messages.push(message);
+    deps.onMessage?.(message);
     if (!message.tool_calls?.length) return;
 
     for (const call of message.tool_calls) {
@@ -60,18 +61,22 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
           kind: 'unknown_tool',
           detail: `未知工具 ${call.function.name}，可用工具：${deps.tools.map((t) => t.name).join(', ')}`,
         });
-        messages.push({
+        const unknownToolReply: ChatMessage = {
           role: 'tool',
           tool_call_id: call.id,
           content: `错误：未知工具 ${call.function.name}。可用工具：${deps.tools.map((t) => t.name).join(', ')}`,
-        });
+        };
+        messages.push(unknownToolReply);
+        deps.onMessage?.(unknownToolReply);
         continue;
       }
       // WP3：非法/截断/缺字段的参数不再静默变 {}——不执行工具，固定话术回灌 + tool_error 事件
       const r = parseToolArgs(call.function.arguments, tool.parameters, finishReason);
       if (!r.ok) {
         const text = toolArgsErrorText(tool.name, call.function.arguments || '', r, tool.parameters);
-        messages.push({ role: 'tool', tool_call_id: call.id, content: text });
+        const invalidArgsReply: ChatMessage = { role: 'tool', tool_call_id: call.id, content: text };
+        messages.push(invalidArgsReply);
+        deps.onMessage?.(invalidArgsReply);
         deps.onToolError?.({ call_id: call.id, name: tool.name, kind: r.kind, detail: r.detail });
         continue;
       }
@@ -81,7 +86,9 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
       if (deps.app?.planMode.value && tool.needsPermission) {
         const denyText =
           '当前处于 Plan Mode（只读规划）：禁止执行写类操作。请继续只读探索，并输出一份分步计划；完成后告知用户用 /plan 切回普通模式执行。';
-        messages.push({ role: 'tool', tool_call_id: call.id, content: denyText });
+        const planDenyReply: ChatMessage = { role: 'tool', tool_call_id: call.id, content: denyText };
+        messages.push(planDenyReply);
+        deps.onMessage?.(planDenyReply);
         deps.onToolResult?.(call.id, tool.name, denyText, 0);
         continue;
       }
@@ -94,11 +101,13 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
           ? await deps.check(tool.name, tool.preview(args), grantKey)
           : true;
       if (!allowed) {
-        messages.push({
+        const denialReply: ChatMessage = {
           role: 'tool',
           tool_call_id: call.id,
           content: '用户拒绝了本次操作。请询问用户怎么办，或换一种方式；不要未经允许重试同样的操作。',
-        });
+        };
+        messages.push(denialReply);
+        deps.onMessage?.(denialReply);
         deps.onToolResult?.(call.id, tool.name, '（用户已拒绝）', 0);
         continue;
       }
@@ -114,7 +123,9 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
         result = `错误：${(e as Error).message}`;
       }
       const ms = Date.now() - t0;
-      messages.push({ role: 'tool', tool_call_id: call.id, content: result });
+      const toolReply: ChatMessage = { role: 'tool', tool_call_id: call.id, content: result };
+      messages.push(toolReply);
+      deps.onMessage?.(toolReply);
       deps.onToolResult?.(call.id, tool.name, result, ms);
     }
   }
@@ -126,4 +137,5 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
     onUsage: deps.onUsage,
   });
   messages.push(message);
+  deps.onMessage?.(message);
 }
