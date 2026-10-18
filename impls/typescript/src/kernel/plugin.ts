@@ -24,9 +24,10 @@ export interface ToolPlugin {
   skipPermission?: (args: Record<string, unknown>, app: App) => boolean;
   /**
    * 授权键（ADR-003/WP4）：用户选"本会话允许此类"（scoped）时按它记忆粒度；
-   * 缺省 = 工具名。bash 返回 `bash:<命令首词>`；复合命令（R3 风险）不提供 scoped。
+   * 缺省 = 工具名（调用方兜底）。bash 返回 `bash:<命令首词>`；复合命令（R3 风险）
+   * 返回 undefined = 本次请求不可 scoped，壳只显示原三档。
    */
-  grantKey?: (args: Record<string, unknown>) => string;
+  grantKey?: (args: Record<string, unknown>) => string | undefined;
   /** signal：轮中用户中止时传入（bash/web_fetch 等长任务应尽快终止） */
   run: (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string>;
 }

@@ -25,26 +25,31 @@ export async function startRepl(app: App): Promise<void> {
     }
   });
 
-  // 权限 UI 适配：把"打印预览 + 问 y/n/a"接进统一闸门；确认中 Ctrl+C = 注入空行 = deny
+  // 权限 UI 适配：把"打印预览 + 问 y/s/n/a"接进统一闸门；确认中 Ctrl+C = 注入空行 = deny。
+  // grants：scoped（"本会话允许此类"）的会话内记忆，进程内、不持久化；always 仍走 yolo（R3 不变）
+  const grants = new Set<string>();
   const gate = createPermissionGate(
     {
-      ask: async ({ tool, preview }) => {
+      ask: async ({ tool, preview, grantKey, grantLabel }) => {
         const saved = abort;
         abort = null;
         denyConfirm = () => rl.write('\n');
         try {
           console.log(`\n${c.yellow(`── ${tool} 请求执行 ──`)}\n${c.dim(preview)}`);
+          // 带 grantKey 的请求多一档 scoped；不带（复合 bash 命令等）保持原三档文案
+          const prompt = grantKey && grantLabel
+            ? `允许? [y=允许 / s=${grantLabel} / n=拒绝 / a=本会话全部允许] `
+            : '允许? [y=允许 / n=拒绝 / a=本会话全部允许] ';
           for (;;) {
-            const ans = (await rl.question(c.bold('允许? [y=允许 / n=拒绝 / a=本会话全部允许] ')))
-              .trim()
-              .toLowerCase();
+            const ans = (await rl.question(c.bold(prompt))).trim().toLowerCase();
             if (ans === 'y') return 'allow';
+            if (ans === 's' && grantKey) return 'scoped';
             if (ans === 'a') {
               console.log(c.yellow('本会话后续操作不再逐次确认（可用 /yolo 切回）。'));
               return 'always';
             }
             if (ans === 'n' || ans === '') return 'deny';
-            console.log(c.dim('请回答 y / n / a'));
+            console.log(c.dim(grantKey ? '请回答 y / s / n / a' : '请回答 y / n / a'));
           }
         } finally {
           denyConfirm = null;
@@ -52,7 +57,8 @@ export async function startRepl(app: App): Promise<void> {
         }
       },
     },
-    app.yolo
+    app.yolo,
+    grants
   );
 
   console.log(
