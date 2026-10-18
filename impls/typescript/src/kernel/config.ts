@@ -198,10 +198,13 @@ export function loadConfig(options: { allowIncomplete?: boolean; desktop?: boole
   const contextLimit = Number(process.env.TCODE_CONTEXT_LIMIT || file.contextLimit) || 100_000;
 
   // WP5：工具往返轮次上限——必须正整数，非法值报错且信息含字段名，不静默回退默认
-  //（readJsonConfig 的 catch 会吞字段名，故校验在此做；allowIncomplete 时进 configError 可见）
+  //（readJsonConfig 的 catch 会吞字段名，故校验在此做；allowIncomplete 时进 configError 可见）。
+  // TCODE_MAX_TOOL_ROUNDS：环境变量入口（conformance 场景级配置 max_tool_rounds 的映射通道，
+  // 与 TCODE_CONTEXT_LIMIT 同模式；env 是字符串，非法同样报错不静默）
   let maxToolRounds = 40;
-  if (file.maxToolRounds !== undefined) {
-    const raw = file.maxToolRounds as unknown;
+  const maxToolRoundsRaw: unknown = process.env.TCODE_MAX_TOOL_ROUNDS ?? file.maxToolRounds;
+  if (maxToolRoundsRaw !== undefined && maxToolRoundsRaw !== '') {
+    const raw = typeof maxToolRoundsRaw === 'number' ? maxToolRoundsRaw : Number(maxToolRoundsRaw);
     if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw <= 0) {
       if (!options.allowIncomplete) throw new Error('maxToolRounds 必须是正整数');
       configError = 'maxToolRounds 无效，必须是正整数，已回退默认 40';

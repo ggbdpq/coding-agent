@@ -14,10 +14,14 @@ export default {
   providerEnv(sink) {
     return { TCODE_API_KEY: "test-key", TCODE_BASE_URL: sink.url, TCODE_MODEL: "fake-model" };
   },
-  // 场景声明的逻辑配置 → 实现环境变量（context_limit 是 spec 字段，非实现词）
+  // 场景声明的逻辑配置 → 实现环境变量（context_limit / max_tool_rounds 是 spec 字段，非实现词）
   scenarioEnv(scenario) {
     const n = scenario.input.context_limit;
-    return n ? { TCODE_CONTEXT_LIMIT: String(n) } : {};
+    const rounds = scenario.input.max_tool_rounds;
+    return {
+      ...(n ? { TCODE_CONTEXT_LIMIT: String(n) } : {}),
+      ...(rounds ? { TCODE_MAX_TOOL_ROUNDS: String(rounds) } : {}),
+    };
   },
   launch(scenario, { home, env }) {
     // 工具相对路径必须落在沙箱 HOME：cwd 统一为 home
