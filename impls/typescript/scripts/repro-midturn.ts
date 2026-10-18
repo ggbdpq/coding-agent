@@ -1,20 +1,38 @@
 // 用法：复制到 impls/typescript/scripts/repro-midturn.ts，在 impls/typescript 下运行 node scripts/repro-midturn.ts
 // 基线 develop@bbac303 的输出见 附录/README.md
+// WP2：A 项接入治理中间件（runTurn 直调场景），A1=默认上限（清理足够），
+// A2=较小上限（清理不够时观察压缩），照实记录；B/C/D 段保持 WP3/WP4 原样。
 import { runTurn } from '../src/core/agentloop.ts';
 import { estimateTokens } from '../src/core/trim.ts';
 import { createPermissionGate } from '../src/core/permission.ts';
-const LIMIT = 100_000; // 假设 config.contextLimit
-let calls = 0; const peaks: number[] = [];
-const provider = { async chat(messages: any[], opts: any) {
-  calls++; peaks.push(estimateTokens(messages));
-  if (calls <= 8) return { message: { role: 'assistant', content: null, tool_calls: [{ id: 'c' + calls, type: 'function', function: { name: 'read', arguments: '{"file_path":"big.log"}' } }] } };
-  return { message: { role: 'assistant', content: 'done' } };
-} };
-const read = { name: 'read', kind: 'tool', description: '', parameters: {}, needsPermission: false, preview: () => '', run: async () => 'x'.repeat(60_000) } as any;
-const msgs: any[] = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'analyze' }];
-await runTurn(msgs, { provider: provider as any, tools: [read] });
-console.log('A. 单轮内每次模型请求前的估算 token：', peaks.join(' → '));
-console.log('   超过 contextLimit(' + LIMIT + ') 的请求次数：', peaks.filter(p => p > LIMIT).length, '（轮内无任何治理）');
+import { governanceMiddleware } from '../src/core/governance.ts';
+
+async function scenarioA(label: string, limit: number) {
+  let calls = 0; const peaks: number[] = []; const events: any[] = [];
+  const provider = { async chat(messages: any[], _opts: any) {
+    if (String(messages[0]?.content ?? '').includes('摘要器')) {
+      return { message: { role: 'assistant', content: '这是摘要' } };
+    }
+    calls++; peaks.push(estimateTokens(messages));
+    if (calls <= 8) return { message: { role: 'assistant', content: null, tool_calls: [{ id: 'c' + calls, type: 'function', function: { name: 'read', arguments: '{"file_path":"big.log"}' } }] } };
+    return { message: { role: 'assistant', content: 'done' } };
+  } };
+  const read = { name: 'read', kind: 'tool', description: '', parameters: {}, needsPermission: false, preview: () => '', run: async () => 'x'.repeat(60_000) } as any;
+  const msgs: any[] = [{ role: 'system', content: 'sys' }, { role: 'user', content: 'analyze' }];
+  await runTurn(msgs, {
+    provider: provider as any, tools: [read],
+    app: { config: { contextLimit: limit }, planMode: { value: false }, store: {} } as any,
+    middleware: [governanceMiddleware()],
+    onEvent: (e: any) => events.push(e),
+  });
+  const count = (type: string) => events.filter((e) => e.type === type).length;
+  console.log(`A${label}. contextLimit=${limit}，单轮内每次模型请求前的估算 token：`, peaks.join(' → '));
+  console.log(`   超过 ${limit} 的请求次数：`, peaks.filter((p) => p > limit).length,
+    `| 治理事件：context_edit×${count('context_edit')} compact×${count('compact')} trimmed×${count('trimmed')}`,
+    `（${events.map((e) => `${e.type}@${(e as any).at ?? '-'}`).join(' ') || '无'}）`);
+}
+await scenarioA('1', 100_000);
+await scenarioA('2', 50_000);
 // B. 截断参数（WP3 后：finishReason='length' 一律不执行，回灌固定话术 + tool_error 事件）
 let got: any = 'unset';
 const toolErrors: any[] = [];

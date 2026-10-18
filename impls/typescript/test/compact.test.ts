@@ -175,3 +175,71 @@ test('compact：savedTokens 按全局唯一估算口径计（计入 tool_call na
 
   assert.equal(savedTokens, 102, 'savedTokens 必须与 trim 的全局估算同口径');
 });
+
+// —— WP2：「消息序列 → 摘要输入」纯函数核心（planCompact / applyCompact）——
+import { applyCompact, planCompact } from '../src/core/compact.ts';
+
+test('planCompact：摘要输入保留工具名、参数片段（200）与结果开头（300）', () => {
+  const args = JSON.stringify({ file_path: 'a'.repeat(260) });
+  const messages: ChatMessage[] = [
+    { role: 'system', content: '系统提示' },
+    { role: 'user', content: 'u1' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: args } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'z'.repeat(400) },
+    { role: 'user', content: 'u2' },
+    { role: 'assistant', content: 'a2' },
+    { role: 'user', content: 'u3' },
+    { role: 'assistant', content: 'a3' },
+  ];
+
+  const plan = planCompact(messages);
+
+  assert.ok(plan.transcript.includes(`[assistant 调用] read ${args.slice(0, 200)}`), '参数截断到 200 字符');
+  assert.ok(!plan.transcript.includes(args), '参数不得超出 200 字符');
+  assert.ok(plan.transcript.includes(`[tool 结果 read] ${'z'.repeat(300)}（共 400 字符）`), '结果开头截断到 300 字符并标注总长');
+  assert.ok(!plan.transcript.includes('z'.repeat(301)), '结果不得超出 300 字符');
+  assert.ok(plan.transcript.includes('user: u1'), '纯文本消息仍按 role: 内容 渲染');
+  assert.ok(!plan.transcript.includes('assistant: a2'), '保留区原文不进摘要转写');
+
+  const next = applyCompact(messages, plan, '摘要正文');
+  assert.equal(next.length, 6, 'system + 摘要 + 尾部 4 条原文');
+  assert.equal(next[0]!.role, 'system');
+  assert.ok(String(next[1]!.content).includes('摘要正文'));
+  assert.deepEqual(next.slice(2), messages.slice(plan.keepStart));
+});
+
+test('planCompact：治理路径保护本轮用户消息，尾部只从配对安全边界保留', () => {
+  const turnUser: ChatMessage = { role: 'user', content: '本轮任务' };
+  const messages: ChatMessage[] = [
+    { role: 'system', content: '系统提示' },
+    { role: 'user', content: '旧问题' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c0', type: 'function', function: { name: 'read', arguments: '{"file_path":"old.txt"}' } }] },
+    { role: 'tool', tool_call_id: 'c0', content: '旧结果' },
+    turnUser,
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{"file_path":"n1.txt"}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: 'n1 结果' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c2', type: 'function', function: { name: 'read', arguments: '{"file_path":"n2.txt"}' } }] },
+    { role: 'tool', tool_call_id: 'c2', content: 'n2 结果' },
+  ];
+
+  const plan = planCompact(messages, 4);
+
+  assert.ok(plan.transcript.includes('[assistant 调用] read {"file_path":"old.txt"}'), '被摘要的旧配对保留工具信息');
+  assert.ok(plan.transcript.includes('[tool 结果 read] 旧结果（共 3 字符）'));
+  assert.ok(!plan.transcript.includes('n1.txt'), '尾部保留的配对不进摘要转写');
+
+  const next = applyCompact(messages, plan, '摘要');
+  assert.equal(next[0]!.role, 'system');
+  assert.ok(String(next[1]!.content).includes('摘要'));
+  assert.equal(next[2], turnUser, '本轮用户消息原对象必须保留（I4）');
+  assert.ok(next.slice(3).some((m) => m.tool_call_id === 'c1'), '尾部保留完整 assistant+tool 配对（I2）');
+  assert.ok(next.slice(3).some((m) => m.tool_call_id === 'c2'));
+  // I2：任何带 tool_calls 的 assistant 后面都有全部回应
+  for (let i = 0; i < next.length; i++) {
+    const m = next[i]!;
+    if (m.role !== 'assistant' || !m.tool_calls?.length) continue;
+    const pending = new Set(m.tool_calls.map((c) => c.id));
+    for (let j = i + 1; j < next.length && next[j]!.role === 'tool'; j++) pending.delete(next[j]!.tool_call_id ?? '');
+    assert.equal(pending.size, 0, `assistant(${i}) 的调用在改写后不得悬空`);
+  }
+});
