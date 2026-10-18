@@ -59,7 +59,7 @@
   :root[data-color="dark"] {
     color-scheme: dark;
     --bg: #151517; --sidebar: #1b1b1c; --card: #232324; --new-session: rgba(255, 255, 255, .08);
-    --nav-hover: #2c2c2e; --nav-active: #43454a; --selector: #2c2c2e;
+    --nav-hover: #2c2c2e; --nav-active: #43454a; --selector: #353638;
     --hover: rgba(255, 255, 255, .06); --active: rgba(255, 255, 255, .10);
     --text: #f9fafb; --text-2: #cfd3d6; --text-3: #adb2b8; --caption: #81858c;
     --border-1: rgba(255, 255, 255, .06); --border-2: rgba(255, 255, 255, .12); --border-3: rgba(255, 255, 255, .16); --border-4: rgba(255, 255, 255, .20);
@@ -410,6 +410,9 @@
   .settings-rows .capability-entry { padding: 12px 0; border-bottom: 0; }
   .settings-rows .capability-entry:first-child { padding-top: 12px; }
   .settings-rows .settings-actions { padding: 12px 0; }
+  #extra-write-dirs:not(:empty) { padding: 4px 0; }
+  .settings-rows .dim, .settings-card .dim { padding: 8px 0; }
+  #extra-write-dirs .directory-entry { margin: 8px 0; }
   .settings-rows button, .capability-entry button { height: 28px; min-height: 28px; padding: 0 10px; border-radius: var(--r-sm); font-size: var(--fs-sm); line-height: 18px; }
   .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; }
   .settings-row-main { flex: 1; min-width: 0; }
@@ -417,14 +420,33 @@
   .settings-row-main p { margin: 0; font-size: var(--fs-sm); line-height: 18px; color: var(--text-3); }
   .settings-row-control { flex-shrink: 0; display: flex; align-items: center; gap: 8px; max-width: 55%; }
   .settings-row-control button { white-space: nowrap; }
+  .settings-row-control code { font: var(--fs-sm)/18px var(--mono); color: var(--text-2); }
   .settings-row-control select, .settings-row-control input[type="number"] { width: 200px; }
   .settings-row-stack { display: block; }
   .settings-row-stack label { display: grid; gap: 6px; font-size: var(--fs-caption); font-weight: 500; }
   .settings-row-stack input { max-width: 480px; }
   .settings-main form { display: grid; gap: 0; }
+  .settings-main form.settings-card, .settings-card form, #skill-form { gap: 12px; }
+  .settings-main form.settings-card > h2, #skill-form > h2 { margin: 0; }
+  .settings-main [role="alert"]:empty { display: none; }
+  .settings-main form.settings-card > p, .settings-card form > p { margin: -6px 0 0; }
+  .settings-main form.settings-card .settings-actions { padding-top: 4px; }
   .settings-main label { display: grid; gap: 6px; font-size: var(--fs-caption); line-height: 20px; font-weight: 500; }
   .settings-main input, .settings-main select, .settings-main textarea { width: 100%; border: .5px solid var(--border-4); border-radius: var(--r-md); min-height: 34px; padding: 6px 12px; color: inherit; background: var(--layer-3); font-size: var(--fs-caption); line-height: 20px; font-weight: 400; }
   .settings-main input:focus, .settings-main select:focus, .settings-main textarea:focus { border-color: var(--brand); outline: none; }
+  /* 选择器：harness selector 填充款，无描边；箭头用两段渐变画出，颜色跟随 token */
+  .settings-main select, dialog select, .diff-scope {
+    appearance: none; -webkit-appearance: none; width: auto; max-width: 100%; height: 32px; min-height: 32px; padding: 0 30px 0 12px;
+    border: 0; border-radius: var(--r-md); color: var(--text); font-size: var(--fs-caption); line-height: 20px; font-weight: 500; text-overflow: ellipsis;
+    --chev: transparent calc(50% - .75px), var(--text-3) calc(50% - .75px) calc(50% + .75px), transparent calc(50% + .75px);
+    background: linear-gradient(45deg, var(--chev)) no-repeat calc(100% - 16px) 50% / 5px 5px,
+      linear-gradient(-45deg, var(--chev)) no-repeat calc(100% - 11px) 50% / 5px 5px, var(--module);
+  }
+  .settings-main select:hover:not(:disabled), dialog select:hover:not(:disabled), .diff-scope:hover:not(:disabled) { background-color: var(--nav-active); }
+  .settings-main select:focus-visible, dialog select:focus-visible, .diff-scope:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+  .settings-main label > select, dialog label > select { justify-self: start; }
+  .provider-card select { background-color: var(--layer-2); }
+  .provider-card .settings-description { margin: 0; font-size: var(--fs-sm); line-height: 18px; }
   .settings-main label.inline-check { display: flex; align-items: center; gap: 10px; }
   .settings-main input[type="checkbox"] { width: auto; accent-color: var(--primary); }
   /* 开关：harness Switch 36×20，开为墨色 */
@@ -460,6 +482,10 @@
   #model-profile-new:hover:not(:disabled) { background: var(--hover); }
   .settings-card { border: .5px solid var(--border-4); border-radius: var(--r-xl); padding: 12px 14px; margin-top: 12px; background: var(--layer-2); }
   .settings-card h2 { font-size: var(--fs-base); line-height: 22px; margin: 0 0 4px; font-weight: 500; }
+  .settings-card > .bar:first-child { justify-content: space-between; align-items: center; min-height: 28px; margin-bottom: 4px; }
+  .settings-card > .bar:first-child h2 { margin: 0; }
+  .settings-card button { height: 28px; min-height: 28px; padding: 0 10px; border-radius: var(--r-sm); font-size: var(--fs-sm); line-height: 18px; }
+  .settings-card .bar .bar { gap: 4px; }
   .settings-card p { margin: 4px 0 12px; font-size: var(--fs-sm); color: var(--text-3); line-height: 18px; }
   .settings-path { color: var(--text-2); font: var(--fs-sm)/18px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; margin: 0; cursor: copy; }
   .settings-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 0 2px; }
@@ -467,11 +493,12 @@
   .directory-entry span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
   .usage-total { font-size: 28px; line-height: 36px; font-weight: 500; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
   .usage-split { display: flex; gap: 28px; flex-wrap: wrap; color: var(--text-2); font-size: var(--fs-caption); }
-  .capability-entry { border-bottom: .5px solid var(--border-2); padding: 12px 0; }
+  .capability-entry { border-bottom: .5px solid var(--border-2); padding: 10px 0; }
   .capability-entry:first-child { padding-top: 0; }.capability-entry:last-child { border-bottom: 0; }
   .capability-entry .bar { align-items: center; justify-content: space-between; }
   .capability-entry code { font: var(--fs-caption) var(--mono); overflow-wrap: anywhere; }
-  .capability-entry p { font-size: var(--fs-sm); color: var(--text-3); margin: 6px 0 0; line-height: 18px; }
+  .capability-entry p { font-size: var(--fs-sm); color: var(--text-3); margin: 2px 0 0; line-height: 18px; }
+  .settings-card > h2 + div > .capability-entry:first-child { padding-top: 6px; }
   #skill-content { min-height: 280px; resize: vertical; font: var(--fs-sm)/1.65 var(--mono); }
   #connection-result.error, #config-error { color: var(--danger); }
 
