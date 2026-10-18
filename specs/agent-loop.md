@@ -87,8 +87,7 @@
 
 ## 低置信区
 
-- ccode 未新增熔断/折叠锁测试（本机无 .NET SDK，新增文件无法编译验证）；
-  既有 PlanModeTests 覆盖拒写路径。
+- ccode 未新增熔断/折叠锁测试，该覆盖缺口仍保留；既有 PlanModeTests 与整套测试/冒烟已于 2026-10-04 在隔离 SDK 下 63/63 通过，见 [R8 补验记录](tool-protocol.md#r8-裁决与验证2026-10-03)。
 - go/rust 的 panic 兜底缺失未收敛（候选演进，走路线图搁置机制）。
 - 熔断锁测试按"恰好 41 次请求"锁定常量；若未来调 40 常量需同步改测试（常量是契约）。
 - 行号为 2026-09-27 快照，会随代码漂移。
@@ -100,3 +99,32 @@
   gcode `internal/core` ok（新增 `loop_test.go` 熔断 1 例）、rcode 53/53
   （新增熔断 1 例）；全部一次通过，证实行为本就一致、此前仅缺覆盖。
 - 本主题零源码改动（纯测试），此前的五版冒烟结果仍有效；ccode 未跑（缺 SDK）。
+
+## 修订草案（ADR-003，未定稿）
+
+> 状态：WP0 起草，随对应工作包合并定稿。定稿前现行规则仍然生效。
+
+- **R2 熔断（WP5 已定稿）**：上限可配置（`TurnDeps.maxRounds` /
+  `config.maxToolRounds`，缺省 40；配置值必须是正整数，非法值报错不静默回退）；
+  循环自然耗尽（达到上界）时先发
+  `limit { kind:'model_calls', limit, behavior:'summarize' }` 事件，再执行
+  beforeModel（治理钩子），最后追加一次**不带工具 schema** 的请求强制总结；
+  中间件 jump summarize 的主动收尾不属于超限，不发 limit 事件（其中"强制总结
+  调用前执行 beforeModel"已由 WP1 落地定稿；上限配置与 limit 事件已由 WP5
+  落地定稿）。另有可选工具侧限流 `core/limits.ts` 的
+  `toolCallLimitMiddleware({ max, behavior })`（默认不注册）：wrapToolCall 无
+  jump 通道，达到 max 时发 `limit { kind:'tool_calls', ... }` 事件并拒绝执行
+  （status:'error' 回灌）。其他四版仍为旧语义（固定 40、无 limit 事件），
+  漂移登记在五版同步清单。
+- **R3 出口**：由五出口增为六出口——新增"参数非法"：不执行工具、不发
+  `tool_call` 事件、不计工具次数，回灌固定话术（含工具名、原始参数前 200 字符、
+  必需字段列表、"请重新生成完整参数"），发
+  `tool_error { call_id, name, kind, detail }` 事件；`kind` 取
+  `invalid_args / truncated_args / schema_mismatch`（`truncated_args` 覆盖
+  `finishReason='length'` 且带工具调用的响应，参数即使 JSON 合法也不执行，R5）。
+  未知工具沿用原出口文本并补发 `kind:'unknown_tool'` 事件（WP3 已定稿）。
+- **R4 静默降级**：废止"非法 JSON 参数静默变为 `{}`"，由上述第六出口取代
+  （WP3 已定稿）。
+- **新增 R9 中间件顺序**：`planMode → 用户中间件 → permission`（权限闸门固定
+  最内层，不可移除；组合器注册时断言）。中间件由 turn 固定顺序组装，不进注册表
+  （WP1 已定稿）。

@@ -9,12 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gcode/internal/kernel"
 	"io"
 	"net/http"
 	"sort"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 // OpenAIProvider OpenAI 兼容协议客户端。
@@ -96,10 +95,12 @@ func (p *OpenAIProvider) attempt(ctx context.Context, messages []kernel.ChatMess
 	if err != nil {
 		return kernel.CompletionResult{}, err
 	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return kernel.CompletionResult{}, err
 	}
+
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("authorization", "Bearer "+p.apiKey)
 
@@ -108,20 +109,25 @@ func (p *OpenAIProvider) attempt(ctx context.Context, messages []kernel.ChatMess
 		return kernel.CompletionResult{}, err // 网络层错误（url.Error 是 net.Error，可重试；ctx 取消不重试）
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return kernel.CompletionResult{}, httpStatusError(resp, true, 500)
 	}
 
 	// 流式增量装配：正文直接累加；工具调用按 index 分槽拼装碎片
 	var content strings.Builder
+
 	calls := map[int]*callSlot{}
+
 	for data := range SSEData(ctx, resp.Body) {
 		if data == "[DONE]" {
 			break
 		}
+
 		if err := ctx.Err(); err != nil {
 			return kernel.CompletionResult{}, err // 流中用户中止：立即放弃，不返回半截消息
 		}
+
 		var chunk openaiChunk
 		if json.Unmarshal([]byte(data), &chunk) != nil {
 			continue // 非 JSON 行（注释、心跳）直接跳过
@@ -134,28 +140,35 @@ func (p *OpenAIProvider) attempt(ctx context.Context, messages []kernel.ChatMess
 				CompletionTokens: chunk.Usage.CompletionTokens,
 			})
 		}
+
 		if len(chunk.Choices) == 0 {
 			continue
 		}
+
 		delta := chunk.Choices[0].Delta
 		if delta.Content != "" {
 			content.WriteString(delta.Content)
+
 			if opts.OnText != nil {
 				opts.OnText(delta.Content)
 			}
 		}
+
 		for _, tc := range delta.ToolCalls {
 			slot := calls[tc.Index]
 			if slot == nil {
 				slot = &callSlot{}
 				calls[tc.Index] = slot
 			}
+
 			if tc.ID != "" {
 				slot.id = tc.ID
 			}
+
 			if tc.Function.Name != "" {
 				slot.name += tc.Function.Name
 			}
+
 			if tc.Function.Arguments != "" {
 				slot.args += tc.Function.Arguments
 			}
@@ -166,18 +179,24 @@ func (p *OpenAIProvider) attempt(ctx context.Context, messages []kernel.ChatMess
 	for i := range calls {
 		indexes = append(indexes, i)
 	}
+
 	sort.Ints(indexes)
+
 	var toolCalls []kernel.ToolCall
+
 	for _, i := range indexes {
 		s := calls[i]
+
 		id := s.id
 		if id == "" {
 			id = fmt.Sprintf("call_%d", i)
 		}
+
 		args := s.args
 		if args == "" {
 			args = "{}"
 		}
+
 		toolCalls = append(toolCalls, kernel.ToolCall{
 			ID:       id,
 			Type:     "function",
@@ -186,6 +205,7 @@ func (p *OpenAIProvider) attempt(ctx context.Context, messages []kernel.ChatMess
 	}
 
 	msg := kernel.ChatMessage{Role: "assistant", Content: nilOrText(content.String()), ToolCalls: toolCalls}
+
 	return kernel.CompletionResult{Message: msg}, nil
 }
 
@@ -194,6 +214,7 @@ func nilOrText(s string) *string {
 	if s == "" {
 		return nil
 	}
+
 	return kernel.StrPtr(s)
 }
 
@@ -203,14 +224,18 @@ func httpStatusError(resp *http.Response, retry429 bool, retry5xx int) error {
 	if data, err := io.ReadAll(io.LimitReader(resp.Body, 4096)); err == nil {
 		brief = string(data)
 	}
+
 	if r := []rune(brief); len(r) > 300 {
 		brief = string(r[:300]) + "…"
 	}
+
 	msg := fmt.Sprintf("HTTP %d：%s", resp.StatusCode, brief)
+
 	retryable := (retry429 && resp.StatusCode == 429) || resp.StatusCode >= retry5xx
 	if retryable {
 		return &RetryableError{msg}
 	}
+
 	return errors.New(msg)
 }
 

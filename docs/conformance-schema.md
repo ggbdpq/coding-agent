@@ -68,11 +68,11 @@
 | 字段 | 约束 |
 | --- | --- |
 | `fixtures` | `{沙箱 HOME 相对路径: 内容}`，内容一律 LF；禁止绝对路径与平台相关写法 |
-| `entry` | `exec` 或 `repl-script`（stdin 逐行喂入，含 slash 命令） |
+| `entry` | `exec` 或 `repl-script`（stdin 逐行喂入，含 slash 命令）或 `crash-resume`（WP7 崩溃注入+恢复重启，见 §3.6） |
 | `task` / `stdin_lines` | 用户任务或喂入序列 |
 | `approval` | `yolo` / `interactive` |
 | `protocol` | `openai` / `anthropic`（S1 断言按所选协议分形） |
-| `model_script` | **逻辑响应步序列**：`text` / `tool_call{name,arguments}` / `final`。路由 = 剧本序（沿用五版冒烟"最后消息 role + 剧本序"约定）。协议编码（SSE 分片、input_json_delta 等）归 adapter，不入 scenario——分片考验保留在各版自有冒烟 C 场景 |
+| `model_script` | **逻辑响应步序列**：`text` / `tool_call{name,arguments}` / `final`。路由 = 剧本序（沿用五版冒烟"最后消息 role + 剧本序"约定）；WP7 起支持 `steps` 按请求序号回放（见 §3.6）。协议编码（SSE 分片、input_json_delta 等）归 adapter，不入 scenario——分片考验保留在各版自有冒烟 C 场景 |
 
 ### 3.3 expect
 
@@ -98,8 +98,8 @@
 
 ```yaml
 id: SC-002
-title: apply_patch 原子性——任一文件操作失败则零写入
-purpose: 验证补丁语义的原子性与失败折叠为可恢复错误
+title: apply_patch 预验——任一编辑预验失败则零写入
+purpose: 验证补丁预验零写入与失败折叠为可恢复错误
 related_specs: [tool-protocol.md#R3]
 maturity: draft          # 五版首跑通过后升 frozen
 coverage: all
@@ -134,7 +134,49 @@ expect:
     "notes/b.md": unchanged
 ```
 
+### 3.6 WP7 增补（2026-10-18）：steps 剧本、crash-resume 入口与新期望字段
+
+对应 [ADR-003](adr/ADR-003-轮内控制点.md) 与 SC-005…SC-010（全部 `maturity: "draft"`）。
+本节是 §3.2/§3.3 的增量字段说明，不改动已冻结字段。
+
+**input 增量：**
+
+- `model_script.kind: "steps"`：`{ kind: "steps", steps: [...] }`——**第 N 次请求回放
+  `steps[N-1]`**（与 `tool-then-text` 的"最后消息 role 路由"并存，二者互斥）；请求序号
+  超出剧本长度时假 provider 返回 500（与无剧本一致，视为漂移证据）。每步三选一：
+  - `{ text }` / `{ final: { text } }`：文本步；
+  - `{ tool_call: { name, arguments?, raw_arguments? } }`：工具调用步。`arguments` 是对象，
+    编码时 `JSON.stringify`（旧剧本路径不变）；`raw_arguments` 是**原样发送的字符串**
+    （WP7 用来构造非法/截断 JSON），与 `arguments` 互斥；
+  - 步级可选 `finish_reason`：覆盖该步缺省结束原因（tool_call 步缺省 `tool_calls`、
+    文本步缺省 `stop`），截断场景用 `"length"`。
+- `context_limit`：场景级逻辑配置（数字）。适配器负责映射为各实现的配置入口
+  （环境变量等），场景源不出现实现词。
+- `max_tool_rounds`：场景级逻辑配置（数字），同上映射；实现的配置入口落地前按缺省运行。
+- `crash_marker`（仅 `entry: "crash-resume"`）：stdout 出现该标记即对被测进程 SIGKILL，
+  随后适配器以恢复旗标（五版统一入口契约 `--continue`）重启并喂入 `stdin`。
+- `stdin` wait 步增量（交互分叉）：`{ wait: 标记, answer?: 行, withinMs?: 毫秒 }`——
+  `answer` 在标记命中后追加写入一行；`withinMs` 为等待期限，到期未见标记则跳过且不写
+  `answer`（用于只有"未实现目标行为"的实现才会出现的分支，如对无效答复的重复询问）。
+
+**expect 增量（S1 通道，全部锚 specs）：**
+
+| 字段 | 位置 | 含义 | 规范锚 |
+| --- | --- | --- | --- |
+| `estimate_limit_tokens` | `provider_requests` | 每个请求体按 R1 口径估算 ≤ 该值（`ceil((Σcontent + Σ(name+arguments) + 8×消息数 + 8×tool_calls) / 3)`） | context.md#R1、本质约束 1 |
+| `min_count` | `provider_requests` | 请求总数 ≥ 该值（治理可能合法地产生额外调用时替代精确 `count`） | context.md 修订草案（策略顺序） |
+| `has_tools` | `items[]` | 第 n 个请求是否携带 `tools`（`false` = 不带工具 schema） | agent-loop.md#R2 修订草案 |
+| `no_dangling_tool_calls` | `items[]` | 第 n 个请求的消息序列无悬空 `tool_calls`（配对不变量） | agent-loop.md 本质约束 1、N2 |
+| `has_tool_message_equals` | `items[]` | 第 n 个请求存在 content 逐字等于锁定文案的 tool 消息 | event.md#R8 |
+| `last_tool_message_includes` | `items[]` | 最后一条 tool 消息包含全部给定片段（话术构成要素未逐字定稿时用） | agent-loop.md#R3 修订草案 |
+| `max_count` | `stdout_markers` | `{标记: 上限}`：标记行出现次数 ≤ 上限（区分"重复询问"类分叉，标记取家族锁定文案） | permission.md#R7 |
+
+假 provider 同步记录每个请求体的原始计数（`message_chars` / `message_count` /
+`tool_call_count` / `has_tools`）——采集侧只计数，估算公式在归一化层按 spec R1 施加，
+维持"适配器只采集不判定"不变式。
+
 ## 4. 首批五场景（设计冻结，未实现）
+
 
 ### SC-001 Plan Mode 拒写（状态机 + 判定次序）
 
@@ -146,9 +188,10 @@ expect:
   不询问）；verdict ok。
 - 验证的行为：拒写判定先于一切执行面；拒写文本回流供模型改出计划。
 
-### SC-002 apply_patch 原子性
+### SC-002 apply_patch 预验边界
 
-见 §3.5 完整示例。验证：任一文件操作失败 → 全补丁零写入 + 失败折叠回流（tool-protocol R3）。
+见 §3.5 完整示例。验证：任一编辑预验失败 → 全补丁零写入 + 失败折叠回流（tool-protocol R3/R8）。
+新增 SC-002C/D 覆盖相同目标及 `.` / `..` 路径别名。通过预验后的磁盘写入不提供多文件事务或自动回滚。
 
 ### SC-003 Tool Error 折叠（可恢复错误语义）
 

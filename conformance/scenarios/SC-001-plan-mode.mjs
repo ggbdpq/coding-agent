@@ -25,7 +25,7 @@ export default {
     fixtures: { "notes/plan-target.md": "original\n" },
     model_script: {
       kind: "tool-then-text",
-      tool: { name: "write", arguments: { path: "notes/plan-target.md", content: "plan-draft\n" } },
+      tool: { name: "write", arguments: { file_path: "notes/plan-target.md", content: "plan-draft\n" } },
       final_text: "已给出分步计划：PLAN-FINAL-7d3a。执行前请用 /plan 切回普通模式。",
     },
   },

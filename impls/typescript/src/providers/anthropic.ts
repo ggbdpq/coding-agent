@@ -5,11 +5,13 @@
 import { sseData } from './sse.ts';
 import { RetryableError, withRetry } from './retry.ts';
 import { definePlugin } from '../kernel/plugin.ts';
+import { keyStoreFor, peekSecret } from '../kernel/keyring.ts';
 import type {
   ChatClient,
   ChatMessage,
   ChatOptions,
   CompletionResult,
+  FinishReason,
   ToolCall,
   ToolSchema,
 } from '../kernel/types.ts';
@@ -17,6 +19,23 @@ import type { Config } from '../kernel/config.ts';
 
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MAX_TOKENS = 8192;
+
+/** WP3：anthropic stop_reason → 归一化 FinishReason（映射表见 specs/provider.md；未知值落 unknown 不报错，05-风险 R4） */
+export function mapAnthropicStopReason(raw: string | null | undefined): FinishReason {
+  switch (raw) {
+    case 'end_turn':
+    case 'stop_sequence':
+      return 'stop';
+    case 'tool_use':
+      return 'tool_calls';
+    case 'max_tokens':
+      return 'length';
+    case 'refusal':
+      return 'content_filter';
+    default:
+      return 'unknown';
+  }
+}
 
 type Block = {
   type: 'text' | 'tool_use' | 'tool_result';
@@ -104,16 +123,18 @@ export class AnthropicProvider implements ChatClient {
   private baseUrl: string;
   private apiKey: string;
   private model: string;
+  private redactKeys: string[];
 
-  constructor(baseUrl: string, apiKey: string, model: string) {
+  constructor(baseUrl: string, apiKey: string, model: string, knownKeys: string[] = []) {
     this.baseUrl = baseUrl;
     this.apiKey = apiKey;
     this.model = model;
+    this.redactKeys = [apiKey, ...knownKeys].filter(Boolean).sort((a, b) => b.length - a.length);
   }
 
   /** 与 OpenAI 版相同的重试纪律：最多 3 次，仅首字节前可重试 */
   chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<CompletionResult> {
-    return withRetry(() => this.attempt(messages, opts));
+    return withRetry(() => this.attempt(messages, opts), opts.signal);
   }
 
   private async attempt(messages: ChatMessage[], opts: ChatOptions): Promise<CompletionResult> {
@@ -131,7 +152,9 @@ export class AnthropicProvider implements ChatClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      const brief = text.length > 300 ? `${text.slice(0, 300)}…` : text;
+      // 完整正文先隐藏各配置的密钥，再截断；长密钥优先，避免前缀被短密钥遮掉。
+      const safeText = this.redactKeys.reduce((value, key) => value.split(key).join('[凭证已隐藏]'), text);
+      const brief = safeText.length > 300 ? `${safeText.slice(0, 300)}…` : safeText;
       const retryable = res.status === 429 || res.status === 529 || res.status >= 500;
       throw retryable
         ? new RetryableError(`HTTP ${res.status}：${brief || res.statusText}`)
@@ -145,6 +168,7 @@ export class AnthropicProvider implements ChatClient {
     let text = '';
     const toolBlocks = new Map<number, { id: string; name: string; json: string }>();
     let streamErrorMsg: string | null = null;
+    let stop: string | null = null;
 
     try {
       for await (const data of sseData(res.body)) {
@@ -184,7 +208,9 @@ export class AnthropicProvider implements ChatClient {
             completion_tokens: usage.output_tokens ?? 0,
           });
         }
-        // message_delta / message_stop / ping：块拼完即返回，无需特殊处理
+        // message_delta 携带收尾 stop_reason（WP3：流中多次出现取最后一个非空值）
+        if (ev.type === 'message_delta' && ev.delta?.stop_reason) stop = ev.delta.stop_reason;
+        // message_stop / ping：块拼完即返回，无需特殊处理
       }
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
@@ -210,6 +236,7 @@ export class AnthropicProvider implements ChatClient {
       });
 
     return {
+      finishReason: mapAnthropicStopReason(stop),
       message: {
         role: 'assistant',
         content: text || null,
@@ -223,5 +250,8 @@ export default definePlugin({
   name: 'anthropic',
   kind: 'provider',
   matches: (baseUrl: string) => baseUrl.includes('/anthropic'),
-  create: (config: Config) => new AnthropicProvider(config.baseUrl, config.apiKey, config.model),
+  create: (config: Config) => {
+    const store = keyStoreFor(config.tcodeDir);
+    return new AnthropicProvider(config.baseUrl, config.apiKey, config.model, (config.modelProfiles ?? []).map((profile) => profile.apiKey || peekSecret(store, profile.keyRef)).filter((key): key is string => !!key));
+  },
 });

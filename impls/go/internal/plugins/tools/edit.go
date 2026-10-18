@@ -6,10 +6,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"gcode/internal/kernel"
 	"os"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 // EditResult ApplyEdit 的判定结果：OK=false 时 Message 为错误信息。
@@ -21,19 +20,24 @@ type EditResult struct {
 // ApplyEdit 纯函数：对 content 做一次精确替换的唯一性判定与档位归类。
 func ApplyEdit(content, oldString, newString string, replaceAll bool) EditResult {
 	_ = newString // 判定只关心唯一性；实际替换由调用方执行
+
 	if oldString == "" {
 		return EditResult{OK: false, Message: "错误：old_string 不能为空"}
 	}
+
 	count := strings.Count(content, oldString)
 	if count == 0 {
 		return EditResult{OK: false, Message: "错误：未找到 old_string，请先 read 文件核对精确内容（含缩进与换行）"}
 	}
+
 	if count > 1 && !replaceAll {
 		return EditResult{OK: false, Message: fmt.Sprintf("错误：old_string 出现了 %d 次。请加入更多上下文使其唯一；确认要全部替换时设 replace_all=true", count)}
 	}
+
 	if replaceAll {
 		return EditResult{OK: true, Message: "all"}
 	}
+
 	return EditResult{OK: true, Message: "one"}
 }
 
@@ -59,10 +63,12 @@ func NewEdit() *kernel.ToolDef {
 		},
 		Preview: func(args map[string]any) string {
 			outside := ResolvePath(argString(args, "file_path")).Outside
+
 			flag := ""
 			if outside {
 				flag = "\n⚠ 注意：该路径在当前工作目录之外！"
 			}
+
 			return fmt.Sprintf("编辑 %s%s\n%s",
 				argString(args, "file_path"), flag,
 				kernel.PreviewDiff(argString(args, "old_string"), argString(args, "new_string"), 40))
@@ -77,31 +83,40 @@ func runEdit(args map[string]any) string {
 	oldString := argString(args, "old_string")
 	newString := argString(args, "new_string")
 	replaceAll := argBool(args, "replace_all")
+
 	if file == "" {
 		return "错误：缺少 file_path"
 	}
+
 	abs := ResolvePath(file).Abs
+
 	content, err := os.ReadFile(abs)
 	if err != nil {
 		return fmt.Sprintf("错误：无法读取 %s（不存在或不可读）", file)
 	}
+
 	text := string(content)
+
 	check := ApplyEdit(text, oldString, newString, replaceAll)
 	if !check.OK {
 		return check.Message
 	}
+
 	var next string
 	if replaceAll {
 		next = strings.ReplaceAll(text, oldString, newString)
 	} else {
 		next = strings.Replace(text, oldString, newString, 1)
 	}
+
 	if err := os.WriteFile(abs, []byte(next), 0o644); err != nil {
 		return fmt.Sprintf("错误：写入失败：%s", err)
 	}
+
 	count := 1
 	if replaceAll {
 		count = strings.Count(text, oldString)
 	}
+
 	return fmt.Sprintf("已替换 %s 中 %d 处内容", file, count)
 }

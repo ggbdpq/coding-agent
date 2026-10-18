@@ -17,6 +17,7 @@ func TestSkillIndexUnreadableDirWarnsAndSkips(t *testing.T) {
 		// 红能力在 POSIX runner 上成立，分支本身由源码 Fprintf 保证。
 		t.Skip("Windows 上 ReadDir(文件) 不返回错误，跳过本测试")
 	}
+
 	f := filepath.Join(t.TempDir(), "not-a-dir")
 	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -24,19 +25,38 @@ func TestSkillIndexUnreadableDirWarnsAndSkips(t *testing.T) {
 
 	// 捕获 stderr：临时替换 os.Stderr 为管道
 	old := os.Stderr
+
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	os.Stderr = w
+
+	t.Cleanup(func() { os.Stderr = old })
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("关闭 stderr 读取管道：%v", err)
+		}
+	})
+
 	got := SkillIndex([]string{f})
-	w.Close()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("关闭 stderr 写入管道：%v", err)
+	}
+
 	os.Stderr = old
-	out, _ := io.ReadAll(r)
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("读取 stderr：%v", err)
+	}
 
 	if got != "" {
 		t.Fatalf("不可读目录应被跳过，got %q", got)
 	}
+
 	if !strings.Contains(string(out), "skill 索引") {
 		t.Fatalf("应输出 stderr 警告，got %q", string(out))
 	}

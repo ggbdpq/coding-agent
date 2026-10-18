@@ -90,6 +90,12 @@ fn run_bash(args: &Value) -> String {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     hide_window(&mut cmd);
+    // 独立进程组，超时才能连同后台孙进程一起杀；否则孙进程占着管道，读线程等不到 EOF。
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return format!("错误：无法启动 shell（{}）", e),
@@ -152,7 +158,7 @@ fn exit_code_str(st: &std::process::ExitStatus) -> String {
     }
 }
 
-/// 超时强杀：Windows 用 taskkill 连坐整棵进程树，其他平台直接 SIGKILL。
+/// 超时强杀：Windows 用 taskkill 连坐整棵进程树，其他平台对整个进程组 SIGKILL。
 fn kill_tree(pid: u32, child: &mut Child) {
     #[cfg(windows)]
     {
@@ -164,6 +170,10 @@ fn kill_tree(pid: u32, child: &mut Child) {
     }
     #[cfg(not(windows))]
     {
+        let _ = Command::new("kill")
+            .args(["-KILL", &format!("-{pid}")])
+            .stderr(Stdio::null())
+            .status();
         let _ = child.kill();
     }
 }
@@ -195,4 +205,17 @@ fn cap_output(s: &str) -> String {
         return s.to_string();
     }
     format!("{}\n…（输出超长已截断）", s.chars().take(MAX_OUTPUT).collect::<String>())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn 超时连同后台孙进程一起终止并及时返回() {
+        let start = Instant::now();
+        let out = run_bash(&serde_json::json!({"command": "sleep 5 & wait", "timeout_sec": 1}));
+        assert!(out.starts_with("exit=timeout"), "{out}");
+        assert!(start.elapsed() < Duration::from_secs(3), "耗时 {:?}", start.elapsed());
+    }
 }

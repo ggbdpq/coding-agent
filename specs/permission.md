@@ -89,7 +89,7 @@
 - rust 分隔符修复的 POSIX 行为本机不可验证（Windows 上与旧实现同值）。
 - py 真实路径解析在 symlink 场景与其余四版的判定分歧未构造实测用例（登记为允许加严）。
 - `--approval` / `/approval` 的互补缺口属能力面，收敛需走路线图（3.3 搁置机制）。
-- ccode 本机无 .NET SDK，ApprovalTests 未随本轮复跑（本主题未改 csharp 源码）。
+- ccode 既有 ApprovalTests 已于 2026-10-04 随整套测试/冒烟 63/63 通过，见 [R8 补验记录](tool-protocol.md#r8-裁决与验证2026-10-03)。
 - 行号为 2026-09-27 快照，会随代码漂移。
 
 ## 验证记录（2026-09-27）
@@ -97,3 +97,23 @@
 - 单测：rcode 52/52（含新增分隔符契约锁）；本主题未改 ts/py/go/cs 源码
   （tcode 47/47、pcode 51/51、gcode core ok 均为此前验证）。
 - 冒烟：rcode 7/7（config 源码改动后复跑）；其余版本源码未动。
+
+## 修订草案（ADR-003，未定稿）
+
+> 状态：WP0 起草，随 WP4 合并定稿。定稿前现行规则仍然生效。
+> WP4（feat/wp4-permission-scope）已实现并验证以下条目，标注"（WP4 已定稿）"；
+> 合并后本注记整体转正。
+
+- **R1 闸门顺序**：增 ②b——grants 里有本次 grantKey → 放行。全序：① yolo →
+  ② skipPermission 白名单（仍在调用方 agentloop，先于闸门）→ ②b grants 命中 →
+  ③ 询问四态；④ 非 deny 即放行本次（WP4 已定稿）。
+- **R2 三态**：增量为四态——新增 `s`（scoped，"本会话允许此类"）；y/n/a
+  含义不变（WP4 已定稿）。
+- **新增 R3b scoped 记忆**：进程内 `Set<grantKey>`，不持久化；授权键缺省 =
+  工具名，bash 返回 `bash:<命令首词>`；复合 shell 命令（`bash -c`、含
+  `; && || | $(` 反引号、重定向 `>`）与首词属于 `bash/sh/zsh/fish/env/xargs/
+  sudo/eval/exec/nohup/time` 时不提供 scoped，只显示原三档（R3 风险）
+  （WP4 已定稿）。
+- **R3 always 语义**：**不改**。偏离清单里"按工具名分粒度"那条只约束 always，
+  补充说明：按工具名分粒度只约束 always，scoped 是会话内按授权键的新记忆，
+  不是对 always 的分粒度改造（WP4 已定稿）。

@@ -3,9 +3,8 @@ package commands
 
 import (
 	"fmt"
-	"time"
-
 	"gcode/internal/kernel"
+	"time"
 )
 
 // SessionsCmd 构造 /sessions 命令插件。
@@ -20,11 +19,14 @@ func SessionsCmd() *kernel.CommandDef {
 				fmt.Println(kernel.Yellow("暂无历史会话。"))
 				return kernel.CommandOutcome{}
 			}
+
 			fmt.Println("最近的会话：")
+
 			for i, s := range list {
 				fmt.Printf("  %d. %s %s\n", i+1,
 					kernel.Dim(time.UnixMilli(s.Mtime).Format("2006-01-02 15:04:05")), s.Label)
 			}
+
 			return kernel.CommandOutcome{}
 		},
 	}

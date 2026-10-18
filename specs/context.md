@@ -91,8 +91,7 @@
 
 ## 低置信区
 
-- ccode 新增绿锁单测未运行：本机无 .NET SDK（dotnet 不在 PATH 与常见安装位置），
-  `impls/csharp/tests/TrimTests.cs` 新 case 未编译执行；本次未改 csharp 源码，风险面 = 测试本身。
+- ccode 的 SDK 验证欠账已于 2026-10-04 关闭：隔离 SDK 下既有 TrimTests 与整套测试/冒烟 63/63；运行环境和跨版验收见 [R8 补验记录](tool-protocol.md#r8-裁决与验证2026-10-03)。
 - 冒烟场景（A/B/C/D/F/H）不直接覆盖 token 口径与 trim 边界；行为断言靠五版单测，
   gcode 另有冒烟 G（/compact 记忆保持）覆盖 compact 主路径。
 - rust 摘要 20s 超时（SUMMARY_TIMEOUT）是五版唯一显式超时常量，其余版本依赖平台中止；
@@ -105,3 +104,36 @@
   gcode `internal/core` ok、rcode 50/50；ccode 未跑（缺 .NET SDK，见低置信区）。
 - 冒烟：tcode exit=0 七场景全过；pcode A/B/C/D/F/H 全过；gcode smoke ok；rcode 7/7；
   ccode 未跑。
+
+## 修订草案（ADR-003）
+
+> 状态：WP0 起草。其中「触发点」「策略顺序」「压缩摘要输入」三条已随 WP2 定稿
+> （2026-10-18，feat/wp2-midturn-governance，以实现为准）；「事件」「改写入口」仍为草案。
+
+- **触发点**（WP2 已定稿）：治理挂在两处，共享同一套策略与压缩预算（同轮最多压缩
+  2 次）。① 轮前：user 消息入列前执行（`turn.ts` 调 `governTurnStart`，at:'turn_start'），
+  阈值检查在同步路径——未超限不产生任何 await；治理中止或快照落盘失败时本轮输入
+  不入列、不发 `user` 事件。② 轮内：`governanceMiddleware` 在每次 provider.chat 前
+  （含强制总结那次）执行；runUserTurn 路径轮前那次已提前完成，中间件以
+  `skipTurnStart` 跳过第 0 次，直连 runTurn 的调用方（脚本/测试）第 0 次照常执行
+  并记 at:'turn_start'，其余记 at:'model_call'。触发阈值均为
+  `估算 > context_limit × 0.8`（严格大于）。
+- **策略顺序**（WP2 已定稿）：清理 → 压缩 → 裁剪，任一步后降到 80% 以下即停。
+  清理：除最近 3 条 tool 消息外，正文替换为 `[已清理：<工具名> 输出 N 字符，需要时
+  重新读取]`（工具名从对应 assistant.tool_calls 查不到时写"工具输出"），不删消息、
+  不改 tool_call_id 与 assistant 参数，空内容/已是占位的跳过（幂等）；压缩：经
+  `state.callModel`（轮前经 app.provider），按尝试计预算，失败退裁剪、用户中止上抛；
+  裁剪：`trimContext`（limit = 100% context_limit）。轮内所有改写经
+  `state.replaceMessages`（校验 I1–I4 + checkpoint）；轮前经 checkpoint+splice。
+- **压缩摘要输入**（WP2 已定稿）：工具调用渲染为
+  `[assistant 调用] <工具名> <参数 JSON 前 200 字符>`，工具结果渲染为
+  `[tool 结果 <工具名>] <结果前 300 字符>（共 N 字符）`，纯文本仍为 `role: 内容`；
+  不再只写 `(tool_calls: N 个)`。摘要区（转写只覆盖被压缩部分）：/compact 路径为
+  `[1, 尾部切点)`，尾部从 len−4 扫到最近 user；治理路径保护本轮用户消息（I4，
+  原对象保留在摘要之后），摘要区 = 其前历史 `[1, mark)` ∪ 其后超出尾部保留的完整
+  配对 `[mark+1, keepStart)`，keepStart 从 len−4 扫到配对安全边界（user/assistant
+  开头）。两种路径都保留 system。
+- **事件**：治理发生时发 `context_edit`（清理）/ `compact`（压缩）/ `trimmed`
+  （裁剪），并携带 `at: 'turn_start' | 'model_call'`。
+- **改写入口**：所有改写走 `TurnState.replaceMessages()`，校验不变式
+  I1–I4 后 `store.checkpoint`（I5），保证持久化与内存一致。

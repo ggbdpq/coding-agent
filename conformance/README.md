@@ -10,9 +10,9 @@
 node conformance/run.mjs SC-004A     # 退出码：0=全 PASS；1=有 DRIFT；2=有 INFRA/门失败
 ```
 
-当前场景：SC-001（Plan Mode）、SC-002A/B（apply_patch 成功/原子性）均 **frozen**
+当前场景：SC-001（Plan Mode）、SC-002A/B（apply_patch 成功/预验零写入）均 **frozen**
 （五版 PASS + 红操演练转红）；SC-004-A（exec 契约）五版 PASS，红操待做仍为 draft。
-报告落在 `reports/`。
+SC-002C/D 依据 tool-protocol R8 验证重复目标和词法路径别名，已 frozen（2026-10-04 五版 PASS；隔离 C# 副本移除重复保护时两场景均 DRIFT，恢复后 PASS）。缺失运行时仍属于 INFRA，不记作通过。报告落在 `reports/`。
 
 ## 结构与边界
 

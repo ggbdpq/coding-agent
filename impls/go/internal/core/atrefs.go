@@ -25,14 +25,17 @@ func ExpandAtRefs(line string, readFile func(path string) (string, bool)) string
 	return atRefRe.ReplaceAllStringFunc(line, func(match string) string {
 		sub := atRefRe.FindStringSubmatch(match)
 		lead, rawPath := sub[1], sub[2]
+
 		content, ok := readFile(rawPath)
 		if !ok {
 			return lead + "@" + rawPath + "（文件不存在）"
 		}
+
 		body := content
 		if runes := []rune(content); len(runes) > MaxAtRefChars {
 			body = fmt.Sprintf("%s\n…（已截断，原文 %d 字符）", string(runes[:MaxAtRefChars]), len(runes))
 		}
+
 		return lead + "[引用文件 " + rawPath + "]\n" + body + "\n[/引用文件]"
 	})
 }
@@ -44,13 +47,16 @@ func ReadCapped(p string) (string, bool) {
 		return "", false
 	}
 	defer f.Close()
+
 	fi, err := f.Stat()
 	if err != nil || fi.IsDir() {
 		return "", false
 	}
+
 	data, err := io.ReadAll(io.LimitReader(f, maxReadBytes))
 	if err != nil {
 		return "", false
 	}
+
 	return string(data), true
 }

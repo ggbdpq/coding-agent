@@ -14,6 +14,7 @@ func isTTY(f *os.File) bool {
 	if err != nil {
 		return false
 	}
+
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
@@ -21,6 +22,7 @@ func paint(code, s string) string {
 	if !isTTY(os.Stdout) {
 		return s
 	}
+
 	return "\x1b[" + code + "m" + s + "\x1b[0m"
 }
 
@@ -37,7 +39,9 @@ func Ellipsis(s string, max int) string {
 	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
+
 	runes := []rune(s)
+
 	return fmt.Sprintf("%s\n…（已截断，省略 %d 字符）", string(runes[:max]), len(runes)-max)
 }
 
@@ -52,28 +56,36 @@ func PreviewDiff(oldText, newText string, maxLines int) string {
 	for pre < len(oldLines) && pre < len(newLines) && oldLines[pre] == newLines[pre] {
 		pre++
 	}
+
 	suf := 0
 	for suf < len(oldLines)-pre && suf < len(newLines)-pre &&
 		oldLines[len(oldLines)-1-suf] == newLines[len(newLines)-1-suf] {
 		suf++
 	}
+
 	var removed, added, ctxBefore, ctxAfter []string
 	for _, l := range oldLines[pre : len(oldLines)-suf] {
 		removed = append(removed, "-"+l)
 	}
+
 	for _, l := range newLines[pre : len(newLines)-suf] {
 		added = append(added, "+"+l)
 	}
+
 	for _, l := range oldLines[max(0, pre-2):pre] {
 		ctxBefore = append(ctxBefore, " "+l)
 	}
+
 	for _, l := range newLines[len(newLines)-suf : min(len(newLines)-suf+2, len(newLines))] {
 		ctxAfter = append(ctxAfter, " "+l)
 	}
+
 	lines := append(append(append(ctxBefore, removed...), added...), ctxAfter...)
+
 	body := strings.Join(lines[:min(maxLines, len(lines))], "\n")
 	if len(lines) > maxLines {
 		return fmt.Sprintf("%s\n…（diff 共 %d 行，已截断）", body, len(lines))
 	}
+
 	return body
 }

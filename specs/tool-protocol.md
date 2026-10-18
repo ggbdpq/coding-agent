@@ -39,6 +39,11 @@ function calling 线格式直传。权威出处：`impls/typescript/src/kernel/p
   裸工具数组，不经注册表。
 - **R7 内置工具名单与注册顺序**（五版同序）：read, write, edit, bash, glob, grep,
   todo, web_fetch, apply_patch。
+- **R8 apply_patch 预验与写入边界**（2026-10-03 用户裁决）：每条目标路径先转为绝对词法路径，
+  消解 `.` / `..` 与平台路径分隔符；同一规范路径只允许一条 edit，重复目标（包括相对路径别名）
+  作为预验错误拒绝整个补丁。全部目标可读、替换原文存在且唯一（或明确 `replace_all`）后，才逐文件写入。
+  任何预验失败都必须零写入，错误按 R3 回流；这个保证不涵盖写入阶段的磁盘错误、取消、崩溃或外部并发写入，
+  不承诺多文件写入事务或自动回滚。路径身份是词法路径，不合并符号链接或硬链接。
 
 ### 允许偏差（不收敛，登记在案）
 
@@ -83,6 +88,8 @@ ts/py/go/rust 各新增"注册顺序保持"测试（全部一次通过，证实�
 - needsPermission 与 skipPermission 语义被合并（两层正交）。
 - preview 缺省（必填——确认 UI 无内容可展示）。
 - 九工具名单或注册顺序漂移（名单是 v0.5 能力线的一部分）。
+- 同一规范路径的多条 edit 被依次写入，导致后写覆盖前写（R8 必须在预验阶段整体拒绝）。
+- 预验失败却改动了此前合法目标；或把零写入预验保证表述成磁盘失败也可回滚的事务（R8）。
 
 ## 低置信区
 
@@ -95,3 +102,11 @@ ts/py/go/rust 各新增"注册顺序保持"测试（全部一次通过，证实�
 - 单测：ts 50/50（registry 顺序锁 +1，`tsc --noEmit` 干净）、pcode 54/54（+1）、
   gcode 全包 ok（kernel 顺序锁 +1）、rcode 54/54（+1）；ccode 顺序锁既有未动。
 - 零源码改动（纯测试），此前五版冒烟结果仍有效；ccode 未跑（缺 SDK）。
+
+## R8 裁决与验证（2026-10-03）
+
+- 用户选择“规范路径重复目标整体拒绝”，不采用同文件顺序累计编辑，不增加多文件回滚事务。
+- SC-002C（重复目标）与 SC-002D（`.` / `..` 别名）均先观察到四个可用实现的 DRIFT：补丁被应用且文件字节变化；修复后四版 PASS，错误回流且所有 fixture 原字节保持不变。
+- 相邻 SC-002A（成功）与 SC-002B（预验失败）四版 PASS。TypeScript 54 单测、7 个既有冒烟与类型检查通过；Python 58 单测与 6 个冒烟通过；Go 全包测试（含冒烟）通过；Rust 55 单测与 7 个冒烟通过。
+- 2026-10-04 补验：临时目录使用 [微软官方 .NET 8.0.425 Arm64 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/thank-you/sdk-8.0.425-macos-arm64-binaries-targz)，下载由官方 release metadata 的 SHA512 校验；不改全局 SDK。C# `dotnet build` 0 警告/错误、`dotnet run --project tests` 63/63（cwd `impls/csharp`）。本机现有 Python 3.13 与临时 SDK 进入本次 PATH 后，`node conformance/run.mjs all` 六场景 × 五版共 30 判定 PASS。隔离副本仅移除 C# 重复目标保护，SC-002C/D 均以错误回流和 artifact 字节变化准确判 DRIFT；恢复保护后 PASS。满足 R1 红操门，SC-002C/D 升 frozen；SC-004-A 的红操门未做，仍 draft。
+- 判重复用各版既有路径解析，作用于绝对词法路径；不承诺符号链接、硬链接或文件系统大小写身份合并。写入阶段失败不保证自动回滚。

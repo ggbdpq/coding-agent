@@ -62,6 +62,9 @@ bash 进程树被杀、回到提示符，已产生的上下文保留；再次按
 | `bash` | 逐次 | 执行命令，输出 64KB 封顶、120s 超时强杀（win32 taskkill 杀树） |
 | `web_fetch` | 逐次 | 抓公网页面文本；SSRF 防线：仅 http/https、拒绝私有/保留地址、重定向逐跳复检 |
 
+`web_fetch` 正文读取中断时返回 `错误：读取失败：...`，不会把部分正文作为成功响应交给模型。
+DNS 守卫保留底层解析错误链，Go 调用方可检查 `*net.DNSError`；工具展示沿用原错误文本。
+
 安全模型：**权限闸门是唯一边界**。写类操作逐次展示"将写入什么/将执行什么"，
 路径越出当前工作目录时确认界面会醒目警示；`--yolo` 或回答 `a` 放行整个会话。
 注意"本地优先"的含义：文件与命令都在本机，但对话上下文会发给你配置的模型端点。
@@ -99,7 +102,11 @@ internal/
 ```bash
 go vet ./...        # 静态检查
 go test ./...       # 单测（edit 唯一性、trim、compact、turn 事件序列、netguard、registry）+ 端到端冒烟
+~/go/bin/golangci-lint run ./... # v2.14.0，含存量问题的本地完整检查
 ```
+
+根仓库 CI 的 Go matrix 分支运行 `go vet` 与 golangci-lint v2.14.0；lint 只阻挡 PR/push diff 新增的问题，存量按类别逐步清理。
+CI 仅在临时配置中加入固定基线 `65761d1`：事件 diff 可用时由 action 优先过滤；新分支/tag 首推或 API 取 diff 失败时，比较采纳前基线之后的变更，避免退回全量存量门禁。原 `.golangci.yml` 保持本地完整检查口径。
 
 冒烟测试在 `internal/smoke/`：测试内 `go build` 出真二进制，起本地假 SSE 服务器
 按剧本回包，子进程跑完整 REPL（工具闭环 / /resume / Anthropic 协议 / SSRF 拦截 /
@@ -127,3 +134,5 @@ gcode --yolo
 ```
 
 通过标准：无人值守完成"跑测试 → read/edit 修复 → 复跑全绿"。
+
+冒烟测试同时采集真实 REPL 的 stdout/stderr；每个输出块的写入与快照读取共用锁，`go test -race ./...` 检查持续输出时的并发安全。

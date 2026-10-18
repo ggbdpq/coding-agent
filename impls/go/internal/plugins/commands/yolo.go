@@ -3,7 +3,6 @@ package commands
 
 import (
 	"fmt"
-
 	"gcode/internal/kernel"
 )
 
@@ -18,6 +17,7 @@ func YoloCmd() *kernel.CommandDef {
 			} else {
 				fmt.Println(kernel.Green("已恢复逐次确认。"))
 			}
+
 			return kernel.CommandOutcome{}
 		},
 	}

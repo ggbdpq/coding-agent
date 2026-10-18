@@ -25,9 +25,9 @@ export default definePlugin({
     }
     const picked = list[n - 1];
     const loaded = app.store.load(picked.file).filter((m) => m.role !== 'system');
+    app.startSession({ resumedFrom: path.basename(picked.file) }, { messages: loaded });
     app.resetMessages();
     app.messages.push(...loaded);
-    app.startSession({ resumedFrom: path.basename(picked.file) });
     console.log(c.green(`已恢复 ${loaded.length} 条消息，后续写入新会话文件。`));
   },
 });

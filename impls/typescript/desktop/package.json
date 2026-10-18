@@ -7,7 +7,9 @@
     "gen:icon": "node scripts/gen-icon.mjs",
     "icon": "tauri icon icon-source.png -o src-tauri/icons",
     "build": "tauri build",
-    "dev": "tauri dev"
+    "build:dmg": "sh scripts/build-dmg.sh",
+    "dev": "tauri dev",
+    "test:startup": "cargo test --locked --offline --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

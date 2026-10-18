@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-
 	"gcode/internal/kernel"
 )
 
@@ -66,8 +65,10 @@ func RunUserTurn(ctx context.Context, app *kernel.App, line string, hooks TurnHo
 			emit(kernel.AgentEvent{Type: kernel.EvToolCall, CallID: callID, Name: name, Args: args})
 		},
 		OnToolResult: func(callID, name, result string, ms int64) {
-			emit(kernel.AgentEvent{Type: kernel.EvToolResult, CallID: callID, Name: name,
-				Summary: firstLine(result), Ms: int(ms)})
+			emit(kernel.AgentEvent{
+				Type: kernel.EvToolResult, CallID: callID, Name: name,
+				Summary: firstLine(result), Ms: int(ms),
+			})
 		},
 	})
 	if err != nil {
@@ -78,12 +79,16 @@ func RunUserTurn(ctx context.Context, app *kernel.App, line string, hooks TurnHo
 		}
 		// 中断可能留下"有工具调用、无回应"的断尾，补占位保证消息序列对 API 合法
 		app.Messages = fixDanglingToolCalls(app.Messages)
+
 		appendSince()
 		emit(kernel.AgentEvent{Type: kernel.EvTurnEnd, Reason: reason, Error: errMsg})
+
 		return err
 	}
+
 	appendSince()
 	emit(kernel.AgentEvent{Type: kernel.EvTurnEnd, Reason: kernel.TurnCompleted})
+
 	return nil
 }
 
@@ -92,16 +97,20 @@ func fixDanglingToolCalls(messages []kernel.ChatMessage) []kernel.ChatMessage {
 	if len(messages) == 0 {
 		return messages
 	}
+
 	last := messages[len(messages)-1]
 	if last.Role != "assistant" || len(last.ToolCalls) == 0 {
 		return messages
 	}
+
 	answered := map[string]bool{}
+
 	for _, m := range messages {
 		if m.Role == "tool" {
 			answered[m.ToolCallID] = true
 		}
 	}
+
 	for _, tc := range last.ToolCalls {
 		if !answered[tc.ID] {
 			messages = append(messages, kernel.ChatMessage{
@@ -111,6 +120,7 @@ func fixDanglingToolCalls(messages []kernel.ChatMessage) []kernel.ChatMessage {
 			})
 		}
 	}
+
 	return messages
 }
 
@@ -121,15 +131,18 @@ func firstLine(s string) string {
 			return s[:i]
 		}
 	}
+
 	return s
 }
 
 // newEventID 生成 uuid v4 形状的事件 id（crypto/rand，无第三方依赖）。
 func newEventID() string {
 	var b [16]byte
+
 	_, _ = rand.Read(b[:])
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
 	h := hex.EncodeToString(b[:])
+
 	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
 }

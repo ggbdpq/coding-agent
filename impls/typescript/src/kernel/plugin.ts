@@ -4,7 +4,7 @@
 // "没有需要打补丁的特权核心"思想，但实现保持零依赖手写。
 import type { App } from './app.ts';
 import type { Config } from './config.ts';
-import type { ChatClient } from './types.ts';
+import type { ChatClient, ChatOptions } from './types.ts';
 
 /** 工具插件：一个文件一个工具， ToolDef 是它的别名（core/agentloop 消费） */
 export interface ToolPlugin {
@@ -22,6 +22,12 @@ export interface ToolPlugin {
    * （如写路径落在 config.allowWriteDirs 内）。返回 true 则跳过逐次确认。
    */
   skipPermission?: (args: Record<string, unknown>, app: App) => boolean;
+  /**
+   * 授权键（ADR-003/WP4）：用户选"本会话允许此类"（scoped）时按它记忆粒度；
+   * 缺省 = 工具名（调用方兜底）。bash 返回 `bash:<命令首词>`；复合命令（R3 风险）
+   * 返回 undefined = 本次请求不可 scoped，壳只显示原三档。
+   */
+  grantKey?: (args: Record<string, unknown>) => string | undefined;
   /** signal：轮中用户中止时传入（bash/web_fetch 等长任务应尽快终止） */
   run: (args: Record<string, unknown>, signal?: AbortSignal) => Promise<string>;
 }
@@ -47,7 +53,7 @@ export interface CommandPlugin {
   kind: 'command';
   usage: string;
   summary: string;
-  run: (app: App, args: string[]) => Promise<CommandOutcome | void>;
+  run: (app: App, args: string[], opts?: Pick<ChatOptions, 'signal' | 'onUsage'>) => Promise<CommandOutcome | void>;
 }
 
 /** 交互壳插件：REPL/TUI/单发都是并列的壳，一次只起一个 */

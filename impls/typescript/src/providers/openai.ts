@@ -3,23 +3,43 @@
 import { sseData } from './sse.ts';
 import { RetryableError, withRetry } from './retry.ts';
 import { definePlugin } from '../kernel/plugin.ts';
-import type { ChatClient, ChatMessage, ChatOptions, CompletionResult, ToolSchema } from '../kernel/types.ts';
+import { keyStoreFor, peekSecret } from '../kernel/keyring.ts';
+import type { ChatClient, ChatMessage, ChatOptions, CompletionResult, FinishReason, ToolSchema } from '../kernel/types.ts';
+
+/** WP3：openai finish_reason → 归一化 FinishReason（映射表见 specs/provider.md；未知值落 unknown 不报错，05-风险 R4） */
+export function mapOpenAiFinishReason(raw: string | null | undefined): FinishReason {
+  switch (raw) {
+    case 'stop':
+      return 'stop';
+    case 'tool_calls':
+    case 'function_call':
+      return 'tool_calls';
+    case 'length':
+      return 'length';
+    case 'content_filter':
+      return 'content_filter';
+    default:
+      return 'unknown';
+  }
+}
 
 export class Provider implements ChatClient {
   // 注意：Node 类型剥离不支持构造函数参数属性，字段必须显式声明
   private baseUrl: string;
   private apiKey: string;
   private model: string;
+  private redactKeys: string[];
 
-  constructor(baseUrl: string, apiKey: string, model: string) {
+  constructor(baseUrl: string, apiKey: string, model: string, knownKeys: string[] = []) {
     this.baseUrl = baseUrl;
     this.apiKey = apiKey;
     this.model = model;
+    this.redactKeys = [apiKey, ...knownKeys].filter(Boolean).sort((a, b) => b.length - a.length);
   }
 
   /** 最多 3 次尝试；仅首字节前可重试（流已开始的中断不重试，避免内容重复） */
   chat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<CompletionResult> {
-    return withRetry(() => this.attempt(messages, opts));
+    return withRetry(() => this.attempt(messages, opts), opts.signal);
   }
 
   private async attempt(
@@ -44,7 +64,9 @@ export class Provider implements ChatClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      const brief = text.length > 300 ? `${text.slice(0, 300)}…` : text;
+      // 完整正文先隐藏各配置的密钥，再截断；长密钥优先，避免前缀被短密钥遮掉。
+      const safeText = this.redactKeys.reduce((value, key) => value.split(key).join('[凭证已隐藏]'), text);
+      const brief = safeText.length > 300 ? `${safeText.slice(0, 300)}…` : safeText;
       const retryable = res.status === 429 || res.status >= 500;
       throw retryable
         ? new RetryableError(`HTTP ${res.status}：${brief || res.statusText}`)
@@ -57,6 +79,7 @@ export class Provider implements ChatClient {
     // （TypeError 会命中重试白名单，必须在源头改写；AbortError 保持原样上抛）
     let content = '';
     const calls = new Map<number, { id: string; name: string; args: string }>();
+    let finish: string | null = null;
 
     try {
       for await (const data of sseData(res.body)) {
@@ -88,6 +111,8 @@ export class Provider implements ChatClient {
         }
         const choice = chunk.choices?.[0];
         if (!choice) continue;
+        // WP3：流中可能多次出现 finish_reason，取最后一个非空值
+        if (choice.finish_reason) finish = choice.finish_reason;
         const delta = choice.delta ?? {};
         if (delta.content) {
           content += delta.content;
@@ -115,6 +140,7 @@ export class Provider implements ChatClient {
       }));
 
     return {
+      finishReason: mapOpenAiFinishReason(finish),
       message: {
         role: 'assistant',
         content: content || null,
@@ -129,5 +155,8 @@ export default definePlugin({
   kind: 'provider',
   // 兜底：注册顺序放清单最后，没被其他 provider 命中的 BASE_URL 都走 OpenAI 兼容
   matches: () => true,
-  create: (config) => new Provider(config.baseUrl, config.apiKey, config.model),
+  create: (config) => {
+    const store = keyStoreFor(config.tcodeDir);
+    return new Provider(config.baseUrl, config.apiKey, config.model, (config.modelProfiles ?? []).map((profile) => profile.apiKey || peekSecret(store, profile.keyRef)).filter((key): key is string => !!key));
+  },
 });

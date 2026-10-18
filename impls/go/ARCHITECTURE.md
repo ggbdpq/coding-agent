@@ -72,7 +72,8 @@ Go 惯例：单测与被测同目录。
 | --- | --- | --- |
 | ApplyEdit 判定表 | `internal/plugins/tools/edit_test.go` | old_string 唯一性防线 |
 | Trim 估算与裁剪 | `internal/core/trim_test.go` | 裁旧留新 12、配对完整、幂等 |
-| Netguard 判定表 | `internal/plugins/tools/netguard_test.go` | SSRF 防线（含 IPv6 展开形式、::ffff: 映射） |
+| Netguard 判定表 | `internal/plugins/tools/netguard_test.go` | SSRF 防线（含 IPv6 展开形式、::ffff: 映射）与 DNS 原因错误链 |
+| 网页正文读取 | `internal/plugins/tools/webfetch_test.go` | 经 `ToolDef.Run` + HTTP transport 边界验证完整正文成功、读取中断返回错误 |
 | Registry | `internal/kernel/registry_test.go` | 注册/按类取用/重名拒绝/schema 形状 |
 | 端到端冒烟 | `internal/smoke/smoke_test.go` | 假 SSE 服务器 + 真二进制子进程，A/B/C/D/F 五场景 |
 
@@ -83,3 +84,5 @@ Go 惯例：单测与被测同目录。
 | 现在：单模块分层 | — | 本文所述结构，零依赖 |
 | 中期：拆包 | 单包 >1 万行或出现独立 TUI | internal/* 升级为独立 go module |
 | 远期：平台 | 第三方写插件的真实需求 | 插件外置（目录加载 + 契约校验）、版本化插件 API |
+
+冒烟测试同时采集真实 REPL 的 stdout/stderr；每个输出块的写入与快照读取共用锁，`go test -race ./...` 检查持续输出时的并发安全。

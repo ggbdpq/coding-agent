@@ -9,12 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gcode/internal/core"
+	"gcode/internal/kernel"
 	"os"
 	"os/signal"
 	"strings"
-
-	"gcode/internal/core"
-	"gcode/internal/kernel"
 )
 
 // Repl 返回 REPL 壳插件。
@@ -31,9 +30,12 @@ func startRepl(app *kernel.App) error {
 	// 权限 UI 适配：把"打印预览 + 问 y/n/a"接进统一闸门；stdin 关闭视作拒绝
 	gate := core.NewPermissionGate(core.PermissionIOFunc(func(req core.PermissionRequest) core.PermissionDecision {
 		fmt.Printf("\n%s\n%s\n", kernel.Yellow(fmt.Sprintf("── %s 请求执行 ──", req.Tool)), kernel.Dim(req.Preview))
+
 		for {
 			fmt.Print(kernel.Bold("允许? [y=允许 / n=拒绝 / a=本会话全部允许] "))
+
 			line, err := reader.ReadString('\n')
+
 			ans := strings.ToLower(strings.TrimSpace(line))
 			switch ans {
 			case "y":
@@ -44,7 +46,9 @@ func startRepl(app *kernel.App) error {
 			case "n", "":
 				return core.DecisionDeny
 			}
+
 			fmt.Println(kernel.Dim("请回答 y / n / a"))
+
 			if err != nil {
 				return core.DecisionDeny
 			}
@@ -59,17 +63,21 @@ func startRepl(app *kernel.App) error {
 	if app.Yolo.Value {
 		banner = append(banner, kernel.Yellow("当前 --yolo：所有操作免确认"))
 	}
+
 	banner = append(banner, kernel.Dim("输入 /help 查看命令，/exit 退出"))
 	fmt.Println(strings.Join(banner, "\n"))
 
 	for {
 		fmt.Print(kernel.Cyan("gcode❯ "))
+
 		line, err := reader.ReadString('\n')
+
 		line = strings.TrimSpace(line)
 		if line == "" {
 			if err != nil {
 				break // stdin 关闭
 			}
+
 			continue
 		}
 
@@ -79,21 +87,26 @@ func startRepl(app *kernel.App) error {
 		if strings.HasPrefix(line, "/") {
 			fields := strings.Fields(line)
 			name := strings.TrimPrefix(fields[0], "/")
+
 			var cmd *kernel.CommandDef
+
 			for _, c := range app.Registry.Commands() {
 				if c.Name == name {
 					cmd = c
 					break
 				}
 			}
+
 			if cmd == nil {
 				fmt.Println(kernel.Yellow(fmt.Sprintf("未知命令 %s，/help 查看可用命令。", fields[0])))
 				continue
 			}
+
 			outcome := cmd.Run(app, fields[1:])
 			if outcome.Exit {
 				break
 			}
+
 			continue
 		}
 
@@ -101,11 +114,13 @@ func startRepl(app *kernel.App) error {
 		// 第一次 Ctrl+C 取消 turnCtx；NotifyContext 收到信号后自动注销，
 		// 这里再挂一层监听器：第二次 Ctrl+C = 强制退出（先给提示）。
 		turnDone := make(chan struct{})
+
 		go func() {
 			select {
 			case <-turnCtx.Done():
 				secondCtx, secondStop := signal.NotifyContext(context.Background(), os.Interrupt)
 				defer secondStop()
+
 				select {
 				case <-secondCtx.Done():
 					fmt.Println("\n（再次 Ctrl+C，强制退出）")
@@ -120,6 +135,7 @@ func startRepl(app *kernel.App) error {
 			Check: gate,
 			Emit:  renderEvent,
 		})
+
 		close(turnDone)
 		stopTurn()
 
@@ -134,6 +150,7 @@ func startRepl(app *kernel.App) error {
 			fmt.Println()
 		}
 	}
+
 	return nil
 }
 
@@ -161,5 +178,6 @@ func currentDir() string {
 	if err != nil {
 		return "."
 	}
+
 	return cwd
 }

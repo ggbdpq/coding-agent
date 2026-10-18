@@ -2,12 +2,18 @@
 // win32 优先用 Git Bash（模型常发 unix 命令），只认显式路径，避免误中 System32 的 WSL bash；
 // 都没有就退回 cmd。安全边界：执行前经权限确认，确认界面展示完整命令。
 import { spawn } from 'node:child_process';
+import { baseCwd } from './pathguard.ts';
 import { existsSync } from 'node:fs';
 import { definePlugin } from '../../kernel/plugin.ts';
 
 const MAX_OUTPUT = 64 * 1024;
 const DEFAULT_TIMEOUT_SEC = 120;
 const MAX_TIMEOUT_SEC = 600;
+
+// 首词属于这些解释器/包装器 → 命令内容不可由首词代表，不给 scoped（WP4 表格 / 05-风险 R3）
+const UNSCOPED_FIRST_WORDS = new Set([
+  'bash', 'sh', 'zsh', 'fish', 'env', 'xargs', 'sudo', 'eval', 'exec', 'nohup', 'time',
+]);
 
 interface ShellCmd {
   file: string;
@@ -44,7 +50,16 @@ export default definePlugin({
     required: ['command'],
   },
   needsPermission: true,
-  preview: (a) => `执行命令（cwd=${process.cwd()}）\n$ ${String(a.command ?? '')}`,
+  preview: (a) => `执行命令（cwd=${baseCwd()}）\n$ ${String(a.command ?? '')}`,
+  // scoped 授权键（WP4）：`bash:<首词>`；首词是解释器/包装器，或命令含复合结构
+  // （; && || | $( 反引号 > < 换行）时返回 undefined = 不可 scoped，防"本会话允许 npm"被夹带（05 R3）
+  grantKey(a) {
+    const command = String(a.command ?? '');
+    const first = command.trim().split(/\s+/)[0] ?? '';
+    if (!first || UNSCOPED_FIRST_WORDS.has(first)) return undefined;
+    if (/[;|`><\n]|&&|\$\(/.test(command)) return undefined;
+    return `bash:${first}`;
+  },
   async run(args, signal) {
     const command = String(args.command ?? '');
     if (!command.trim()) return '错误：缺少 command';
@@ -56,8 +71,10 @@ export default definePlugin({
 
     return await new Promise<string>((resolve) => {
       const child = spawn(file, [...shellArgs, command], {
-        cwd: process.cwd(),
+        cwd: baseCwd(),
         windowsHide: true,
+        // 独立进程组，超时才能连同后台孙进程一起杀；否则孙进程占着管道，close 迟迟不来
+        detached: process.platform !== 'win32',
       });
       let out = '';
       let err = '';
@@ -69,7 +86,7 @@ export default definePlugin({
           // Windows 上 kill 杀不掉子进程树，用 taskkill 连坐
           spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
         } else {
-          child.kill('SIGKILL');
+          try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
         }
       }, timeoutSec * 1000);
       // 用户中止：杀 bash 本体即可让本轮结束；其孙进程为 sleep 类有限命令，自然退出

@@ -29,8 +29,11 @@ py 的 append 捕获范围收窄已按写作约定 1 裁决修复（见"分歧�
   新 meta 行。
 - **R4 meta 业务字段**：version/model/cwd/yolo + extra 覆盖；resume 的 extra 记
   `resumedFrom`（旧文件 basename）。
-- **R5 持久化时机**：轮末一次性补写本轮自 user 消息起的全部消息（mark 机制）；
-  异常路径先补断尾占位「（用户中止，未执行）」、再补写、再发终态事件——顺序不可换。
+- **R5 持久化时机**：每产生一条消息立即 append（用户消息 push 后落盘；assistant/tool
+  消息经 runTurn 的 onMessage 回调逐条落盘）；异常路径先用统一修复函数补断尾占位、
+  逐条 append、再发终态事件——顺序不可换。加载会话（load）返回前同样补占位（仅内存，
+  随下一次 append 自然落盘）。占位文案：家族统一文本见 event.md R8；tcode 长文案为
+  event.md 允许偏差表登记项（ADR-003 轮只做增量，未改文案）。
 - **R6 append 静默**：未 start 直接返回；任何写异常静默（不限 OSError）。
 - **R7 /resume**：`listRecent(5)` 列表供编号选择；加载内容过滤 system 行；reset 后
   并入；meta 记 resumedFrom。/sessions 只列不载。--continue = `listRecent(1)` +
@@ -95,7 +98,7 @@ py 的 append 捕获范围收窄已按写作约定 1 裁决修复（见"分歧�
 - start 越界分支在五版当前流程均不可达（文件名内部生成），行为差异仅登记未收敛。
 - smoke B 五版断言"恢复的历史随新请求发送"，覆盖 /resume 主路径；--continue 无
   专项冒烟场景。
-- ccode 本机无 .NET SDK，本轮未复跑（本主题未改 csharp 源码）。
+- ccode 既有测试/冒烟已于 2026-10-04 在隔离 SDK 下 63/63 通过，见 [R8 补验记录](tool-protocol.md#r8-裁决与验证2026-10-03)；未新增本主题的覆盖。
 - 行号为 2026-09-27 快照，会随代码漂移。
 
 ## 验证记录（2026-09-27）
@@ -103,3 +106,20 @@ py 的 append 捕获范围收窄已按写作约定 1 裁决修复（见"分歧�
 - 单测：pcode 56/56（新增 `test_session.py` 2 例，其中"非 OSError 静默"红转绿）；
   本主题未改 ts/go/rust/cs 源码。
 - 冒烟：pcode A/B/C/D/F/H 全过（session.py 改动后复跑）；其余版本源码未动。
+
+## 修订定稿（ADR-003，WP6 已定稿）
+
+> 状态：WP0 起草；WP6（分支 feat/wp6-incremental-persist）按 tcode 实际行为定稿以下三条。
+
+- **落盘时机（WP6 已定稿）**：逐条落盘——用户消息 push 后立即 `append`；agentloop
+  每次 `messages.push` 后经 `TurnDeps.onMessage` 回调 `append`；异常路径补的断尾
+  占位消息同样逐条 `append`。轮末批量补写（`appendSince`/mark 机制）已删除。
+  单条写失败静默不中断，不做 fsync（R6）。
+- **断尾修复（WP6 已定稿）**：加载会话时（`load()` 返回前）对历史文件里悬空的
+  `tool_calls` 补占位 tool 消息，文案与轮内中断逐字一致
+  （「（本轮中断，未取得执行结果；请先检查实际状态）」），复用
+  `core/repair.ts` 的同一个修复函数 `repairDanglingToolCalls`（R7）；补出的占位
+  只在内存，下一次自然 `append` 时随消息流落盘。
+- **checkpoint 一致性（WP6 已核实定稿）**：轮内治理改写历史仍走既有
+  `{type:'context_checkpoint'}` 机制，加载以最后一个 checkpoint 为起点（R8）；
+  断尾修复发生在 checkpoint 回放之后（`test/persist.test.ts` 回归锁）。

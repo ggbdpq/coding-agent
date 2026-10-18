@@ -4,9 +4,8 @@ package commands
 
 import (
 	"fmt"
-	"strings"
-
 	"gcode/internal/kernel"
+	"strings"
 )
 
 // ApprovalCmd 构造 /approval 命令插件。
@@ -22,16 +21,21 @@ func ApprovalCmd() *kernel.CommandDef {
 				if app.Config.Approval == "never" {
 					hint = "（全部免确认，等价 --yolo）"
 				}
+
 				fmt.Printf("当前审批策略：%s%s\n", app.Config.Approval, hint)
+
 				return kernel.CommandOutcome{}
 			}
+
 			if arg != "normal" && arg != "never" {
 				fmt.Println(kernel.Yellow("审批策略只能是 normal 或 never，未修改。"))
 				return kernel.CommandOutcome{}
 			}
+
 			app.Config.Approval = arg
 			app.Yolo.Value = arg == "never"
 			fmt.Printf("审批策略已设为 %s。\n", arg)
+
 			return kernel.CommandOutcome{}
 		},
 	}

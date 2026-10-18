@@ -41,6 +41,7 @@ func CreateApp(config *Config, registry *Registry, opts AppOptions) (*App, error
 	if err != nil {
 		return nil, err
 	}
+
 	app := &App{
 		Config:        config,
 		Registry:      registry,
@@ -53,6 +54,7 @@ func CreateApp(config *Config, registry *Registry, opts AppOptions) (*App, error
 	}
 	app.ResetMessages()
 	app.StartSession(nil)
+
 	return app, nil
 }
 
@@ -62,6 +64,7 @@ func (a *App) StartSession(extra map[string]any) {
 	if err != nil {
 		cwd = "."
 	}
+
 	meta := map[string]any{
 		"version": Version,
 		"model":   a.Config.Model,
@@ -71,6 +74,7 @@ func (a *App) StartSession(extra map[string]any) {
 	for k, v := range extra {
 		meta[k] = v
 	}
+
 	a.Store.Start(meta)
 }
 
@@ -86,16 +90,20 @@ func selectProvider(config *Config, registry *Registry) (ChatClient, error) {
 				return p.Create(config), nil
 			}
 		}
+
 		names := make([]string, 0, len(providers))
 		for _, p := range providers {
 			names = append(names, p.Name)
 		}
+
 		return nil, fmt.Errorf("没有名为 %s 的 provider 插件（可用：%s）", config.Protocol, strings.Join(names, ", "))
 	}
+
 	for _, p := range providers {
 		if p.Matches(config.BaseURL) {
 			return p.Create(config), nil
 		}
 	}
+
 	return nil, fmt.Errorf("没有 provider 插件能处理 BASE_URL：%s", config.BaseURL)
 }

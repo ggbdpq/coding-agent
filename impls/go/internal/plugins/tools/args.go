@@ -13,6 +13,7 @@ func argString(args map[string]any, key string) string {
 			return s
 		}
 	}
+
 	return ""
 }
 
@@ -22,6 +23,7 @@ func argNumber(args map[string]any, key string, def float64) float64 {
 	if !ok {
 		return def
 	}
+
 	switch n := v.(type) {
 	case float64:
 		return n
@@ -30,6 +32,7 @@ func argNumber(args map[string]any, key string, def float64) float64 {
 			return f
 		}
 	}
+
 	return def
 }
 

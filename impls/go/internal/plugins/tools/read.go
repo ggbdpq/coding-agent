@@ -5,10 +5,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"gcode/internal/kernel"
 	"os"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 const (
@@ -41,47 +40,61 @@ func runRead(args map[string]any) string {
 	if file == "" {
 		return "错误：缺少 file_path"
 	}
+
 	abs := ResolvePath(file).Abs
+
 	st, err := os.Stat(abs)
 	if err != nil {
-		return fmt.Sprintf("错误：文件不存在：%s", file)
+		return "错误：文件不存在：" + file
 	}
+
 	if st.IsDir() {
 		return fmt.Sprintf("错误：%s 是目录，请用 glob 列文件", file)
 	}
+
 	if st.Size() > readMaxBytes {
 		return fmt.Sprintf("错误：文件过大（%d 字节，上限 %d），请用 offset/limit 分段读取", st.Size(), readMaxBytes)
 	}
+
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		return fmt.Sprintf("错误：读取失败：%s", err)
 	}
+
 	lines := strings.Split(string(data), "\n")
 	total := len(lines)
 	offset := int(argNumber(args, "offset", 1)) - 1
+
 	start := offset
 	if start > total-1 {
 		start = total - 1
 	}
+
 	if start < 0 {
 		start = 0
 	}
+
 	limit := int(argNumber(args, "limit", readDefaultN))
 	if limit < 1 {
 		limit = 1
 	}
+
 	end := start + limit
 	if end > total {
 		end = total
 	}
+
 	var b strings.Builder
 	for i := start; i < end; i++ {
 		fmt.Fprintf(&b, "%6d\t%s\n", i+1, lines[i])
 	}
+
 	body := strings.TrimRight(b.String(), "\n")
+
 	if end < total {
 		note := fmt.Sprintf("\n（已显示第 %d-%d 行，共 %d 行；继续读请调大 offset）", start+1, end, total)
 		return body + note
 	}
+
 	return body
 }

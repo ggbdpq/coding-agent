@@ -5,6 +5,7 @@ package kernel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -81,6 +82,7 @@ func (p Plugin) kind() Kind {
 	case p.Shell != nil:
 		return KindShell
 	}
+
 	return ""
 }
 
@@ -96,6 +98,7 @@ func (p Plugin) name() string {
 	case p.Shell != nil:
 		return p.Shell.Name
 	}
+
 	return ""
 }
 
@@ -110,14 +113,17 @@ func NewRegistry() *Registry { return &Registry{} }
 // Register 注册一个插件；同 kind 重名或四类字段一个都没设时报错。
 func (r *Registry) Register(p Plugin) error {
 	if p.kind() == "" {
-		return fmt.Errorf("插件必须恰好设置 Tool/Command/Provider/Shell 之一")
+		return errors.New("插件必须恰好设置 Tool/Command/Provider/Shell 之一")
 	}
+
 	for _, q := range r.plugins {
 		if q.kind() == p.kind() && q.name() == p.name() {
 			return fmt.Errorf("插件重名：%s/%s", p.kind(), p.name())
 		}
 	}
+
 	r.plugins = append(r.plugins, p)
+
 	return nil
 }
 
@@ -128,6 +134,7 @@ func (r *Registry) MustRegister(plugins ...Plugin) *Registry {
 			panic(err)
 		}
 	}
+
 	return r
 }
 
@@ -139,6 +146,7 @@ func (r *Registry) Tools() []*ToolDef {
 			out = append(out, p.Tool)
 		}
 	}
+
 	return out
 }
 
@@ -150,6 +158,7 @@ func (r *Registry) Providers() []*ProviderDef {
 			out = append(out, p.Provider)
 		}
 	}
+
 	return out
 }
 
@@ -161,6 +170,7 @@ func (r *Registry) Commands() []*CommandDef {
 			out = append(out, p.Command)
 		}
 	}
+
 	return out
 }
 
@@ -171,6 +181,7 @@ func (r *Registry) Shell(name string) *ShellDef {
 			return p.Shell
 		}
 	}
+
 	return nil
 }
 
@@ -190,5 +201,6 @@ func ToolSchemas(tools []*ToolDef) []ToolSchema {
 			},
 		})
 	}
+
 	return schemas
 }

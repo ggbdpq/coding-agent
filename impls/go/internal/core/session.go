@@ -7,14 +7,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"gcode/internal/kernel"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"gcode/internal/kernel"
 )
 
 // SessionStore JSONL 会话存储。
@@ -29,9 +28,11 @@ func NewSessionStore(dir string) (*SessionStore, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
+
 	return &SessionStore{root: root}, nil
 }
 
@@ -45,7 +46,9 @@ func (s *SessionStore) Start(meta map[string]any) {
 	// Windows 文件名禁 :，把 ISO 时间的冒号一并换掉
 	name := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	name = strings.ReplaceAll(strings.ReplaceAll(name, ":", "-"), ".", "-")
+
 	var rb [2]byte
+
 	_, _ = rand.Read(rb[:])
 	name += "-" + hex.EncodeToString(rb[:]) + ".jsonl"
 
@@ -53,15 +56,19 @@ func (s *SessionStore) Start(meta map[string]any) {
 	if !s.isInsideDir(file) {
 		return // 防御式自检：文件名不含分隔符，理论到不了这里
 	}
+
 	s.filePath = file
+
 	entry := map[string]any{"type": "meta", "ts": time.Now().UnixMilli()}
 	for k, v := range meta {
 		entry[k] = v
 	}
+
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return
 	}
+
 	_ = os.WriteFile(file, append(data, '\n'), 0o644)
 }
 
@@ -70,15 +77,18 @@ func (s *SessionStore) Append(message kernel.ChatMessage) {
 	if s.filePath == "" {
 		return
 	}
+
 	data, err := json.Marshal(map[string]any{"type": "message", "message": message})
 	if err != nil {
 		return
 	}
+
 	f, err := os.OpenFile(s.filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
+
 	_, _ = f.Write(append(data, '\n'))
 }
 
@@ -88,28 +98,37 @@ func (s *SessionStore) ListRecent(n int) []kernel.SessionSummary {
 	if err != nil {
 		return nil
 	}
+
 	var files []kernel.SessionSummary
+
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
+
 		file := filepath.Join(s.root, e.Name())
 		if !s.isInsideDir(file) || file == s.filePath {
 			continue
 		}
+
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
+
 		files = append(files, kernel.SessionSummary{File: file, Mtime: info.ModTime().UnixMilli()})
 	}
+
 	sort.Slice(files, func(i, j int) bool { return files[i].Mtime > files[j].Mtime })
+
 	if len(files) > n {
 		files = files[:n]
 	}
+
 	for i := range files {
 		files[i].Label = s.readLabel(files[i].File)
 	}
+
 	return files
 }
 
@@ -119,15 +138,19 @@ func (s *SessionStore) Load(file string) []kernel.ChatMessage {
 	if err != nil || !s.isInsideDir(resolved) {
 		return nil
 	}
+
 	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return nil
 	}
+
 	var messages []kernel.ChatMessage
+
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+
 		var o struct {
 			Type    string             `json:"type"`
 			Message kernel.ChatMessage `json:"message"`
@@ -136,6 +159,7 @@ func (s *SessionStore) Load(file string) []kernel.ChatMessage {
 			messages = append(messages, o.Message)
 		}
 	}
+
 	return messages
 }
 
@@ -144,14 +168,17 @@ func (s *SessionStore) readLabel(file string) string {
 	if !s.isInsideDir(file) {
 		return "(无用户消息)"
 	}
+
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return "(无用户消息)"
 	}
+
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+
 		var o struct {
 			Type    string `json:"type"`
 			Message struct {
@@ -162,13 +189,16 @@ func (s *SessionStore) readLabel(file string) string {
 		if json.Unmarshal([]byte(line), &o) != nil || o.Type != "message" || o.Message.Role != "user" {
 			continue
 		}
+
 		text := strings.Join(strings.Fields(strings.TrimSpace(o.Message.Content)), " ")
 		if text != "" {
 			if utf8.RuneCountInString(text) > 60 {
 				text = string([]rune(text)[:60])
 			}
+
 			return text
 		}
 	}
+
 	return "(无用户消息)"
 }

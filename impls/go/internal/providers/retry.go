@@ -4,10 +4,9 @@ package providers
 import (
 	"context"
 	"errors"
+	"gcode/internal/kernel"
 	"net"
 	"time"
-
-	"gcode/internal/kernel"
 )
 
 // RetryableError 标记可重试的错误（HTTP 429/5xx/529、网络层失败）。
@@ -19,10 +18,12 @@ func (e *RetryableError) Error() string { return e.msg }
 // context 取消/超时（用户中止）绝不重试；不可重试错误立即返回。
 func WithRetry(ctx context.Context, run func() (kernel.CompletionResult, error)) (kernel.CompletionResult, error) {
 	var lastErr error
+
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return kernel.CompletionResult{}, err
 		}
+
 		res, err := run()
 		if err == nil {
 			return res, nil
@@ -31,20 +32,27 @@ func WithRetry(ctx context.Context, run func() (kernel.CompletionResult, error))
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return res, err
 		}
-		var re *RetryableError
-		var ne net.Error
+
+		var (
+			re *RetryableError
+			ne net.Error
+		)
 		if !errors.As(err, &re) && !errors.As(err, &ne) {
 			return res, err
 		}
+
 		if attempt == 2 {
 			return res, err
 		}
+
 		lastErr = err
+
 		select {
 		case <-ctx.Done():
 			return kernel.CompletionResult{}, ctx.Err()
 		case <-time.After(time.Second << attempt): // 1s, 2s
 		}
 	}
+
 	return kernel.CompletionResult{}, lastErr
 }

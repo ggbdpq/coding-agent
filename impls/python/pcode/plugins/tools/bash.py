@@ -7,6 +7,7 @@ win32 优先用 Git Bash（模型常发 unix 命令），只认显式路径，�
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -63,6 +64,21 @@ def _pump(pipe: Any, sink: list[bytes]) -> None:
             pass
 
 
+def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
+    if sys.platform == 'win32':
+        # Windows 上 kill 杀不掉子进程树，用 taskkill 连坐
+        subprocess.run(
+            ['taskkill', '/pid', str(proc.pid), '/T', '/F'],
+            capture_output=True,
+            creationflags=_CREATE_NO_WINDOW,
+        )
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def _run(args: dict[str, Any]) -> str:
     command = str(args.get('command') or '')
     if not command.strip():
@@ -75,6 +91,9 @@ def _run(args: dict[str, Any]) -> str:
     )
     if sys.platform == 'win32':
         popen_kwargs['creationflags'] = _CREATE_NO_WINDOW
+    else:
+        # 独立进程组：超时 killpg 连同 shell 起的子进程一起杀，否则孙进程占着管道拖住读线程
+        popen_kwargs['start_new_session'] = True
     try:
         proc = subprocess.Popen([shell_file, *shell_args, command], **popen_kwargs)
     except OSError as e:
@@ -92,17 +111,13 @@ def _run(args: dict[str, Any]) -> str:
     timed_out = False
     try:
         proc.wait(timeout=timeout_sec)
+    except KeyboardInterrupt:
+        # 独立会话收不到终端的 SIGINT，pcode 因 Ctrl+C 退出前必须自己收尾，否则命令成孤儿继续跑
+        _kill_tree(proc)
+        raise
     except subprocess.TimeoutExpired:
         timed_out = True
-        if sys.platform == 'win32':
-            # Windows 上 kill 杀不掉子进程树，用 taskkill 连坐
-            subprocess.run(
-                ['taskkill', '/pid', str(proc.pid), '/T', '/F'],
-                capture_output=True,
-                creationflags=_CREATE_NO_WINDOW,
-            )
-        else:
-            proc.kill()
+        _kill_tree(proc)
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:

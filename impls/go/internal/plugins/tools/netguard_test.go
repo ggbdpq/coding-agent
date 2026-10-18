@@ -2,7 +2,11 @@
 // 另按 Go 标准库语义补 IPv6 展开形式与 ::ffff: 映射私网的用例）。
 package tools
 
-import "testing"
+import (
+	"errors"
+	"net"
+	"testing"
+)
 
 func blocked(t *testing.T, raw string) bool {
 	t.Helper()
@@ -65,6 +69,7 @@ func TestNetguardPublicAllowedAndBadURL(t *testing.T) {
 			t.Fatalf("%s 应放行（字面层）", raw)
 		}
 	}
+
 	if !blocked(t, "not a url") {
 		t.Fatalf("坏 URL 应被拒绝")
 	}
@@ -122,5 +127,27 @@ func TestIsPublicIPv6Table(t *testing.T) {
 		if got := IsPublicIPv6(c.ip); got != c.want {
 			t.Fatalf("IsPublicIPv6(%q)=%v，want %v", c.ip, got, c.want)
 		}
+	}
+}
+
+func TestAssertResolvesPublicPreservesDNSError(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		host string
+	}{
+		{name: "empty hostname", host: ""},
+		{name: "invalid hostname", host: "bad\x00host"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := AssertResolvesPublic(tc.host)
+			if _, ok := errors.AsType[*net.DNSError](err); !ok {
+				t.Fatalf("解析错误应保留 *net.DNSError，got %T: %v", err, err)
+			}
+		})
 	}
 }

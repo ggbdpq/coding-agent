@@ -4,20 +4,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { definePlugin } from '../../kernel/plugin.ts';
-import type { App } from '../../kernel/app.ts';
 import { ellipsis } from '../../kernel/ui.ts';
-import { resolvePath } from './pathguard.ts';
-
-/** 白名单判定：目标 === 根目录，或位于某白名单根目录之下（规范惯用法） */
-function insideAllowDirs(file: string, app: App): boolean {
-  const dirs = app.config.allowWriteDirs ?? [];
-  if (dirs.length === 0) return false;
-  const target = path.resolve(file);
-  return dirs.some((d) => {
-    const root = path.resolve(d);
-    return target === root || target.startsWith(root + path.sep);
-  });
-}
+import { readPreSnapshot, recordWrite } from './filejournal.ts';
+import { resolvePath, isWriteTrusted } from './pathguard.ts';
 
 export default definePlugin({
   name: 'write',
@@ -33,7 +22,7 @@ export default definePlugin({
     required: ['file_path', 'content'],
   },
   needsPermission: true,
-  skipPermission: (a, app) => insideAllowDirs(String(a.file_path ?? ''), app),
+  skipPermission: (a, app) => isWriteTrusted(String(a.file_path ?? ''), app.config.allowWriteDirs ?? []),
   preview: (a) => {
     const { outside } = resolvePath(String(a.file_path ?? ''));
     const flag = outside ? '\n⚠ 注意：该路径在当前工作目录之外！' : '';
@@ -44,9 +33,12 @@ export default definePlugin({
     if (!file) return '错误：缺少 file_path';
     if (args.content === undefined) return '错误：缺少 content';
     const { abs } = resolvePath(file);
+    const pre = await readPreSnapshot(abs);
+    const content = String(args.content);
     await mkdir(path.dirname(abs), { recursive: true });
-    await writeFile(abs, String(args.content), 'utf8');
-    const lines = String(args.content).split('\n').length;
-    return `已写入 ${file}（${String(args.content).length} 字符 / ${lines} 行）`;
+    await writeFile(abs, content, 'utf8');
+    recordWrite(abs, pre, content);
+    const lines = content.split('\n').length;
+    return `已写入 ${file}（${content.length} 字符 / ${lines} 行）`;
   },
 });

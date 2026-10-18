@@ -11,6 +11,7 @@ func TestApplyEditUniqueMatch(t *testing.T) {
 	if !r.OK {
 		t.Fatalf("唯一匹配应成功，got %+v", r)
 	}
+
 	if r.Message != "one" {
 		t.Fatalf("档位应为 one，got %q", r.Message)
 	}
@@ -21,6 +22,7 @@ func TestApplyEditNotFound(t *testing.T) {
 	if r.OK {
 		t.Fatalf("未找到应失败，got %+v", r)
 	}
+
 	if !strings.Contains(r.Message, "未找到") {
 		t.Fatalf("错误信息应提示未找到，got %q", r.Message)
 	}
@@ -31,6 +33,7 @@ func TestApplyEditMultipleWithoutReplaceAll(t *testing.T) {
 	if r.OK {
 		t.Fatalf("多处出现未开 replace_all 应失败，got %+v", r)
 	}
+
 	if !strings.Contains(r.Message, "2 次") {
 		t.Fatalf("错误信息应含出现次数，got %q", r.Message)
 	}
@@ -41,6 +44,7 @@ func TestApplyEditReplaceAll(t *testing.T) {
 	if !r.OK {
 		t.Fatalf("replace_all 档位应放行，got %+v", r)
 	}
+
 	if r.Message != "all" {
 		t.Fatalf("档位应为 all，got %q", r.Message)
 	}

@@ -5,11 +5,10 @@ package commands
 
 import (
 	"fmt"
+	"gcode/internal/kernel"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gcode/internal/kernel"
 )
 
 var initTemplate = strings.Join([]string{
@@ -42,16 +41,20 @@ func InitCmd() *kernel.CommandDef {
 			if err != nil {
 				cwd = "."
 			}
+
 			file := filepath.Join(cwd, "AGENTS.md")
 			if _, err := os.Stat(file); err == nil {
 				fmt.Println("AGENTS.md 已存在，未覆盖。可直接编辑它来调整项目约束。")
 				return kernel.CommandOutcome{}
 			}
+
 			if err := os.WriteFile(file, []byte(initTemplate), 0o644); err != nil {
 				fmt.Printf("生成失败：%s\n", err)
 				return kernel.CommandOutcome{}
 			}
+
 			fmt.Printf("已生成 %s——编辑它补充项目概要、常用命令与工作约定，下次会话自动生效。\n", file)
+
 			return kernel.CommandOutcome{}
 		},
 	}

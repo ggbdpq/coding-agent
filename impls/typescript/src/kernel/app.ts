@@ -3,14 +3,22 @@
 // 这里只声明最小的结构化接口。
 import type { Config } from './config.ts';
 import type { Registry } from './registry.ts';
+import type { ToolPlugin } from './plugin.ts';
 import type { ChatClient, ChatMessage, YoloRef } from './types.ts';
 
 export const VERSION = '0.5.0';
 
+export interface SessionInitialData {
+  messages?: ChatMessage[];
+  activity?: Record<string, unknown>[];
+}
+
 /** core/session.SessionStore 满足此结构（kernel 不直接依赖 core） */
 export interface SessionStoreLike {
-  start(meta?: Record<string, unknown>): void;
+  start(meta?: Record<string, unknown>, initial?: SessionInitialData, commitWorkspace?: () => void): void;
   append(message: ChatMessage): void;
+  /** 持久化压缩后的上下文；写失败须抛出，非持久化 store 可省略。 */
+  checkpoint?(messages: ChatMessage[]): void;
   listRecent(n: number): Array<{ file: string; mtime: number; label: string }>;
   load(file: string): ChatMessage[];
 }
@@ -26,6 +34,8 @@ export interface App {
   config: Config;
   registry: Registry;
   provider: ChatClient;
+  /** MCP 桥接工具（外部服务器启用时）；缺省为空 */
+  mcpTools?: () => ToolPlugin[];
   store: SessionStoreLike;
   yolo: YoloRef;
   /** Plan Mode（只读规划）：开启时写类工具被 agentloop 拒绝 */
@@ -33,7 +43,7 @@ export interface App {
   /** 当前会话消息；命令/壳直接读写这个数组 */
   messages: ChatMessage[];
   /** 开新会话文件（/new、/resume 都换文件，永不追加旧文件） */
-  startSession(extra?: Record<string, unknown>): void;
+  startSession(extra?: Record<string, unknown>, initial?: SessionInitialData, commitWorkspace?: () => void): void;
   /** messages 换成全新 system 数组 */
   resetMessages(): void;
 }
@@ -50,14 +60,14 @@ export function createApp(config: Config, registry: Registry, opts: AppOptions):
     yolo,
     planMode,
     messages: [],
-    startSession(extra: Record<string, unknown> = {}) {
+    startSession(extra: Record<string, unknown> = {}, initial?: SessionInitialData, commitWorkspace?: () => void) {
       opts.store.start({
         version: VERSION,
         model: config.model,
         cwd: process.cwd(),
         yolo: yolo.value,
         ...extra,
-      });
+      }, initial, commitWorkspace);
     },
     resetMessages() {
       app.messages = opts.freshMessages();
@@ -69,7 +79,7 @@ export function createApp(config: Config, registry: Registry, opts: AppOptions):
 }
 
 /** 显式配置的 protocol 按名选；否则按注册顺序取首个 matches 命中的 provider */
-function selectProvider(config: Config, registry: Registry): ChatClient {
+export function selectProvider(config: Config, registry: Registry): ChatClient {
   if (config.protocol) {
     const explicit = registry.providers().find((p) => p.name === config.protocol);
     if (!explicit) {

@@ -10,6 +10,7 @@ import grepPlugin from './tools/grep.ts';
 import todoPlugin from './tools/todo.ts';
 import webFetchPlugin from './tools/webfetch.ts';
 import applyPatchPlugin from './tools/apply_patch.ts';
+import memoryAppendPlugin from './tools/memory_append.ts';
 import helpCommand from './commands/help.ts';
 import newCommand from './commands/new.ts';
 import resumeCommand from './commands/resume.ts';
@@ -19,6 +20,7 @@ import compactCommand from './commands/compact.ts';
 import initCommand from './commands/init.ts';
 import sessionsCommand from './commands/sessions.ts';
 import exitCommand from './commands/exit.ts';
+import memoryCommand from './commands/memory.ts';
 import anthropicPlugin from '../providers/anthropic.ts';
 import openaiPlugin from '../providers/openai.ts';
 import replPlugin from '../shell/repl.ts';
@@ -36,6 +38,7 @@ export const builtinPlugins: Plugin[] = [
   todoPlugin,
   webFetchPlugin,
   applyPatchPlugin,
+  memoryAppendPlugin,
   // —— 命令（/help 列表按这里的顺序展示） ——
   helpCommand,
   newCommand,
@@ -45,6 +48,7 @@ export const builtinPlugins: Plugin[] = [
   compactCommand,
   initCommand,
   sessionsCommand,
+  memoryCommand,
   exitCommand,
   // —— 协议（anthropic 在前按 URL 命中，openai 恒真兜底必须在后） ——
   anthropicPlugin,

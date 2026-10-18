@@ -18,6 +18,7 @@ func TestPreviewDiffReplaceShowsOldAndNew(t *testing.T) {
 	if !strings.Contains(d, "-old line") {
 		t.Fatalf("应含 -old line，got %q", d)
 	}
+
 	if !strings.Contains(d, "+new line") {
 		t.Fatalf("应含 +new line，got %q", d)
 	}
@@ -28,6 +29,7 @@ func TestPreviewDiffMultiLineKeepsContextOrder(t *testing.T) {
 	if !strings.Contains(d, " a") || !strings.Contains(d, " c") {
 		t.Fatalf("公共行应保留，got %q", d)
 	}
+
 	if !strings.Contains(d, "-b") || !strings.Contains(d, "+B") {
 		t.Fatalf("应含 -b 与 +B，got %q", d)
 	}

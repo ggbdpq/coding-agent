@@ -4,9 +4,8 @@
 package core
 
 import (
-	"unicode/utf8"
-
 	"gcode/internal/kernel"
+	"unicode/utf8"
 )
 
 // keepRecentTools 保留最近多少条工具消息不动。
@@ -19,6 +18,7 @@ func contentLen(s *string) int {
 	if s == nil {
 		return 0
 	}
+
 	return utf8.RuneCountInString(*s)
 }
 
@@ -32,6 +32,7 @@ func EstimateTokens(messages []kernel.ChatMessage) int {
 			chars += utf8.RuneCountInString(tc.Function.Name) + utf8.RuneCountInString(tc.Function.Arguments) + 8
 		}
 	}
+
 	return (chars + 2) / 3 // 向上取整
 }
 
@@ -41,27 +42,34 @@ func TrimContext(messages []kernel.ChatMessage, limit int) int {
 	if EstimateTokens(messages) <= limit {
 		return 0
 	}
+
 	var toolIdx []int
+
 	for i, m := range messages {
 		if m.Role == "tool" {
 			toolIdx = append(toolIdx, i)
 		}
 	}
+
 	if len(toolIdx) > keepRecentTools {
 		toolIdx = toolIdx[:len(toolIdx)-keepRecentTools]
 	} else {
 		toolIdx = nil
 	}
+
 	trimmed := 0
+
 	for _, i := range toolIdx {
 		if EstimateTokens(messages) <= limit {
 			break
 		}
+
 		m := &messages[i]
 		if m.Content != nil && *m.Content != "" && *m.Content != TrimPlaceholder {
 			m.Content = kernel.StrPtr(TrimPlaceholder)
 			trimmed++
 		}
 	}
+
 	return trimmed
 }

@@ -73,11 +73,15 @@ function cappedRead(p: string): string | null {
 }
 
 try {
-  const config = loadConfig();
+  const config = loadConfig({ allowIncomplete: shellName === 'web', desktop: args.includes('--desktop') });
+  if (shellName === 'web' && config.workspace) {
+    try { process.chdir(config.workspace); config.workspace = process.cwd(); }
+    catch { config.configError = '上次选择的项目目录不可用，请在设置中重新选择'; config.workspace = ''; }
+  }
   const registry = new Registry().registerAll(builtinPlugins);
   const app = createApp(config, registry, {
     yolo: yolo || (config.approval === 'never'),
-    freshMessages: () => [{ role: 'system', content: buildSystemPrompt(process.cwd()) }],
+    freshMessages: () => [{ role: 'system', content: buildSystemPrompt(process.cwd(), undefined, config.tcodeDir) }],
     store: new SessionStore(path.join(config.tcodeDir, 'sessions')),
   });
 
@@ -85,8 +89,8 @@ try {
     const latest = app.store.listRecent(1)[0];
     if (latest) {
       const loaded = app.store.load(latest.file).filter((m) => m.role !== 'system');
+      app.startSession({ resumedFrom: path.basename(latest.file) }, { messages: loaded });
       app.messages.push(...loaded);
-      app.startSession({ resumedFrom: path.basename(latest.file) });
       console.log(`已恢复最近会话（${loaded.length} 条消息）。`);
     } else {
       console.log('没有可恢复的会话，从新会话开始。');

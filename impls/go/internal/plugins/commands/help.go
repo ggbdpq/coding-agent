@@ -3,9 +3,8 @@ package commands
 
 import (
 	"fmt"
-	"strings"
-
 	"gcode/internal/kernel"
+	"strings"
 )
 
 // HelpText 生成帮助文本（独立导出便于复用与测试）。
@@ -14,6 +13,7 @@ func HelpText(app *kernel.App) string {
 	for _, cmd := range app.Registry.Commands() {
 		rows = append(rows, fmt.Sprintf("  %-15s%s", cmd.Usage, cmd.Summary))
 	}
+
 	return strings.Join(append([]string{"命令："},
 		append(rows,
 			"其他输入直接作为对话发给模型。",

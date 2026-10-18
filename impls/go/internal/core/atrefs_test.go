@@ -49,6 +49,7 @@ func TestExpandAtRefsTruncates(t *testing.T) {
 	if len(out) >= 300_000 {
 		t.Fatalf("超长文件应被截断，got %d 字符", len(out))
 	}
+
 	if !strings.Contains(out, "已截断") {
 		t.Fatalf("截断应有标注，got 末尾 %q", out[max(0, len(out)-60):])
 	}

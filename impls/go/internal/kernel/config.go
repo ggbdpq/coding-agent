@@ -45,12 +45,15 @@ func readJSONConfig(dir string) (fileConfig, error) {
 		if os.IsNotExist(err) {
 			return fileConfig{}, nil
 		}
+
 		return fileConfig{}, fmt.Errorf("~/.gcode/config.json 读取失败：%w", err)
 	}
+
 	var fc fileConfig
 	if err := json.Unmarshal(data, &fc); err != nil {
 		return fileConfig{}, fmt.Errorf("~/.gcode/config.json 解析失败：%w", err)
 	}
+
 	return fc, nil
 }
 
@@ -60,7 +63,9 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("找不到用户主目录：%w", err)
 	}
+
 	dir := filepath.Join(home, ".gcode")
+
 	fc, err := readJSONConfig(dir)
 	if err != nil {
 		return nil, err
@@ -69,17 +74,20 @@ func LoadConfig() (*Config, error) {
 	apiKey := firstNonEmpty(os.Getenv("GCODE_API_KEY"), fc.APIKey)
 	baseURL := strings.TrimRight(firstNonEmpty(os.Getenv("GCODE_BASE_URL"), fc.BaseURL), "/")
 	model := firstNonEmpty(os.Getenv("GCODE_MODEL"), fc.Model)
+
 	contextLimit := 100_000
 	if n, err := strconv.Atoi(os.Getenv("GCODE_CONTEXT_LIMIT")); err == nil && n != 0 {
 		contextLimit = n
 	}
 
 	var protocol Protocol
+
 	raw := strings.ToLower(firstNonEmpty(os.Getenv("GCODE_PROTOCOL"), fc.Protocol))
 	if raw != "" {
 		if raw != string(ProtocolOpenAI) && raw != string(ProtocolAnthropic) {
 			return nil, fmt.Errorf("GCODE_PROTOCOL 只能是 openai 或 anthropic，收到：%s", raw)
 		}
+
 		protocol = Protocol(raw)
 	}
 
@@ -88,31 +96,37 @@ func LoadConfig() (*Config, error) {
 	if approval == "" {
 		approval = "normal"
 	}
+
 	if approval != "normal" && approval != "never" {
 		return nil, fmt.Errorf("GCODE_APPROVAL 只能是 normal 或 never，收到：%s", approval)
 	}
 
 	// 写白名单（R4）：config.json allowWriteDirs 优先，否则环境变量 GCODE_ALLOW_WRITE
-	//（按 os.PathListSeparator 分隔）；全部 filepath.Abs 归一化，空段跳过（不误收 cwd）
+	// （按 os.PathListSeparator 分隔）；全部 filepath.Abs 归一化，空段跳过（不误收 cwd）
 	var rawDirs []string
 	if len(fc.AllowWriteDirs) > 0 {
 		rawDirs = fc.AllowWriteDirs
 	} else if env := os.Getenv("GCODE_ALLOW_WRITE"); env != "" {
 		rawDirs = strings.Split(env, string(os.PathListSeparator))
 	}
+
 	var allowWriteDirs []string
+
 	for _, d := range rawDirs {
 		if d == "" {
 			continue
 		}
+
 		abs, err := filepath.Abs(d)
 		if err != nil {
 			continue
 		}
+
 		allowWriteDirs = append(allowWriteDirs, abs)
 	}
 
 	var missing []string
+
 	for _, kv := range [][2]string{
 		{"GCODE_API_KEY", apiKey},
 		{"GCODE_BASE_URL", baseURL},
@@ -122,14 +136,17 @@ func LoadConfig() (*Config, error) {
 			missing = append(missing, kv[0])
 		}
 	}
+
 	if len(missing) > 0 {
 		return nil, fmt.Errorf(
 			"缺少模型配置：%s。\n"+
 				"设置方式（二选一）：\n"+
 				"  1. 环境变量：export GCODE_API_KEY=sk-xxx GCODE_BASE_URL=https://xxx/v1 GCODE_MODEL=模型名\n"+
 				"  2. 配置文件：~/.gcode/config.json 写 {\"apiKey\":\"...\",\"baseUrl\":\"...\",\"model\":\"...\"}\n"+
-				"任何 OpenAI 兼容端点都可以（本地中转、云 API 均可）。", strings.Join(missing, "、"))
+				"任何 OpenAI 兼容端点都可以（本地中转、云 API 均可）。", strings.Join(missing, "、"),
+		)
 	}
+
 	return &Config{
 		APIKey:         apiKey,
 		BaseURL:        baseURL,
@@ -146,5 +163,6 @@ func firstNonEmpty(a, b string) string {
 	if a != "" {
 		return a
 	}
+
 	return b
 }

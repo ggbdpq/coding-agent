@@ -3,7 +3,6 @@ package tools
 
 import (
 	"context"
-
 	"gcode/internal/kernel"
 )
 
@@ -21,12 +20,13 @@ func NewGlob() *kernel.ToolDef {
 		},
 		NeedsPermission: false,
 		Preview:         func(args map[string]any) string { return "glob " + argString(args, "pattern") },
-		Run: func(_ context.Context, args map[string]any) string {
+		Run: func(ctx context.Context, args map[string]any) string {
 			pattern := argString(args, "pattern")
 			if pattern == "" {
 				return "错误：缺少 pattern"
 			}
-			return runRg([]string{"--files", "-g", pattern}, 8000)
+
+			return runRg(ctx, []string{"--files", "-g", pattern}, 8000)
 		},
 	}
 }
