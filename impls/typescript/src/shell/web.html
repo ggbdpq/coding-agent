@@ -5,36 +5,58 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tcode · 工作台</title>
 <style>
-  /* 设计语言参考 Codex / Claude Code / DeepSeek Harness：
-     灰色外框 + 白色内容卡片、弱边框、单一强调色、等宽字体只用于代码与工具。 */
+  /* 布局、尺寸与设计令牌移植自 deepseek-harness（MIT License，ui-theme/design-platform.css、SidebarRoot/Rows/Menu.module.css）；
+     视觉克制原则参考 ZCode DESIGN.md（Apache-2.0）。不使用其品牌资产（logo、字标、品牌文案）。
+     对照原型：docs/ui/tcode-ui-复刻/prototype.html；规范：docs/ui/tcode-ui-复刻/复刻规范.md。
+     颜色只在本节定义，组件样式一律引用变量。 */
   :root {
-    color-scheme: dark;
-    /* 设计基准参考 DeepSeek Harness（仅借数值与交互）：近黑主色、三级文字、0.5px 分隔线、36 高控件 */
-    --text: #eceef1; --muted: #a6abb2; --subtle: #7c8187; --page: #16181b; --sidebar: #0f1113; --panel: #16181b; --card: #1d2024;
-    --field: #26292e; --provider-card: #1e2126; --border: rgba(255, 255, 255, .1); --border-strong: rgba(255, 255, 255, .2);
-    --selected: #2b2f35; --hover: rgba(255, 255, 255, .06);
-    --bubble: #262a31; --code: #202225; --primary: #f2f3f5; --primary-hover: #dfe1e5; --on-primary: #0f1115;
-    --link: #7aa7ff; --info: #7aa7ff; --info-surface: #1b2536;
-    --success: #7bd59a; --warning: #f0b45c; --warning-surface: #2c2418; --danger: #ff9b9b; --danger-surface: #3a2025;
-    --diff-added: #8fdca5; --diff-added-surface: #17301f; --diff-removed: #f3a3a3; --diff-removed-surface: #3a2126;
-    --shadow-sm: 0 1px 2px #0007; --shadow-md: 0 4px 16px #0007, 0 16px 48px #0008; --overlay: rgba(0, 0, 0, .5);
-    --ui-size: 14px; --caption-size: 12px; --title-size: 16px; --message-size: 15px;
-    --radius-control: 12px; --radius-card: 20px; --radius-pop: 28px; --sidebar-width: 264px; --content-width: 720px;
-    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
-    font: var(--ui-size)/22px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    -webkit-font-smoothing: antialiased;
-    color: var(--text); background: var(--sidebar);
-  }
-  :root[data-color="light"] {
     color-scheme: light;
-    --text: #0f1115; --muted: #61666b; --subtle: #81858c; --page: #ffffff; --sidebar: #f7f8fa; --panel: #ffffff; --card: #ffffff;
-    --field: #f0f2f4; --provider-card: #f5f6f7; --border: rgba(0, 0, 0, .1); --border-strong: rgba(0, 0, 0, .2);
-    --selected: #ebeef2; --hover: rgba(38, 49, 72, .06);
-    --bubble: #eef2fb; --code: #f4f4f6; --primary: #0f1115; --primary-hover: #26292e; --on-primary: #ffffff;
-    --link: #2a7bf6; --info: #2a7bf6; --info-surface: #eaf1fe;
-    --success: #1f8a4c; --warning: #a2650c; --warning-surface: #fff7e8; --danger: #c43c3c; --danger-surface: #fdeeee;
-    --diff-added: #1d6b38; --diff-added-surface: #e9f7ee; --diff-removed: #a83434; --diff-removed-surface: #fcefef;
-    --shadow-sm: 0 1px 2px rgba(15, 17, 21, .06); --shadow-md: 0 4px 16px rgba(15, 17, 21, .08), 0 16px 48px rgba(15, 17, 21, .12); --overlay: rgba(0, 0, 0, .24);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-panel: 28px;
+    --fs-xs: 10px; --fs-sm: 12px; --fs-caption: 13px; --fs-base: 14px; --fs-lg: 16px; --fs-xl: 18px;
+    --ease: cubic-bezier(.4, 0, .2, 1);
+    --sidebar-w: 280px; --rail-w: 56px; --content-width: 760px; --message-size: 16px;
+    /* 颜色：亮色 */
+    --bg: #ffffff; --sidebar: #f9fafb; --card: #ffffff; --new-session: rgba(255, 255, 255, .55);
+    --nav-hover: #f1f3f5; --nav-active: #ebeef2; --selector: #f5f6f7;
+    --hover: rgba(38, 49, 72, .06); --hover-danger: rgba(236, 19, 19, .05);
+    --text: #0f1115; --text-2: #61666b; --text-3: #81858c; --caption: #adb2b8;
+    --border-1: rgba(0, 0, 0, .04); --border-2: rgba(0, 0, 0, .10); --border-3: rgba(0, 0, 0, .12); --border-4: rgba(0, 0, 0, .16);
+    --brand: #4176e6; --brand-soft: #e4edfd; --on-brand: #ffffff;
+    --primary: #0f1115; --primary-fg: #ffffff;
+    --danger: #ec1313; --danger-soft: rgba(236, 19, 19, .06);
+    --warning: #f59e0b; --warning-soft: rgba(245, 158, 11, .10);
+    --success: #01a241; --success-soft: rgba(1, 162, 65, .08);
+    --diff-add-bg: rgba(34, 197, 94, .08); --diff-del-bg: rgba(236, 19, 19, .08);
+    --tooltip: #2c2c2e; --tooltip-fg: #ffffff; --tooltip-2: #cfd3d6; --tooltip-3: #adb2b8; --tooltip-key: color-mix(in srgb, var(--tooltip), var(--tooltip-fg) 18%);
+    --menu-fill: rgba(255, 255, 255, .86); --menu-blur: blur(40px) saturate(150%);
+    --mask: rgba(0, 0, 0, .24); --knob: #ffffff; --knob-shadow: rgba(0, 0, 0, .2);
+    --elev-panel: 0 0 0 .5px var(--border-1), 0 3px 8px 0 rgba(0, 0, 0, .03), 0 0 16px 0 rgba(0, 0, 0, .02);
+    --elev-prominent: 0 0 0 .5px var(--border-3), 0 3px 8px 0 rgba(0, 0, 0, .04), 0 0 20px 0 rgba(0, 0, 0, .05);
+    --elev-soft: 0 0 0 .5px var(--border-1), 0 4px 16px 0 rgba(0, 0, 0, .03), 0 0 24px 0 rgba(0, 0, 0, .03);
+    /* 语义别名：沿用旧组件样式里的变量名 */
+    --page: var(--bg); --panel: var(--bg); --field: var(--selector); --provider-card: var(--selector); --code: var(--selector); --bubble: var(--selector);
+    --border: var(--border-2); --border-strong: var(--border-4); --selected: var(--nav-active);
+    --muted: var(--text-2); --subtle: var(--text-3); --on-primary: var(--primary-fg); --primary-hover: color-mix(in srgb, var(--primary) 88%, var(--bg));
+    --link: var(--brand); --info: var(--brand); --info-surface: var(--brand-soft);
+    --warning-surface: var(--warning-soft); --danger-surface: var(--danger-soft);
+    --diff-added: var(--success); --diff-added-surface: var(--diff-add-bg); --diff-removed: var(--danger); --diff-removed-surface: var(--diff-del-bg);
+    --shadow-sm: var(--elev-panel); --shadow-md: var(--elev-prominent); --overlay: var(--mask);
+    --radius-control: var(--r-md); --radius-card: var(--r-xl); --radius-pop: var(--r-panel); --caption-size: var(--fs-sm);
+    font: var(--fs-base)/22px var(--font);
+    -webkit-font-smoothing: antialiased;
+    color: var(--text); background: var(--bg);
+  }
+  :root[data-color="dark"] {
+    color-scheme: dark;
+    --bg: #151517; --sidebar: #1b1b1c; --card: #232324; --new-session: rgba(255, 255, 255, .08);
+    --nav-hover: #2c2c2e; --nav-active: #43454a; --selector: #2c2c2e;
+    --hover: rgba(255, 255, 255, .06);
+    --text: #f9fafb; --text-2: #adb2b8; --text-3: #81858c; --caption: #61666b;
+    --border-1: rgba(255, 255, 255, .06); --border-2: rgba(255, 255, 255, .10); --border-3: rgba(255, 255, 255, .12); --border-4: rgba(255, 255, 255, .16);
+    --brand-soft: #34415b; --primary: #f9fafb; --primary-fg: #0f1115;
+    --tooltip: #43454a; --menu-fill: rgba(67, 69, 74, .45); --mask: rgba(0, 0, 0, .48);
   }
   * { box-sizing: border-box; }
   body { margin: 0; height: 100dvh; }
@@ -52,76 +74,103 @@
   ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 28%, transparent); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
   ::-webkit-scrollbar-track { background: transparent; }
 
-  /* —— 外框：侧栏与内容卡片 —— */
-  .workbench { display: flex; height: 100%; padding: 8px 8px 8px 0; gap: 8px; background: var(--sidebar); }
-  .workbench:has(> .sidebar[hidden]) { padding-left: 8px; }
-  .sidebar { width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; padding: 8px 8px 4px 12px; background: var(--sidebar); gap: 1px; min-height: 0; }
-  .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 15px; letter-spacing: -.01em; padding: 4px 8px 12px; }
-  .brand-mark { width: 24px; height: 24px; flex-shrink: 0; border-radius: 6px; display: grid; place-items: center; background: var(--text); color: var(--sidebar); }
-  .brand-mark svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-  .nav-icon { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-  .nav-button { display: flex; align-items: center; gap: 10px; min-height: 36px; text-align: left; background: transparent; border: 0; padding: 0 10px; font-size: 13.5px; border-radius: var(--radius-control); }
-  .nav-button .nav-icon { color: var(--muted); }
+  .nav-icon { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .nav-icon.s14 { width: 14px; height: 14px; }
+  .icon-btn { width: 28px; height: 28px; min-height: 28px; flex-shrink: 0; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-2); display: inline-grid; place-items: center; }
+  .icon-btn:hover:not(:disabled), .icon-btn[aria-haspopup][aria-expanded="true"] { background: var(--hover); }
+
+  /* —— 外框：侧栏 | 主区 | 变更面板 —— */
+  .workbench { position: relative; display: flex; height: 100%; background: var(--bg); }
+  .sidebar { width: var(--sidebar-w); flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; padding: 40px 12px 6px; background: var(--sidebar); border-right: .5px solid var(--border-2); }
+  /* 侧栏开关在侧栏外：收起后仍可点；展开时贴在侧栏顶条右侧 */
+  #sidebar-toggle { position: absolute; z-index: 6; top: 12px; left: calc(var(--sidebar-w) - 40px); }
+  .workbench:has(> .sidebar[hidden]) #sidebar-toggle { left: 12px; }
+  .workbench:has(> .sidebar[hidden]) .chat > header { padding-left: 52px; }
+  .brand { height: 60px; margin-bottom: 4px; padding: 8px 0 8px 4px; display: flex; align-items: center; gap: 8px; }
+  .brand-mark { width: 24px; height: 24px; flex-shrink: 0; border-radius: 7px; display: grid; place-items: center; background: var(--text); color: var(--bg); font: 600 11px/1 var(--mono); }
+  .brand-name { font-size: var(--fs-xl); font-weight: 600; letter-spacing: .04em; }
+  .brand-tag { height: 14px; padding: 0 4px; border-radius: 3px; background: var(--text); color: var(--bg); font: 500 9px/14px var(--mono); letter-spacing: .06em; }
+  #new { height: 38px; min-height: 38px; margin: 0 2px 12px; padding: 8px 12px; border: .5px solid var(--border-3); border-radius: var(--r-md); background: var(--new-session); display: flex; align-items: center; justify-content: center; gap: 6px; font-size: var(--fs-base); font-weight: 500; }
+  #new:hover:not(:disabled) { background: var(--hover); border-color: var(--border-3); }
+  /* 不可用时保持可读：不整体压灰，只降低文字层级 */
+  #new:disabled { opacity: 1; color: var(--text-3); }
+  .panel-list { display: flex; flex-direction: column; gap: 4px; }
+  .nav-button { min-height: 36px; margin: 0 2px; padding: 7px 8px; border: 0; border-radius: var(--r-md); background: transparent; display: flex; align-items: center; gap: 8px; text-align: left; font-size: var(--fs-base); line-height: 20px; }
   .nav-button:hover:not(:disabled) { background: var(--hover); }
-  .nav-button kbd { margin-left: auto; color: var(--subtle); font: 11px var(--mono); opacity: 0; transition: opacity .12s; }
-  .nav-button:hover kbd, .nav-button:focus-visible kbd { opacity: 1; }
-  #new { margin-bottom: 4px; min-height: 36px; background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-sm); font-weight: 550; }
-  #new .nav-icon { color: var(--text); }
-  #new kbd { opacity: 1; }
-  /* 新任务不可用时保持可读：不整体压灰，只降低文字与图标的强调层级 */
-  #new:disabled { opacity: 1; color: var(--muted); }
-  #new:disabled .nav-icon { color: var(--subtle); }
-  .search-fields { padding: 8px 2px 0; }
-  .search-box { position: relative; display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 4px 0 10px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-control); }
-  .search-box:focus-within { border-color: var(--border-strong); }
-  .search-box > .nav-icon { color: var(--subtle); }
-  #search { flex: 1; min-width: 0; height: 100%; padding: 0; color: inherit; background: transparent; border: 0; font-size: var(--caption-size); }
+  /* 分区头：「项目」+ 搜索 / 视图选项 / 添加项目；搜索框收起时就是一个 28px 图标，聚焦或有关键词时展开 */
+  .section-head { height: 36px; margin-top: 12px; padding-left: 4px; display: flex; align-items: center; gap: 4px; color: var(--text-3); font-size: var(--fs-caption); }
+  .section-label { flex: 1; }
+  .search-box { position: relative; width: 28px; height: 28px; flex-shrink: 0; }
+  .search-box > .nav-icon { position: absolute; left: 6px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-2); }
+  #search { width: 100%; height: 100%; padding: 0; border: .5px solid transparent; border-radius: var(--r-sm); background: transparent; color: transparent; caret-color: transparent; cursor: pointer; font: var(--fs-caption)/18px var(--font); }
+  #search::placeholder { color: transparent; }
+  #search:hover { background: var(--hover); }
   #search:focus { outline: none; }
-  .scope-toggle { display: flex; flex-shrink: 0; gap: 2px; padding: 3px; border-radius: 8px; background: var(--field); }
-  .scope-toggle button { min-height: 28px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--subtle); font-size: 11px; }
-  .scope-toggle button:hover:not(:disabled) { background: transparent; color: var(--text); }
-  .scope-toggle button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: var(--shadow-sm); }
-  #workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .session-section { color: var(--subtle); font-size: 11px; font-weight: 500; padding: 12px 10px 4px; }
-  #projects { max-height: 24vh; overflow: auto; flex-shrink: 0; display: grid; gap: 1px; }
-  #sessions { flex: 1; overflow: auto; min-height: 0; }
-  .project-entry { width: 100%; min-height: 36px; text-align: left; background: transparent; border: 0; display: flex; align-items: center; gap: 9px; padding: 4px 10px; }
-  .project-entry b { width: 16px; height: 16px; flex-shrink: 0; font-size: 0; background: var(--muted);
-    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'%3E%3Cpath d='M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z'/%3E%3C/svg%3E") center / contain no-repeat;
-            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'%3E%3Cpath d='M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z'/%3E%3C/svg%3E") center / contain no-repeat; }
-  .project-entry[aria-current] { background: var(--selected); font-weight: 550; }
-  .project-entry[aria-current] b { background: var(--primary); }
-  .project-entry span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
-  .project-entry small { color: var(--subtle); font-size: 11px; font-variant-numeric: tabular-nums; }
-  #workspace-pick { color: var(--muted); font-size: 13px; }
-  .session-entry { display: flex; align-items: center; margin-bottom: 1px; border-radius: var(--radius-control); }
-  .session-entry:hover { background: var(--hover); }
-  .session-entry.current { background: var(--selected); }
+  #search-clear { position: absolute; right: 3px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; min-height: 24px; display: none; }
+  .section-head:has(#search:focus, #search:not(:placeholder-shown)) :is(.section-label, #view-options, #workspace-pick) { display: none; }
+  .section-head:has(#search:focus, #search:not(:placeholder-shown)) .search-box { flex: 1; height: 30px; margin-right: -2px; }
+  .section-head:has(#search:focus, #search:not(:placeholder-shown)) .search-box > .nav-icon { color: var(--caption); }
+  .section-head:has(#search:focus, #search:not(:placeholder-shown)) #search { padding: 0 30px 0 28px; border-color: var(--border-4); border-radius: var(--r-md); background: transparent; color: var(--text); caret-color: auto; cursor: text; }
+  .section-head:has(#search:focus, #search:not(:placeholder-shown)) #search::placeholder { color: var(--text-3); }
+  .section-head:has(#search:not(:placeholder-shown)) #search-clear { display: inline-grid; }
+  /* 项目树：项目行 34 / 会话行 32 缩进，右侧相对时间 */
+  #projects { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -4px; padding: 0 4px 24px; }
+  .project-entry { width: 100%; height: 34px; min-height: 34px; padding: 0 8px; border: 0; border-radius: var(--r-md); background: transparent; display: flex; align-items: center; gap: 6px; text-align: left; font-size: var(--fs-base); line-height: 20px; }
+  .project-entry:hover:not(:disabled) { background: var(--hover); }
+  .project-entry .nav-icon { color: var(--text-3); }
+  .project-entry[aria-current] .nav-icon { color: var(--brand); }
+  .project-entry span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #projects.searching .project-entry { display: none; }
+  .session-entry { position: relative; display: flex; align-items: center; border-radius: var(--r-md); }
+  .session-entry:hover, .session-entry.current { background: var(--hover); }
   .session-entry button { border: 0; background: transparent; text-align: left; }
   .session-entry button:hover:not(:disabled) { background: transparent; }
-  .session-open { flex: 1; overflow: hidden; min-width: 0; min-height: 36px; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; padding: 0 10px; color: var(--text); }
-  .session-entry:not(.current) .session-open { color: color-mix(in srgb, var(--text) 82%, var(--muted)); }
-  .session-rename { width: 28px; height: 28px; min-height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0; color: var(--muted); font-size: 13px; margin-right: 4px; opacity: 0; letter-spacing: -1px; }
-  .session-entry:hover .session-rename, .session-entry.current .session-rename, .session-rename:focus-visible { opacity: 1; }
-  .session-open.search-result { white-space: normal; overflow-wrap: anywhere; }
-  .session-meta, .session-excerpt { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .session-open { flex: 1; min-width: 0; height: 32px; min-height: 32px; padding: 0 8px 0 36px; display: flex; align-items: center; gap: 6px; font-size: var(--fs-base); line-height: 20px; color: var(--text); }
+  .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-time { flex-shrink: 0; font-size: var(--fs-xs); line-height: 16px; color: var(--text-3); }
+  .session-pending { flex-shrink: 0; font-size: var(--fs-xs); line-height: 16px; color: var(--warning); }
+  .session-entry.pending .session-title::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--warning); }
+  .session-rename { position: absolute; right: 6px; width: 20px; height: 20px; min-height: 20px; padding: 0; display: none; place-items: center; color: var(--text-3); border-radius: var(--r-xs); }
+  .session-rename:hover:not(:disabled) { color: var(--text); }
+  .session-entry:hover .session-rename, .session-rename:focus-visible { display: inline-grid; }
+  .session-entry:hover :is(.session-time, .session-pending) { visibility: hidden; }
+  .more-row { width: 100%; height: 28px; min-height: 28px; padding: 0 0 0 36px; border: 0; background: transparent; color: var(--text-3); font-size: var(--fs-sm); text-align: left; }
+  .more-row:hover:not(:disabled) { background: transparent; color: var(--text-2); }
+  .session-open.search-result { height: auto; padding: 6px 8px; display: block; white-space: normal; overflow-wrap: anywhere; }
+  .session-meta, .session-excerpt { display: block; color: var(--text-2); font-size: 11px; margin-top: 4px; }
   .session-excerpt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .sidebar-bottom { padding: 8px 2px 4px; display: flex; align-items: center; gap: 8px; min-width: 0; }
-  /* 等宽状态行：版本 · 当前模型 · ~/项目路径 */
-  #workspace-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtle); font: 11px/16px var(--mono); cursor: default; }
-  #settings-home { width: 36px; height: 36px; min-height: 36px; flex-shrink: 0; display: grid; place-items: center; border: 0; background: transparent; padding: 0; color: var(--muted); }
-  #settings-home:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-  /* 自定义 tooltip：向上弹出并做边界检测，避免被窗口边缘裁剪 */
-  #tooltip { position: fixed; z-index: 200; max-width: 320px; padding: 5px 10px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-md); color: var(--text); font-size: 12px; line-height: 18px; pointer-events: none; white-space: nowrap; }
-  #tooltip[hidden] { display: none; }
+  #projects > .dim, #sessions > .dim, #sessions > .error { padding: 6px 8px 6px 36px; }
+  #projects.searching #sessions > .dim, #projects.searching #sessions > .error { padding-left: 8px; }
+  /* 底部账户行：头像 + 名称 + 等宽版本号，点开向上弹菜单；齿轮直达设置 */
+  .sidebar-bottom { padding: 6px 0 4px; display: flex; align-items: center; gap: 4px; min-width: 0; }
+  #account { flex: 1; min-width: 0; height: 44px; min-height: 44px; padding: 0 8px; border: 0; border-radius: var(--r-md); background: transparent; display: flex; align-items: center; gap: 10px; font-size: var(--fs-base); }
+  #account:hover:not(:disabled), #account[aria-expanded="true"] { background: var(--hover); }
+  .avatar { width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%; background: var(--nav-active); color: var(--text-2); display: grid; place-items: center; font: 600 11px/1 var(--mono); }
+  #account-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #account-version { margin-left: auto; font: 11px/16px var(--mono); color: var(--text-3); }
+  #settings-home { color: var(--caption); }
+  #settings-home:hover:not(:disabled) { color: var(--text-2); }
+  /* 浮层：tooltip 与菜单 */
+  #tooltip { position: fixed; z-index: 200; max-width: 320px; padding: 3px 7px; border-radius: var(--r-sm); background: var(--tooltip); color: var(--tooltip-fg); font-size: var(--fs-caption); line-height: 20px; display: flex; align-items: center; gap: 8px; pointer-events: none; white-space: nowrap; }
+  #tooltip kbd { height: 16px; min-width: 16px; padding: 0 3px; margin-left: 2px; border-radius: var(--r-xs); background: var(--tooltip-key); font: 11px/16px var(--font); text-align: center; }
+  .menu { position: fixed; z-index: 150; min-width: 200px; padding: 4px; border-radius: var(--r-lg); background: var(--menu-fill); -webkit-backdrop-filter: var(--menu-blur); backdrop-filter: var(--menu-blur); box-shadow: var(--elev-prominent); display: flex; flex-direction: column; }
+  .menu-label { padding: 6px 8px 2px; font-size: 11px; line-height: 15px; color: var(--text-3); }
+  .menu [role^="menuitem"] { width: 100%; min-height: 34px; padding: 6px 8px; border: 0; border-radius: var(--r-md); background: transparent; display: flex; align-items: center; gap: 8px; text-align: left; font-size: var(--fs-caption); line-height: 20px; color: var(--text); }
+  .menu [role^="menuitem"]:hover:not(:disabled), .menu [role^="menuitem"]:focus-visible { background: var(--hover); outline: none; }
+  .menu [role^="menuitem"] .nav-icon { color: var(--text-2); }
+  .menu kbd { margin-left: auto; font: 11px/16px var(--font); color: var(--caption); }
+  .menu [aria-checked="true"]::after { content: ""; width: 14px; height: 14px; margin-left: auto; background: var(--text);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 5 5 9-10'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12 5 5 9-10'/%3E%3C/svg%3E") center / contain no-repeat; }
+  .menu .danger, .menu .danger .nav-icon { color: var(--danger); }
+  .menu .danger:hover:not(:disabled) { background: var(--hover-danger); }
+  .menu-sep { height: .5px; margin: 3px 2px; background: var(--border-2); }
 
   /* —— 主区：会话卡片 —— */
-  .chat { height: 100%; flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--page); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-sm); overflow: hidden; }
+  .chat { height: 100%; flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); overflow: hidden; }
   header { display: flex; gap: 8px; align-items: center; min-height: 52px; padding: 8px 16px 8px 12px; border-bottom: 0.5px solid var(--border); background: var(--page); }
   .compact-nav { display: flex; gap: 4px; flex-wrap: wrap; }
   .compact-nav button { font-size: 12px; padding: 0 8px; }
-  #sidebar-toggle { width: 36px; height: 36px; min-height: 36px; padding: 0; flex-shrink: 0; display: grid; place-items: center; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); }
-  #sidebar-toggle:hover:not(:disabled) { color: var(--text); background: var(--hover); border-color: transparent; }
   .heading { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
   .heading h1 { display: block; font-size: 15px; margin: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; letter-spacing: -.005em; }
   #status { display: inline-flex; align-items: center; gap: 6px; height: 28px; font-size: 12px; color: var(--muted); white-space: nowrap; padding: 0 10px 0 8px; border-radius: 999px; background: var(--field); }
@@ -326,7 +375,7 @@
   .settings-main input[type="checkbox"] { width: auto; accent-color: var(--primary); }
   /* 开关 */
   .switch { appearance: none; -webkit-appearance: none; width: 40px; height: 22px; min-height: 22px; border: 0; border-radius: 999px; background: var(--border-strong); position: relative; cursor: pointer; transition: background-color .15s; padding: 0; }
-  .switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); transition: transform .15s; }
+  .switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--knob); box-shadow: 0 1px 2px var(--knob-shadow); transition: transform .15s; }
   .switch:checked { background: var(--success); }
   .switch:checked::before { transform: translateX(18px); }
   .switch:disabled { opacity: .4; cursor: default; }
@@ -373,19 +422,11 @@
 
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
   @media (max-width: 700px) { .settings-panel { grid-template-columns: 1fr; grid-template-rows: 48px auto 1fr; } .settings-sidebar { border-right: 0; border-bottom: 0.5px solid var(--border); padding: 8px; } .settings-sidebar nav { display: flex; overflow-x: auto; } .settings-sidebar nav button { white-space: nowrap; min-height: 36px; } .settings-nav-group { display: none; } .settings-main { padding: 16px; } .settings-row { flex-wrap: wrap; } .settings-row-control { max-width: 100%; } }
-  @media (max-width: 850px) { .sidebar { width: 216px; } header { padding: 8px 12px; gap: 8px; } #log { padding: 20px 16px; } .composer { padding: 8px 16px 12px; } #status { max-width: 120px; overflow: hidden; text-overflow: ellipsis; } }
+  @media (max-width: 850px) { header { padding: 8px 12px; gap: 8px; } #log { padding: 20px 16px; } .composer { padding: 8px 16px 12px; } #status { max-width: 120px; overflow: hidden; text-overflow: ellipsis; } }
   @media (max-width: 850px) { .diff-panel { position: fixed; z-index: 2; top: 8px; right: 8px; height: calc(100% - 16px); width: min(420px, calc(100% - 24px)); box-shadow: -16px 0 40px var(--overlay); } }
   @media (max-width: 560px) {
-    .workbench, .workbench:has(> .sidebar[hidden]) { flex-direction: column; padding: 0; gap: 0; }
-    .chat { border-radius: 0; border: 0; box-shadow: none; }
-    .sidebar { width: 100%; max-height: 230px; padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; border-bottom: 1px solid var(--border); overflow: auto; flex-shrink: 0; }
-    #new { margin-bottom: 0; box-shadow: none; }
-    .brand, .session-section, .nav-button kbd { display: none; }
-    .search-fields { grid-column: span 2; padding: 4px 4px 0; }
-    .sidebar-bottom { grid-column: 2; grid-row: 3; border: 0; padding: 4px 0 0; justify-content: flex-end; }
-    #workspace-pick { grid-column: 1; grid-row: 3; }
-    #projects, #sessions { grid-column: span 2; } #sessions { min-height: 36px; }
-    .chat { height: auto; min-height: 0; }
+    /* 窄屏手动展开的侧栏浮在主区上方，不挤压内容 */
+    .sidebar { position: absolute; z-index: 5; inset: 0 auto 0 0; box-shadow: var(--elev-prominent); }
     header { min-height: 52px; padding: 8px 12px; flex-wrap: wrap; } .heading { flex: 1; }
     #status { font-size: 11px; } #diff-toggle { padding: 0 8px; }
     .diff-panel { top: 0; right: 0; height: 100%; border-radius: 0; }
@@ -399,23 +440,50 @@
 </style>
 </head>
 <body>
+<!-- 线性图标（线宽 1.5，风格对齐 lucide） -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></symbol>
+  <symbol id="i-panel-r" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></symbol>
+  <symbol id="i-plus-chat" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0-8.2-5.3L3 21l5.3-.8A9 9 0 0 0 12 21z"/><path d="M12 8v8M8 12h8"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 3c1.7 0 3 1.3 3 3v1h1a3 3 0 1 1 0 6h-1v1a3 3 0 1 1-6 0v-1H8a3 3 0 1 1 0-6h1V6c0-1.7 1.3-3 3-3z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/></symbol>
+  <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M20 11v6a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h3l2 2h2"/><path d="M18 3v6M15 6h6"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 8a3 3 0 0 1 3-3h3l2 2h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z"/><path d="M3 10h18"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M12 21a9 9 0 1 0-8.2-5.3L3 21l5.3-.8A9 9 0 0 0 12 21z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+</svg>
 <div class="workbench">
+<button id="sidebar-toggle" class="icon-btn" aria-label="收起侧栏" aria-expanded="true" aria-controls="workspace-sidebar" aria-keyshortcuts="Meta+B Control+B" data-tip="收起侧栏" data-keys="⌘ B"><svg class="nav-icon" aria-hidden="true"><use href="#i-panel"/></svg></button>
 <aside class="sidebar" id="workspace-sidebar" aria-label="项目与会话">
-  <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 8 4 4-4 4M12.5 16H18"/></svg></span>tcode</div>
-  <button id="new" class="nav-button" aria-label="新任务" aria-keyshortcuts="Meta+N Control+N" title="新任务 · ⌘/Ctrl+N"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新任务<kbd>⌘ N</kbd></button>
-  <button id="sidebar-automation" class="nav-button"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M8 2h8"/></svg>自动化任务</button>
-  <button id="sidebar-capabilities" class="nav-button"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM17 14v6M14 17h6"/></svg>技能与扩展</button>
-  <div class="search-fields"><div class="search-box"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input id="search" type="text" aria-label="搜索会话" placeholder="搜索会话（⌘/Ctrl+K）" aria-keyshortcuts="Meta+K Control+K" autocomplete="off"><span class="scope-toggle"><button type="button" id="scope-current" aria-pressed="true">本项目</button><button type="button" id="scope-all" aria-pressed="false">全部</button></span><select id="search-scope" class="sr-only" aria-label="搜索范围" tabindex="-1"><option value="current">当前项目</option><option value="all">所有项目</option></select></div></div>
-  <div class="session-section">项目</div>
-  <nav id="projects" aria-label="项目列表"></nav>
-  <button id="workspace-pick" aria-label="选择项目目录" class="nav-button">＋ 打开项目</button>
-  <div class="session-section" id="workspace-name">当前项目会话</div>
-  <nav id="sessions" aria-label="会话列表"></nav>
-  <div class="sidebar-bottom"><span id="workspace-status"></span><button id="settings-home" aria-label="设置" aria-keyshortcuts="Meta+, Control+," data-tip="设置 · ⌘/Ctrl+,"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="5"/></svg></button></div>
+  <div class="brand" aria-hidden="true"><span class="brand-mark">&gt;_</span><span class="brand-name">tcode</span><span class="brand-tag">LOCAL</span></div>
+  <button id="new" aria-label="新任务" aria-keyshortcuts="Meta+N Control+N" data-tip="新会话" data-keys="⌘ N"><svg class="nav-icon" aria-hidden="true"><use href="#i-plus-chat"/></svg>新会话</button>
+  <div class="panel-list">
+    <button id="sidebar-capabilities" class="nav-button"><svg class="nav-icon" aria-hidden="true"><use href="#i-plug"/></svg>技能与扩展</button>
+    <button id="sidebar-automation" class="nav-button"><svg class="nav-icon" aria-hidden="true"><use href="#i-clock"/></svg>自动化任务</button>
+  </div>
+  <div class="section-head">
+    <span class="section-label">项目</span>
+    <span class="search-box"><svg class="nav-icon" aria-hidden="true"><use href="#i-search"/></svg><input id="search" type="text" aria-label="搜索会话" placeholder="搜索会话名称和内容" aria-keyshortcuts="Meta+K Control+K" autocomplete="off" data-tip="搜索会话" data-keys="⌘ K"><button id="search-clear" type="button" class="icon-btn" aria-label="清空搜索"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-x"/></svg></button></span>
+    <select id="search-scope" class="sr-only" aria-label="搜索范围" tabindex="-1"><option value="current">当前项目</option><option value="all">所有项目</option></select>
+    <button id="view-options" type="button" class="icon-btn" aria-label="视图选项" aria-haspopup="menu" aria-expanded="false" aria-controls="view-menu" data-tip="视图选项"><svg class="nav-icon" aria-hidden="true"><use href="#i-sliders"/></svg></button>
+    <button id="workspace-pick" type="button" class="icon-btn" aria-label="选择项目目录" data-tip="添加项目" data-keys="⌘ O"><svg class="nav-icon" aria-hidden="true"><use href="#i-folder-plus"/></svg></button>
+  </div>
+  <h2 id="workspace-name" class="sr-only">当前项目会话</h2>
+  <nav id="projects" aria-label="项目列表"><nav id="sessions" aria-label="会话列表"></nav></nav>
+  <div class="sidebar-bottom">
+    <button id="account" type="button" aria-label="账户菜单" aria-haspopup="menu" aria-expanded="false" aria-controls="account-menu"><span id="account-avatar" class="avatar">tc</span><span id="account-name">本机</span><span id="account-version"></span></button>
+    <button id="settings-home" class="icon-btn" aria-label="设置" aria-keyshortcuts="Meta+, Control+," data-tip="设置" data-keys="⌘ ,"><svg class="nav-icon" aria-hidden="true"><use href="#i-gear"/></svg></button>
+  </div>
 </aside>
 <main class="chat" id="chat">
 <header>
-  <button id="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" aria-controls="workspace-sidebar" aria-keyshortcuts="Meta+B Control+B" data-tip="收起侧栏 · ⌘/Ctrl+B"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
   <nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden><button id="compact-new" aria-label="新任务">＋ 新任务</button><button id="compact-search" aria-label="搜索">搜索</button><button id="compact-settings" aria-label="设置">设置</button></nav>
   <div class="heading"><h1 id="title">tcode</h1></div>
   <span id="status" role="status">连接中</span>
@@ -456,7 +524,7 @@
       <h2>设置</h2>
       <div class="bar">
         <button id="config-file-open" type="button">打开配置文件</button>
-        <button id="settings-close" type="button" aria-label="返回工作区" data-tip="返回工作区 · Esc">关闭</button>
+        <button id="settings-close" type="button" aria-label="返回工作区" data-tip="返回工作区" data-keys="Esc">关闭</button>
       </div>
     </header>
     <aside class="settings-sidebar">
@@ -596,6 +664,17 @@
   </main>
   </div>
 </section>
+</div>
+<div id="account-menu" class="menu" role="menu" aria-label="账户菜单" style="width:240px" hidden>
+  <button type="button" role="menuitem" data-action="settings"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-gear"/></svg>设置<kbd aria-hidden="true">⌘ ,</kbd></button>
+  <button type="button" role="menuitem" data-action="config"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-file"/></svg>打开配置文件</button>
+  <div class="menu-sep" role="separator"></div>
+  <button type="button" role="menuitem" data-action="about"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-info"/></svg>关于 tcode<kbd id="about-version" aria-hidden="true"></kbd></button>
+</div>
+<div id="view-menu" class="menu" role="menu" aria-label="视图选项" style="width:232px" hidden>
+  <div class="menu-label" aria-hidden="true">搜索范围</div>
+  <button type="button" role="menuitemradio" data-scope="current" aria-checked="true"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-folder"/></svg>本项目</button>
+  <button type="button" role="menuitemradio" data-scope="all" aria-checked="false"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-list"/></svg>所有项目（含正文）</button>
 </div>
 <dialog id="rename-dialog" aria-labelledby="rename-title">
   <h2 id="rename-title">重命名会话</h2>
@@ -915,36 +994,57 @@
     catch (error) { settingsFeedback(error.message, true); }
     finally { changing = false; controls(); }
   }
+  function icon(name, size = '') {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    svg.setAttribute('class', ('nav-icon ' + size).trim()); svg.setAttribute('aria-hidden', 'true');
+    use.setAttribute('href', '#i-' + name); svg.append(use); return svg;
+  }
+  // 会话行右侧的相对时间：刚创建的不显示，超过 30 天显示日期
+  function ago(time) {
+    const minutes = (Date.now() - time) / 60000;
+    if (!Number.isFinite(minutes) || minutes < 1) return '';
+    if (minutes < 60) return `${Math.floor(minutes)} 分钟`;
+    if (minutes < 1440) return `${Math.floor(minutes / 60)} 小时`;
+    const days = Math.floor(minutes / 1440);
+    return days === 1 ? '昨天' : days < 30 ? `${days} 天` : new Date(time).toLocaleDateString('zh-CN');
+  }
+  // 项目与会话合并成一棵树：当前项目的会话列表挂在它的项目行下（其他项目的会话不在状态里）
   function renderProjects() {
-    const fragment = document.createDocumentFragment();
+    const fragment = document.createDocumentFragment(), sessions = $('sessions');
     for (const project of view?.projects || []) {
       const button = document.createElement('button'); button.className = 'project-entry';
       button.setAttribute('aria-label', '打开项目 ' + project.name); button.title = project.path;
-      if (project.path === view.config?.workspace) button.setAttribute('aria-current', 'page');
+      const current = project.path === view.config?.workspace;
+      if (current) button.setAttribute('aria-current', 'page');
       button.disabled = !project.available || navigationBlocked();
-      const icon = document.createElement('b'); icon.textContent = '▱'; icon.setAttribute('aria-hidden', 'true');
       const name = document.createElement('span'); name.textContent = project.name;
-      const count = document.createElement('small'); count.textContent = project.available ? project.sessionCount || '' : '不可用';
-      button.append(icon, name, count); button.onclick = () => changeWorkspace(project.path); fragment.append(button);
+      button.append(icon('folder'), name); button.onclick = () => changeWorkspace(project.path); fragment.append(button);
+      if (current) fragment.append(sessions);
     }
     if (!fragment.childNodes.length) row('dim', '选择一个本地项目开始', fragment);
+    if (!sessions.parentNode || sessions.parentNode === $('projects')) fragment.append(sessions);
     $('projects').replaceChildren(fragment);
   }
+  let sessionsExpanded = false;
   function renderSessions() {
     const fragment = document.createDocumentFragment();
     const query = $('search').value.trim().toLocaleLowerCase();
     const all = $('search-scope').value === 'all';
+    $('projects').classList.toggle('searching', all && !!query);
     if (all && (!query || searchLoading || searchError)) {
       row(searchError ? 'error' : 'dim', searchError || (searchLoading ? '正在搜索所有项目…' : '输入关键词搜索所有项目的标题和正文'), fragment);
       $('sessions').replaceChildren(fragment); return;
     }
-    for (const session of all ? searchResult?.sessions || [] : view?.sessions || []) {
-      const title = session.title || session.label || '新会话';
-      if (!all && query && !`${title} ${session.label || ''}`.toLocaleLowerCase().includes(query)) continue;
+    const titleOf = (session) => session.title || session.label || '新会话';
+    const list = all ? searchResult?.sessions || [] : (view?.sessions || []).filter((session) => !query || `${titleOf(session)} ${session.label || ''}`.toLocaleLowerCase().includes(query));
+    const folded = !all && !query && !sessionsExpanded && list.length > 5 && list.findIndex((session) => session.id === view.currentSessionId) < 5;
+    for (const session of folded ? list.slice(0, 5) : list) {
+      const title = titleOf(session);
       const entry = row('session-entry', undefined, fragment);
       const current = session.id === view.currentSessionId && (!all || session.cwd === view.config?.workspace);
       if (current) entry.classList.add('current');
-      const open = document.createElement('button'); open.className = 'session-open'; open.textContent = title;
+      const open = document.createElement('button'); open.className = 'session-open';
+      const name = document.createElement('span'); name.className = 'session-title'; name.textContent = title; open.append(name);
       open.setAttribute('aria-label', '打开会话 ' + title); open.title = title;
       if (current) open.setAttribute('aria-current', 'page');
       open.disabled = navigationBlocked() || session.available === false;
@@ -957,13 +1057,23 @@
         if (session.excerpt) row('session-excerpt', session.excerpt, open);
         continue;
       }
-      const rename = document.createElement('button'); rename.className = 'session-rename'; rename.textContent = '···'; rename.setAttribute('aria-label', '重命名 ' + title);
+      const pending = current && view.status === 'waiting_approval';
+      entry.classList.toggle('pending', pending);
+      const meta = document.createElement('span'); meta.className = pending ? 'session-pending' : 'session-time';
+      meta.textContent = pending ? '待批准' : ago(session.mtime);
+      if (meta.textContent) open.append(meta);
+      const rename = document.createElement('button'); rename.className = 'session-rename'; rename.append(icon('more', 's14')); rename.setAttribute('aria-label', '重命名 ' + title);
       rename.disabled = navigationBlocked();
       rename.onclick = () => {
         if (navigationBlocked()) return;
         renamingId = session.id; $('rename-input').value = title; $('rename-error').textContent = ''; $('rename-dialog').showModal();
       };
       entry.append(rename);
+    }
+    if (folded) {
+      const more = document.createElement('button'); more.className = 'more-row'; more.textContent = `展开其余 ${list.length - 5} 个`;
+      more.onclick = () => { sessionsExpanded = true; renderSessions(); };
+      fragment.append(more);
     }
     if (!fragment.childNodes.length) row('dim', query ? '没有匹配的会话' : '尚无会话', fragment);
     if (all && searchResult?.truncated) row('dim', '仅展示前 50 个匹配会话，请缩小搜索范围', fragment);
@@ -1190,8 +1300,11 @@
     $('composer-workspace').textContent = projectName;
     $('composer-workspace').title = workspace;
     $('workspace-name').textContent = (workspace.split(/[\\/]/).filter(Boolean).at(-1) || '当前项目') + ' · 会话';
-    $('workspace-status').textContent = [state.version ? 'v' + state.version : '', state.config?.model || '', shortPath(workspace)].filter(Boolean).join(' · ');
-    $('workspace-status').title = workspace;
+    if (workspaceChanged) sessionsExpanded = false;
+    // 本地工具没有登录账户：用数据目录所在的用户名作为账户名
+    const user = (state.dataDir || '').split(/[\\/]/).filter(Boolean).at(-2) || '本机';
+    $('account-name').textContent = user; $('account-avatar').textContent = user.slice(0, 2).toLowerCase();
+    $('account-version').textContent = $('about-version').textContent = state.version ? 'v' + state.version : '';
     $('storage-warning').textContent = state.storageError || ''; $('storage-warning').hidden = !state.storageError;
     $('config-workspace').textContent = workspace || '尚未选择目录';
     $('config-workspace').title = workspace;
@@ -1280,7 +1393,7 @@
     sidebarCollapsed = collapsed; $('workspace-sidebar').hidden = collapsed || !!settingsSection;
     $('sidebar-toggle').setAttribute('aria-expanded', String(!collapsed));
     $('sidebar-toggle').setAttribute('aria-label', collapsed ? '展开侧栏' : '收起侧栏');
-    $('sidebar-toggle').dataset.tip = (collapsed ? '展开侧栏' : '收起侧栏') + ' · ⌘/Ctrl+B';
+    $('sidebar-toggle').dataset.tip = collapsed ? '展开侧栏' : '收起侧栏';
     $('compact-nav').hidden = !collapsed;
   }
   $('sidebar-toggle').onclick = () => { if (!settingsSection) setSidebar(!sidebarCollapsed); };
@@ -1680,21 +1793,56 @@
   $('compact-search').onclick = openSearch;
   $('search').oninput = searchSessions;
   $('search-scope').onchange = searchSessions;
-  // 两段式范围切换：按钮同步隐藏 select 的值并触发 change，保持原有搜索逻辑
-  function syncScopeToggle() {
-    const all = $('search-scope').value === 'all';
-    $('scope-current').setAttribute('aria-pressed', String(!all));
-    $('scope-all').setAttribute('aria-pressed', String(all));
+  function clearSearch() {
+    if (!$('search').value) return $('search').blur();
+    $('search').value = ''; $('search').blur(); void searchSessions();
   }
-  for (const [id, value] of [['scope-current', 'current'], ['scope-all', 'all']]) {
-    $(id).onclick = () => {
-      if ($('search-scope').value === value) return;
-      $('search-scope').value = value;
-      $('search-scope').dispatchEvent(new Event('change'));
-    };
+  $('search').addEventListener('keydown', (event) => { if (event.key === 'Escape' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); clearSearch(); } });
+  $('search-clear').onmousedown = (event) => event.preventDefault();
+  $('search-clear').onclick = clearSearch;
+  // 弹出菜单：同一时刻只开一个；向上或向下贴锚点弹出，横向夹在视口内
+  let openMenuState = null;
+  function closeMenu(focusAnchor) {
+    if (!openMenuState) return;
+    const { menu, anchor } = openMenuState; openMenuState = null;
+    menu.hidden = true; anchor.setAttribute('aria-expanded', 'false');
+    if (focusAnchor) anchor.focus();
   }
-  $('search-scope').addEventListener('change', syncScopeToggle);
-  syncScopeToggle();
+  function openMenu(menu, anchor, placement = 'below') {
+    const reopen = openMenuState?.menu === menu; closeMenu();
+    if (reopen) return;
+    hideTip(); menu.hidden = false; anchor.setAttribute('aria-expanded', 'true'); openMenuState = { menu, anchor };
+    const box = anchor.getBoundingClientRect(), rect = menu.getBoundingClientRect();
+    const top = placement === 'above' ? box.top - rect.height - 6 : box.bottom + 6;
+    menu.style.top = `${Math.max(8, Math.min(top, innerHeight - rect.height - 8))}px`;
+    menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - rect.width - 8))}px`;
+    menu.querySelector('[role^="menuitem"]')?.focus();
+  }
+  document.addEventListener('mousedown', (event) => { if (openMenuState && !openMenuState.menu.contains(event.target) && !openMenuState.anchor.contains(event.target)) closeMenu(); });
+  $('account').onclick = () => openMenu($('account-menu'), $('account'), 'above');
+  $('account-menu').onclick = (event) => {
+    const action = event.target.closest('[data-action]')?.dataset.action;
+    if (!action) return;
+    closeMenu();
+    if (action === 'settings') $('settings-home').click();
+    else if (action === 'config') $('config-file-open').click();
+    else if (action === 'about' && !settingsSection) openSettings('general');
+  };
+  // 搜索范围：菜单项同步隐藏 select 的值并触发 change，保持原有搜索逻辑
+  $('view-options').onclick = () => openMenu($('view-menu'), $('view-options'));
+  $('view-menu').onclick = (event) => {
+    const value = event.target.closest('[data-scope]')?.dataset.scope;
+    if (!value) return;
+    closeMenu(true);
+    if ($('search-scope').value === value) return;
+    $('search-scope').value = value;
+    $('search-scope').dispatchEvent(new Event('change'));
+  };
+  function syncScope() {
+    for (const item of $('view-menu').querySelectorAll('[data-scope]')) item.setAttribute('aria-checked', String(item.dataset.scope === $('search-scope').value));
+  }
+  $('search-scope').addEventListener('change', syncScope);
+  syncScope();
   $('rename-close').onclick = () => { if (!changing) $('rename-dialog').close(); };
   $('rename-dialog').addEventListener('cancel', (event) => { if (changing) event.preventDefault(); });
   $('rename-form').onsubmit = async (event) => {
@@ -1796,7 +1944,13 @@
     finally { changing = false; controls(); input.focus(); }
   };
   document.addEventListener('keydown', (event) => {
+    if (openMenuState && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      const items = [...openMenuState.menu.querySelectorAll('[role^="menuitem"]:not(:disabled)')];
+      const next = items.indexOf(document.activeElement) + (event.key === 'ArrowDown' ? 1 : -1);
+      event.preventDefault(); items.at(next % items.length)?.focus(); return;
+    }
     if (event.key === 'Escape' && !event.isComposing) {
+      if (openMenuState) { event.preventDefault(); closeMenu(true); return; }
       if (settingsSection && !document.querySelector('dialog[open]')) { event.preventDefault(); closeSettings(); }
       return;
     }
@@ -1806,24 +1960,25 @@
     if (!button) return;
     event.preventDefault(); $(button).click();
   });
-  // 自定义 tooltip：默认向上弹出，贴顶时翻到下方，横向夹在视口内
+  // 自定义 tooltip：委托到 document，动态生成的行也生效；默认在下方，贴底翻到上方，横向夹在视口内
   const tip = document.createElement('div'); tip.id = 'tooltip'; tip.hidden = true; tip.setAttribute('role', 'tooltip'); document.body.append(tip);
   function showTip(target) {
-    tip.textContent = target.dataset.tip || ''; tip.hidden = false;
+    if (openMenuState || !target.dataset.tip) return;
+    tip.replaceChildren(target.dataset.tip);
+    for (const key of (target.dataset.keys || '').split(' ').filter(Boolean)) { const kbd = document.createElement('kbd'); kbd.textContent = key; tip.append(kbd); }
+    tip.hidden = false;
     const box = target.getBoundingClientRect(), rect = tip.getBoundingClientRect();
-    let top = box.top - rect.height - 8;
-    if (top < 8) top = box.bottom + 8;
-    let left = box.left + box.width / 2 - rect.width / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - rect.width - 8));
+    let top = box.bottom + 6;
+    if (top + rect.height > innerHeight - 8) top = box.top - rect.height - 6;
+    const left = Math.max(8, Math.min(box.left + box.width / 2 - rect.width / 2, innerWidth - rect.width - 8));
     tip.style.left = `${left}px`; tip.style.top = `${top}px`;
   }
   function hideTip() { tip.hidden = true; }
-  for (const el of document.querySelectorAll('[data-tip]')) {
-    el.addEventListener('mouseenter', () => showTip(el));
-    el.addEventListener('mouseleave', hideTip);
-    el.addEventListener('focus', () => showTip(el));
-    el.addEventListener('blur', hideTip);
-  }
+  document.addEventListener('mouseover', (event) => { const el = event.target.closest?.('[data-tip]'); if (el) showTip(el); });
+  document.addEventListener('mouseout', (event) => { const el = event.target.closest?.('[data-tip]'); if (el && !el.contains(event.relatedTarget)) hideTip(); });
+  document.addEventListener('focusin', (event) => { const el = event.target.closest?.('[data-tip]'); if (el && el.tagName !== 'INPUT' && el.matches(':focus-visible')) showTip(el); });
+  document.addEventListener('focusout', hideTip);
+  document.addEventListener('mousedown', hideTip, true);
   // 路径点击复制：完整路径进剪贴板，悬停已有 title 显示全文
   document.addEventListener('click', (event) => {
     const el = event.target.closest('.settings-path, #data-dir, #config-workspace');

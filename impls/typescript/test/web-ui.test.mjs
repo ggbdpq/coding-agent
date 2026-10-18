@@ -1972,3 +1972,56 @@ test('丢弃 worktree 须显式确认，运行中和导航锁定时不得清理'
     assert.equal(await page.getByRole('button', { name: '已完成', exact: true }).isDisabled(), true);
   });
 });
+
+test('项目树把当前项目会话挂在项目行下，显示相对时间，超过 5 条折叠为「展开其余 N 个」', async () => {
+  const now = Date.now();
+  const sessions = Array.from({ length: 7 }, (_, i) => ({ id: 's' + (i + 1), title: '会话 ' + (i + 1), cwd: '/tmp/ui-project', mtime: now - (i + 1) * 3 * 3600e3 }));
+  sessions[1].mtime = now - 12 * 60e3;
+  const projects = [initialState().projects[0], { path: '/tmp/another-project', name: 'another-project', available: true, sessionCount: 2 }];
+  await withPage(initialState({ sessions, projects }), {}, async (page) => {
+    const tree = page.getByRole('navigation', { name: '项目列表', exact: true });
+    await tree.getByRole('button', { name: '打开会话 会话 1', exact: true }).waitFor();
+    const order = await tree.locator('button[aria-label^="打开"]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label')));
+    assert.deepEqual(order, ['打开项目 ui-project', '打开会话 会话 1', '打开会话 会话 2', '打开会话 会话 3', '打开会话 会话 4', '打开会话 会话 5', '打开项目 another-project']);
+    assert.equal(await tree.getByText('12 分钟', { exact: true }).isVisible(), true);
+    await tree.getByRole('button', { name: '展开其余 2 个', exact: true }).click();
+    assert.equal(await tree.getByRole('button', { name: '打开会话 会话 7', exact: true }).isVisible(), true);
+    assert.equal(await tree.getByRole('button', { name: /^展开其余/ }).count(), 0);
+  });
+});
+
+test('Cmd/Ctrl+K 展开分区头搜索，Esc 清空关键词并收起', async () => {
+  const sessions = [{ id: 's1', title: '排查加载问题', cwd: '/tmp/ui-project', mtime: 2 }, { id: 's2', title: '优化列表', cwd: '/tmp/ui-project', mtime: 1 }];
+  await withPage(initialState({ sessions }), {}, async (page) => {
+    const search = page.getByRole('textbox', { name: '搜索会话', exact: true });
+    await page.getByRole('button', { name: '打开会话 优化列表', exact: true }).waitFor();
+    await page.keyboard.press('Control+k');
+    assert.equal(await search.evaluate((element) => document.activeElement === element), true);
+    await search.pressSequentially('优化');
+    assert.equal(await page.getByRole('button', { name: '打开会话 排查加载问题', exact: true }).count(), 0);
+    await search.press('Escape');
+    assert.equal(await search.inputValue(), '');
+    assert.equal(await search.evaluate((element) => document.activeElement === element), false);
+    assert.equal(await page.getByRole('button', { name: '打开会话 排查加载问题', exact: true }).isVisible(), true);
+  });
+});
+
+test('底部账户行向上弹出菜单，Esc 关闭，菜单中的设置与齿轮打开同一设置中心', async () => {
+  await withPage(initialState(), {}, async (page) => {
+    const account = page.getByRole('button', { name: '账户菜单', exact: true });
+    await account.click({ timeout: 2000 });
+    const menu = page.getByRole('menu', { name: '账户菜单', exact: true });
+    await menu.waitFor();
+    for (const name of ['设置', '打开配置文件', '关于 tcode']) assert.equal(await menu.getByRole('menuitem', { name, exact: true }).isVisible(), true);
+    const [menuBox, accountBox] = [await menu.boundingBox(), await account.boundingBox()];
+    assert.ok(menuBox.y + menuBox.height <= accountBox.y, '菜单应向上弹出');
+    assert.equal(await account.getAttribute('aria-expanded'), 'true');
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'hidden' });
+    assert.equal(await account.getAttribute('aria-expanded'), 'false');
+    await account.click();
+    await menu.getByRole('menuitem', { name: '设置', exact: true }).click();
+    await page.getByRole('region', { name: '设置中心', exact: true }).waitFor();
+    assert.equal(await menu.isVisible(), false);
+  });
+});
