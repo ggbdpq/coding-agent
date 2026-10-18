@@ -2,10 +2,11 @@
 // 不持有全局状态，方便测试与将来换壳（REPL/TUI/单发）。
 // 注意：按分层规则 loop 不插件化（Q4 决策）——它是这个项目的灵魂考点，
 // 保持普通导出函数，接口化可替换但不进注册表。
-import type { ChatClient, ChatMessage, ChatOptions } from '../kernel/types.ts';
+import type { ChatClient, ChatMessage, ChatOptions, ToolErrorKind } from '../kernel/types.ts';
 import type { ToolDef } from '../kernel/plugin.ts';
 import type { App } from '../kernel/app.ts';
 import type { TurnMiddleware } from './middleware.ts';
+import { parseToolArgs, toolArgsErrorText } from './toolargs.ts';
 import { toSchemas } from '../kernel/registry.ts';
 
 /** 防失控：单轮对话最多允许的工具往返次数 */
@@ -22,6 +23,8 @@ export interface TurnDeps {
   onText?: (delta: string) => void;
   onToolCall?: (callId: string, name: string, args: Record<string, unknown>) => void;
   onToolResult?: (callId: string, name: string, result: string, ms: number) => void;
+  /** WP3：参数校验失败/未知工具事件；发生时工具不执行、tool 消息为固定话术 */
+  onToolError?: (e: { call_id: string; name: string; kind: ToolErrorKind; detail: string }) => void;
   onUsage?: (usage: { prompt_tokens: number; completion_tokens: number }) => void;
   /** ADR-003：轮内中间件（外→内）；WP0 仅契约，runTurn 暂不消费（WP1 接线） */
   middleware?: TurnMiddleware[];
@@ -42,22 +45,21 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
       onText: deps.onText,
       onUsage: deps.onUsage,
     };
-    const { message } = await deps.provider.chat(messages, opts);
+    const { message, finishReason } = await deps.provider.chat(messages, opts);
     deps.signal?.throwIfAborted();
     messages.push(message);
     if (!message.tool_calls?.length) return;
 
     for (const call of message.tool_calls) {
       deps.signal?.throwIfAborted();
-      let args: Record<string, unknown> = {};
-      try {
-        const parsed = JSON.parse(call.function.arguments || '{}');
-        if (parsed && typeof parsed === 'object') args = parsed as Record<string, unknown>;
-      } catch {
-        // 参数不是合法 JSON：不在这里报错，落下去让工具名的"错误"文本纠正模型
-      }
       const tool = deps.tools.find((t) => t.name === call.function.name);
       if (!tool) {
+        deps.onToolError?.({
+          call_id: call.id,
+          name: call.function.name,
+          kind: 'unknown_tool',
+          detail: `未知工具 ${call.function.name}，可用工具：${deps.tools.map((t) => t.name).join(', ')}`,
+        });
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
@@ -65,6 +67,15 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
         });
         continue;
       }
+      // WP3：非法/截断/缺字段的参数不再静默变 {}——不执行工具，固定话术回灌 + tool_error 事件
+      const r = parseToolArgs(call.function.arguments, tool.parameters, finishReason);
+      if (!r.ok) {
+        const text = toolArgsErrorText(tool.name, call.function.arguments || '', r, tool.parameters);
+        messages.push({ role: 'tool', tool_call_id: call.id, content: text });
+        deps.onToolError?.({ call_id: call.id, name: tool.name, kind: r.kind, detail: r.detail });
+        continue;
+      }
+      const args = r.args;
       deps.onToolCall?.(call.id, tool.name, args);
       // Plan Mode（只读规划）：写类工具拒绝执行，引导模型产出计划
       if (deps.app?.planMode.value && tool.needsPermission) {

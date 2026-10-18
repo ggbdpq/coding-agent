@@ -112,15 +112,28 @@ tcode 一处违背自身重试纪律的缺口已按写作约定 1 裁决修复�
   含 3.1s 退避，修后 1 次；`tsc --noEmit` 干净）。本主题未改 py/go/rs/cs 源码。
 - 冒烟：tcode exit=0 七场景全过（providers 源码改动后复跑）；其余版本源码未动。
 
-## 修订草案（ADR-003，未定稿）
+## 结束原因归一化（WP3 定稿）
 
-> 状态：WP0 起草，随 WP3 合并定稿。定稿前现行规则仍然生效。
+原「修订草案（ADR-003，未定稿）」中的映射草案随 WP3（feat/wp3-toolargs）合并定稿，
+正式规则如下：
 
 - **返回值**：`CompletionResult` 增加可选 `finishReason`（`FinishReason` 归一化
-  类型）；缺省视为 `'unknown'`，旧 fake provider 无需修改。
-- **归一化映射表**（openai `finish_reason` → FinishReason）：
-  `stop→stop`、`tool_calls→tool_calls`、`length→length`、
-  `content_filter→content_filter`、其他→`unknown`。
-- **anthropic `stop_reason` 映射**：`end_turn/stop_sequence→stop`、
-  `tool_use→tool_calls`、`max_tokens→length`、`refusal→content_filter`、
-  其他→`unknown`（未知值不报错，只是不触发截断识别，R4）。
+  类型）。providers 在流结束时取**最后一个非空** `finish_reason`（openai）/
+  `stop_reason`（anthropic）按下表映射填充；缺省视为 `'unknown'`，旧 fake
+  provider 无需修改。
+- **归一化映射表**：
+
+| 来源 | 原值 | FinishReason |
+| --- | --- | --- |
+| openai `finish_reason` | `stop` | `stop` |
+| openai | `tool_calls` / `function_call` | `tool_calls` |
+| openai | `length` | `length` |
+| openai | `content_filter` | `content_filter` |
+| anthropic `stop_reason` | `end_turn` / `stop_sequence` | `stop` |
+| anthropic | `tool_use` | `tool_calls` |
+| anthropic | `max_tokens` | `length` |
+| anthropic | `refusal` | `content_filter` |
+| 其他 / 缺失 | — | `unknown` |
+
+未知值不报错，只是不触发截断识别（05-风险 R4）；截断但 JSON 碰巧合法也视为
+`truncated_args` 不执行（05-风险 R5，判定见 `core/toolargs.ts`）。
