@@ -68,6 +68,7 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
       onToolResult: (callId, name, result, ms) =>
         emit({ type: 'tool_result', call_id: callId, name, summary: result.split('\n')[0], output: result, ms }),
       onToolError: (e) => emit({ type: 'tool_error', ...e }), // WP3：参数校验失败/未知工具事件
+      onEvent: (ev) => emit(ev), // WP0 补丁 2：中间件治理/限额事件（context_edit/limit 等）
       onUsage: (usage) => emit({ type: 'usage', ...usage }),
       middleware: hooks.middleware, // WP1：透传给 runTurn（固定管线见 agentloop）
       onMessage: (m) => app.store.append(m), // WP6：轮内每 push 一条消息就落盘

@@ -7,7 +7,7 @@
 // 每次 provider.chat 前执行 beforeModel、返回后执行 afterModel（强制总结那次
 // 调用前同样执行 beforeModel，spec agent-loop R2 修订）。
 import { isDeepStrictEqual } from 'node:util';
-import type { ChatClient, ChatMessage, ChatOptions, ToolErrorKind } from '../kernel/types.ts';
+import type { AgentEvent, ChatClient, ChatMessage, ChatOptions, ToolErrorKind } from '../kernel/types.ts';
 import type { ToolDef } from '../kernel/plugin.ts';
 import type { App } from '../kernel/app.ts';
 import {
@@ -48,6 +48,8 @@ export interface TurnDeps {
   onUsage?: (usage: { prompt_tokens: number; completion_tokens: number }) => void;
   /** ADR-003：轮内用户中间件（外→内）；组合顺序固定 planMode → 用户中间件 → permission */
   middleware?: TurnMiddleware[];
+  /** WP0 契约补丁 2：中间件经 state.emit 发出的事件（context_edit/compact/trimmed/limit 等）由此到达壳 */
+  onEvent?: (ev: AgentEvent) => void;
   /** WP6：每 push 一条消息就回调（增量持久化用） */
   onMessage?: (m: ChatMessage) => void;
   /** WP5：轮内工具往返上限；缺省 MAX_TOOL_ROUNDS；WP0 仅契约，runTurn 暂不消费 */
@@ -101,9 +103,9 @@ export async function runTurn(messages: ChatMessage[], deps: TurnDeps): Promise<
     },
     app: deps.app,
     signal: deps.signal,
-    emit() {
-      // runTurn 的事件出口是 onText/onToolCall/onToolResult 回调；
-      // 治理类事件（context_edit/limit）的 emit 通道由 WP2/WP5 接线。
+    emit(ev: AgentEvent) {
+      // 治理/限额类事件（context_edit/compact/trimmed/limit）经 deps.onEvent 到达壳（WP0 补丁 2）
+      deps.onEvent?.(ev);
     },
     replaceMessages,
     async callModel(msgs) {

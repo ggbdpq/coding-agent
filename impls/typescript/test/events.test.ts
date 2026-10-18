@@ -161,6 +161,27 @@ test('壳渲染容忍 ADR-003 新事件：context_edit/tool_error/limit 不抛�
   for (const ev of events) assert.doesNotThrow(() => renderToTerminal(ev));
 });
 
+test('中间件 state.emit 的事件经 TurnDeps.onEvent 到达壳（WP0 补丁 2）', async () => {
+  const store = fakeStore();
+  const app = fakeApp(toolThenTextClient(), store);
+  const events: AgentEvent[] = [];
+  await runUserTurn(app, '做事', {
+    emit: (e) => events.push(e),
+    middleware: [
+      {
+        name: 'emitter',
+        beforeModel: async (state) => {
+          state.emit({ type: 'limit', kind: 'model_calls', limit: 3, behavior: 'summarize' });
+        },
+      },
+    ],
+  });
+  const limit = events.find((e) => e.type === 'limit');
+  assert.ok(limit?.type === 'limit');
+  assert.equal(limit.kind, 'model_calls');
+  assert.equal(limit.limit, 3);
+});
+
 test('断尾修复与事件互不干扰：工具已执行后中止，tool 结果仍在落盘序列里', async () => {
   let first = true;
   const store = fakeStore();
