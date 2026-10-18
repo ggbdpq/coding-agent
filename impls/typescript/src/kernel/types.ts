@@ -23,7 +23,18 @@ export interface ChatMessage {
 
 export interface CompletionResult {
   message: ChatMessage;
+  /** 归一化结束原因（ADR-003/WP3）：providers 填充；缺省视为 'unknown'，旧 fake provider 无需修改 */
+  finishReason?: FinishReason;
 }
+
+/** 归一化的结束原因：openai finish_reason / anthropic stop_reason 都映射到这里（映射表见 specs/provider.md） */
+export type FinishReason = 'stop' | 'tool_calls' | 'length' | 'content_filter' | 'unknown';
+
+/** 工具参数错误的分类（ADR-003/WP3：参数非法不再静默变 {}） */
+export type ToolErrorKind = 'invalid_args' | 'truncated_args' | 'unknown_tool' | 'schema_mismatch';
+
+/** 上下文治理的发生时机：轮开始前，或轮内每次模型调用前 */
+export type GovernanceAt = 'turn_start' | 'model_call';
 
 export interface ChatOptions {
   tools?: ToolSchema[];
@@ -53,8 +64,11 @@ export type AgentEvent =
   | { type: 'tool_call'; call_id: string; name: string; args: Record<string, unknown> }
   | { type: 'tool_result'; call_id: string; name: string; summary: string; output?: string; ms: number }
   | { type: 'permission'; id: string; tool: string; preview: string }
-  | { type: 'trimmed'; count: number }
-  | { type: 'compact'; savedTokens: number }
+  | { type: 'trimmed'; count: number; at?: GovernanceAt }
+  | { type: 'compact'; savedTokens: number; at?: GovernanceAt }
+  | { type: 'context_edit'; strategy: 'clear_tool_outputs'; cleared: number; savedTokens: number; at: GovernanceAt }
+  | { type: 'tool_error'; call_id: string; name: string; kind: ToolErrorKind; detail: string }
+  | { type: 'limit'; kind: 'model_calls' | 'tool_calls'; limit: number; behavior: 'summarize' | 'end' }
   | { type: 'usage'; prompt_tokens: number; completion_tokens: number }
   | { type: 'turn_end'; reason: TurnEndReason; error?: string };
 

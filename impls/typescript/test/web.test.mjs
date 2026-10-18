@@ -506,6 +506,18 @@ test('允许审批后实际文件与完整工具结果一致，重复审批无�
   assert.ok((await h.state()).activity.some((event) => event.type === 'tool_result' && event.output === result.output));
 });
 
+test('scoped 决策被接受且只放行本次，审批请求带授权键与文案', async (t) => {
+  const h = await harness(t);
+  await h.post('send', { text: 'write' });
+  const pending = await h.event('permission');
+  // write 未声明 grantKey → 调用方兜底用工具名；载荷带键与 scoped 文案，UI 分支合并后据此渲染第四个按钮
+  assert.equal(pending.grantKey, 'write');
+  assert.equal(pending.grantLabel, '本会话允许所有 write');
+  assert.equal((await h.post('permission', { id: pending.id, decision: 'scoped' })).status, 200);
+  assert.equal((await h.event('turn_end')).reason, 'completed');
+  assert.equal(readFileSync(path.join(h.workspace, 'result.txt'), 'utf8'), 'approved content');
+});
+
 test('非法配置返回可修复的400且保留原配置，旧resume命令不跨项目读取', async (t) => {
   const h = await harness(t);
   const before = await h.state();

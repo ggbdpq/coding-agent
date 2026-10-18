@@ -50,6 +50,9 @@ function setup(t: TestContext, now: () => number) {
 }
 
 const waitRunning = async (runner: AutomationRunner, id: string) => {
+  // WP2：治理中间件使首个模型请求比空管线晚几个微任务发出，先让出一个宏任务，
+  // 保证「已运行 + 请求已发出」两个条件在同一时点成立（断言语义不变）。
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const deadline = Date.now() + 3000;
   while (Date.now() < deadline) { if (runner.isRunning(id)) return; await new Promise((resolve) => setTimeout(resolve, 10)); }
   throw new Error('任务未进入运行状态');

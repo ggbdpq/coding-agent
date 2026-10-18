@@ -45,6 +45,7 @@
 | permission 事件复用 Name 字段承载工具名 | go | 结构体内部形状，语义同构 |
 | 事件载体类名 ToolCallEvent | py | 避让线格式 ToolCall TypedDict 撞名 |
 | 数值宽度 ms/usage/count 各语言原生整型 | 全体 | 同上 |
+| 断尾占位文本「（本轮中断，未取得执行结果；请先检查实际状态）」 | ts | 2026-09-27 R8 契约轮 tcode 零改动（见该轮验证记录），文案待五版同步批收敛 |
 
 ## 边界与依赖方向
 
@@ -104,3 +105,17 @@
   gcode `internal/core` ok（含新增占位绿锁）；tcode 本主题零改动（Context 轮 47/47 已验）。
 - 冒烟：pcode A/B/C/D/F/H 全过、rcode 7/7、gcode ok（缓存命中，源码未变）；
   ccode 未跑（环境缺 .NET SDK）。
+
+## 修订草案（ADR-003，未定稿）
+
+> 状态：WP0 起草，随各工作包合并定稿。定稿前现行规则仍然生效。
+
+- **新增变体**：`context_edit { strategy, cleared, savedTokens, at }`、
+  `tool_error { call_id, name, kind, detail }`、
+  `limit { kind, limit, behavior }`。
+- **既有变体增量**：`trimmed` / `compact` 增加可选字段
+  `at: 'turn_start' | 'model_call'`；旧壳忽略该字段不出错。
+- **壳兼容**：遇到不认识的事件类型必须忽略（repl switch 有 default 分支、
+  web renderLog switch 不匹配即跳过），本草案已用 tcode 单测锁定。
+- **TurnEndReason 不新增取值**：到达上限后仍以 `completed` 结束，原因由
+  `limit` 事件表达。

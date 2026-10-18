@@ -6,6 +6,7 @@ import { IMPLS, ensureFresh } from "./shared.mjs";
 const exe = process.platform === "win32" ? "rcode.exe" : "rcode";
 const bin = join(IMPLS, "rust", "target", "debug", exe);
 const yolo = (scenario) => (scenario.input.approval === "yolo" ? ["--yolo"] : []);
+const execLike = (scenario) => scenario.input.entry === "exec" || scenario.input.entry === "crash-resume";
 
 export default {
   name: "rcode",
@@ -21,9 +22,17 @@ export default {
   providerEnv(sink) {
     return { RCODE_API_KEY: "test-key", RCODE_BASE_URL: sink.url, RCODE_MODEL: "fake-model" };
   },
+  scenarioEnv(scenario) {
+    const n = scenario.input.context_limit;
+    return n ? { RCODE_CONTEXT_LIMIT: String(n) } : {};
+  },
   launch(scenario, { home, env }) {
-    return scenario.input.entry === "exec"
+    return execLike(scenario)
       ? { cmd: bin, args: ["exec", ...yolo(scenario), scenario.input.task], cwd: home, env }
       : { cmd: bin, args: yolo(scenario), cwd: home, env };
+  },
+  // crash-resume 第二阶段：恢复旗标是五版统一入口契约（session-turn R7 --continue）
+  launchResume(scenario, { home, env }) {
+    return { cmd: bin, args: ["--continue", ...yolo(scenario)], cwd: home, env };
   },
 };

@@ -1,30 +1,50 @@
-# UI 复刻：与规范不一致的地方
+# UI 跟进清单：新事件的 web 渲染（等 ui/refresh-workbench 合并后补）
 
-`web.html` 按 `docs/ui/tcode-ui-复刻/prototype.html` 改造时，凡是现有 `test/web-ui.test.mjs` 契约与《复刻规范》冲突的，一律保留测试，偏差记在这里，之后统一评估要不要改测试契约。
+> 背景见 03-并行开发计划 §5 硬约束：本轮重构冻结 `impls/typescript/src/shell/web.html`
+>（UI 分支正在改它）。各工作包新增的事件渲染，repl 侧随包落地；web 侧统一登记在此，
+> 待 UI 分支合并后由收尾批次补齐。每条注明：事件、期望渲染、来源 WP。
 
-| # | 期 | 规范 / 原型 | 当前实现 | 被哪条约束住 |
-|---|----|-------------|----------|--------------|
-| 1 | P1 | 「新会话」按钮可访问名称为「新会话」 | 可见文字「新会话」，`aria-label` 仍是「新任务」 | 多条测试按 `button` 名「新任务」定位 |
-| 2 | P1 | 当前项目名只在项目行上体现 | 额外保留 `#workspace-name`（sr-only，内容「X · 会话」） | 测试断言该文本可见 |
-| 3 | P1 | 搜索范围、排序、分组都在视图选项菜单里 | 范围以菜单单选项呈现，底层仍是 sr-only 的 `#search-scope` select；排序和分组暂缺（P4 再补，后端没有分组数据） | 测试对 `搜索范围` select 做 `selectOption` |
-| 4 | P1 | 账户菜单含「快捷键」 | P4 已补：账户菜单「快捷键 ⌘ /」打开快捷键面板 | 已对齐 |
-| 5 | P1 | 每个项目行下都显示各自的会话 | 只有当前项目会话挂在项目行下 | 状态只下发当前工作区的会话（协议不改） |
-| 6 | P1 | 账户行右侧只有版本号 | 版本号右边多一个 28px 灰色齿轮 `#settings-home` | 用户决定：齿轮和菜单「设置 ⌘,」两个入口打开同一设置 |
-| 7 | P3 | 设置导航 6 项、改动即时保存 | 保持 8 项；保存按钮留在各分区右下角，用次级样式 | 测试依赖 8 个分区与显式保存 |
-| 8 | P2 | 没有模型时只显示 composer 上方的 `#notice` | 说明行（12px caption 色，距 composer 4px）在没有模型时隐藏；若测试要求常显则保留文字、颜色再淡一点 | 用户决定 |
-| 9 | P2 | 空会话顶栏不显示标题 | 顶栏始终显示会话标题 `#title` | 测试断言空会话里长标题可见且单行 |
-| 10 | P2 | 顶栏右侧只有面板图标 | 保留安静的 `#status`（点 + 文字），只在未就绪时隐藏 | 测试断言 `#status` 位于标题与变更入口之间 |
-| 11 | P2 | `+` 菜单插入 `@` 文件或 `/` 命令 | `+` 只在输入框开头插入 `/` | 后端没有 `@` 引用文件能力 |
-| 12 | P2 | 权限是下拉菜单（逐次 / 全部免审批 / 白名单） | 外观是下拉，行为仍是勾选「全部免审批」 | 测试按 checkbox「全部免审批」操作；白名单在设置的权限分区 |
-| 13 | P2 | 窄屏 <1024px 自动折叠侧栏 | 已提到 1024px；收起后按 harness 桌面端零宽折叠，不用 56px rail；侧栏变浮层的断点仍是 560px | 已对齐 harness 截图 |
-| 14 | P3 | harness 设置字段为「标签在上、输入在下」 | 常规/权限等分区保留「左标题 + 右控件」行式，装进 harness 分组卡片（.5px l4、r20） | 原型即行式；控件与 id 不变 |
-| 15 | P3 | harness 工具行图标按工具类型区分 | 统一用折叠箭头（展开时转正） | 前端拿不到工具类别元数据 |
-| 16 | P3 | 设置打开时报错只进 toast | 设置打开期间 `showError` 不再写 `#notice`，关闭后不补显 | 工作区在遮罩下可见，两处同文会重复 |
-| 17 | P3 | 模型表单「保存设置」为次级样式 | 模型编辑区保存仍是墨色 primary | harness ModelsSection 的 editor 主操作即 primary |
-| 18 | P4 | 视图选项「分组方式」（按项目 / 项目树 / 单列表） | 未做；排序为「最近更新 / 按名称」，筛选为「隐藏 / 显示已归档」项目 | 后端只下发当前项目的会话，且没有手动排序和会话级归档字段 |
-| 19 | P4 | 项目 ⋯ 菜单含「重命名」「在终端中打开」 | 只有复制路径、归档 / 恢复、移除记录 | 后端没有项目重命名和打开终端的接口 |
-| 20 | P4 | 会话 ⋯ 菜单（重命名 / 归档 / 删除） | ⋯ 仍直接打开重命名 | 后端没有会话归档和删除接口 |
-| 21 | P4 | harness 标题栏 leading controls 只有「切换侧栏」「新会话」 | 另保留「搜索」「设置」两个 28px 图标 | 既有测试要求收起后仍能直达搜索和设置 |
-| 22 | P4 | harness 右栏「开始」页的入口：工作区文件、新建终端、浏览器 | 变更面板空态只放「刷新变更」一个入口；右栏头部是刷新 / 全屏 / 关闭，没有分栏 | tcode 没有文件浏览、终端和浏览器后端 |
+## 待补条目
 
-规范第 8 节里列出、但仓库中从未存在的 id：`search-open`、`header-workspace`。
+## WP3（feat/wp3-toolargs）
+
+- 事件：`tool_error { call_id, name, kind, detail }`
+- 期望渲染：web 侧 renderLog 增加一个 `case 'tool_error'`，输出一行红色错误文案
+  （形如 `✗ {name} 参数错误（{kind}）：{detail}`），只用现有 CSS 类，不加新布局。
+- repl 侧已随包落地（`src/shell/repl.ts` renderToTerminal）。
+- 来源：WP3 参数校验与结束原因（分支 feat/wp3-toolargs）。
+- 状态：等待 UI 分支（ui/refresh-workbench）合并后补。
+
+## WP4（feat/wp4-permission-scope）
+
+- 事件：`permission` 载荷新增可选字段 `grantKey` / `grantLabel`（有键才带；
+  复合 bash 命令等不可 scoped 的请求不带，字段缺省即原三档，向后兼容）。
+- 期望渲染：审批卡片在带 `grantLabel` 时增加第四个按钮「s=<grantLabel>」
+  （POST 决策值 `'scoped'`，后端 /permission 校验已接受），复用现有按钮样式；
+  不带键的请求保持原三按钮。
+- repl 侧已随包落地（`src/shell/repl.ts` 提示第四选项 `s=<grantLabel>`）。
+- web.html 本轮冻结未改；`web.ts` 的回归由 test/web.test.mjs（scoped 决策
+  HTTP 用例）覆盖，浏览器渲染验证待本条补齐时一并做。
+- 来源：WP4 审批 scoped 第四态（分支 feat/wp4-permission-scope）。
+- 状态：等待 UI 分支（ui/refresh-workbench）合并后补。
+
+## WP2（feat/wp2-midturn-governance）
+
+- 事件：`context_edit { strategy: 'clear_tool_outputs', cleared, savedTokens, at }`。
+- 期望渲染：web 侧 renderLog 增加一个 `case 'context_edit'`，输出一行灰字
+  （形如 `（已清理 {cleared} 条旧工具输出，节省 {savedTokens} Tokens）`），只用现有
+  CSS 类，不加新布局。
+- repl 侧已随包落地（`src/shell/repl.ts` renderToTerminal，一行 c.dim 灰字）。
+- web.html 本轮冻结未改；事件本身经 web.ts SSE 透传，壳对未知事件类型静默跳过。
+- 来源：WP2 轮内上下文治理（分支 feat/wp2-midturn-governance）。
+- 状态：等待 UI 分支（ui/refresh-workbench）合并后补。
+
+## WP5（feat/wp5-limits）
+
+- 事件：`limit { kind:'model_calls'|'tool_calls', limit, behavior }`
+- 期望渲染：web 侧 renderLog 增加一个 `case 'limit'`，输出一行灰字
+  「已达工具轮次上限（40），正在总结」（数字取 `ev.limit`），只用现有 CSS 类，
+  不加新布局。
+- repl 侧已随包落地（`src/shell/repl.ts` renderToTerminal，一行 `c.yellow`）。
+- 来源：WP5 轮次与调用上限（分支 feat/wp5-limits）。
+- 状态：等待 UI 分支（ui/refresh-workbench）合并后补。

@@ -38,6 +38,7 @@
 | E6 | 平台分档：轮中取消 ts/go/cs supported、py/rs unsupported（SC-005 臂 B 只登记不比对） | ADR-002 Non Goals、取消通道矩阵 |
 | E7 | 协议编码差异：同一逻辑断言在 openai/anthropic 线格式下的字段名不同（input_schema vs parameters 等） | provider R2/R3——断言按 scenario 所选协议分形 |
 | E8 | 白名单归一化深浅（py 真实路径解析 vs 其余词法归一）、py 300s 超时、rs 20s 摘要超时等**已登记的加严** | permission/context 允许偏差表——加严方向差异不构成漂移 |
+| E9 | SC-005…SC-010 对**非 TS 版本**判 ALLOW_DIFF：ADR-003 轮内控制点（轮内治理 / 参数非法第六出口 / scoped 授权 / 可配轮次上限 / 逐消息落盘+断尾修复）TS 先行，其余四版按同步清单排期。宽容只覆盖行为同步差；缺失运行时仍属 INFRA（不记作通过），TS 版结果不受本条影响。**复查日期 2026-11-18**：届时五版应同步完毕，本条与 runner 的 E9 清单一并清空，未清空即开裁决 | ADR-003 后果段、[05-风险 R11](arch-refactor/05-风险与不确定点.md)；实现落点：run.mjs 的 `E9_TS_FIRST_PREFIXES` |
 
 ## 3. 反例清单（过度归一化的样子——每条都违反具体 N 条目）
 

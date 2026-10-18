@@ -11,6 +11,7 @@ import type {
   ChatMessage,
   ChatOptions,
   CompletionResult,
+  FinishReason,
   ToolCall,
   ToolSchema,
 } from '../kernel/types.ts';
@@ -18,6 +19,23 @@ import type { Config } from '../kernel/config.ts';
 
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MAX_TOKENS = 8192;
+
+/** WP3：anthropic stop_reason → 归一化 FinishReason（映射表见 specs/provider.md；未知值落 unknown 不报错，05-风险 R4） */
+export function mapAnthropicStopReason(raw: string | null | undefined): FinishReason {
+  switch (raw) {
+    case 'end_turn':
+    case 'stop_sequence':
+      return 'stop';
+    case 'tool_use':
+      return 'tool_calls';
+    case 'max_tokens':
+      return 'length';
+    case 'refusal':
+      return 'content_filter';
+    default:
+      return 'unknown';
+  }
+}
 
 type Block = {
   type: 'text' | 'tool_use' | 'tool_result';
@@ -150,6 +168,7 @@ export class AnthropicProvider implements ChatClient {
     let text = '';
     const toolBlocks = new Map<number, { id: string; name: string; json: string }>();
     let streamErrorMsg: string | null = null;
+    let stop: string | null = null;
 
     try {
       for await (const data of sseData(res.body)) {
@@ -189,7 +208,9 @@ export class AnthropicProvider implements ChatClient {
             completion_tokens: usage.output_tokens ?? 0,
           });
         }
-        // message_delta / message_stop / ping：块拼完即返回，无需特殊处理
+        // message_delta 携带收尾 stop_reason（WP3：流中多次出现取最后一个非空值）
+        if (ev.type === 'message_delta' && ev.delta?.stop_reason) stop = ev.delta.stop_reason;
+        // message_stop / ping：块拼完即返回，无需特殊处理
       }
     } catch (e) {
       if ((e as Error).name === 'AbortError') throw e;
@@ -215,6 +236,7 @@ export class AnthropicProvider implements ChatClient {
       });
 
     return {
+      finishReason: mapAnthropicStopReason(stop),
       message: {
         role: 'assistant',
         content: text || null,

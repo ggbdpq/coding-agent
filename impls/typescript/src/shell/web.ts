@@ -64,13 +64,15 @@ export async function startWeb(app: App): Promise<void> {
     for (const res of sseClients) res.write(line);
   };
 
-  // 权限 UI 适配：发 permission 事件带 id，等 /permission 端点回传三态决定
+  // 权限 UI 适配：发 permission 事件带 id，等 /permission 端点回传四态决定
   const pending = new Map<string, (d: PermissionDecision) => void>();
   let permSeq = 0;
   const permissions = new Map<string, Record<string, unknown>>();
+  // grants：scoped（"本会话允许此类"）的会话内记忆，进程内、不持久化；always 仍走 yolo（R3 不变）
+  const grants = new Set<string>();
   const gate = createPermissionGate(
     {
-      ask: ({ tool, preview }) =>
+      ask: ({ tool, preview, grantKey, grantLabel }) =>
         new Promise((resolve, reject) => {
           const id = `p${++permSeq}`;
           const signal = abort?.signal;
@@ -88,12 +90,14 @@ export async function startWeb(app: App): Promise<void> {
             else resolve(decision);
           });
           status = 'waiting_approval';
-          const request = { type: 'permission', id, tool, preview };
+          // grantKey 为空 = 不可 scoped，载荷不带键，UI 不显示该选项（字段为增量，供审批卡片渲染第四个按钮）
+          const request = { type: 'permission', id, tool, preview, ...(grantKey ? { grantKey, grantLabel } : {}) };
           permissions.set(id, request);
           sendEvent(request);
         }),
     },
-    app.yolo
+    app.yolo,
+    grants
   );
 
   // ponytail: 命令插件以 console.log 输出，这里临时接管收进缓冲返回给浏览器；
@@ -982,7 +986,7 @@ export async function startWeb(app: App): Promise<void> {
       const id = String(body.id ?? '');
       const decision = body.decision;
       const resolve = pending.get(id);
-      if (!resolve || (decision !== 'allow' && decision !== 'deny' && decision !== 'always')) {
+      if (!resolve || (decision !== 'allow' && decision !== 'deny' && decision !== 'always' && decision !== 'scoped')) {
         json(res, 404, { error: '没有这个待确认请求' });
         return;
       }

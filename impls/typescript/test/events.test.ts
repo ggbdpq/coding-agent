@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runUserTurn } from '../src/core/turn.ts';
+import { renderToTerminal } from '../src/shell/repl.ts';
 import { Registry } from '../src/kernel/registry.ts';
 import { definePlugin } from '../src/kernel/plugin.ts';
 import type { AgentEvent, ChatClient, ChatMessage, CompletionResult } from '../src/kernel/types.ts';
@@ -147,6 +148,38 @@ test('错误：provider 抛普通错误 → turn_end(error) 携带消息', async
   const end = events[events.length - 1];
   assert.equal(end.type === 'turn_end' && end.reason, 'error');
   assert.equal(end.type === 'turn_end' && end.error, '网络炸了');
+});
+
+test('壳渲染容忍 ADR-003 新事件：context_edit/tool_error/limit 不抛异常', () => {
+  const events: AgentEvent[] = [
+    { type: 'context_edit', strategy: 'clear_tool_outputs', cleared: 3, savedTokens: 1200, at: 'model_call' },
+    { type: 'tool_error', call_id: 'c1', name: 'write', kind: 'invalid_args', detail: '参数不是合法 JSON' },
+    { type: 'limit', kind: 'model_calls', limit: 40, behavior: 'summarize' },
+    { type: 'trimmed', count: 2, at: 'turn_start' },
+    { type: 'compact', savedTokens: 500, at: 'model_call' },
+  ];
+  for (const ev of events) assert.doesNotThrow(() => renderToTerminal(ev));
+});
+
+test('中间件 state.emit 的事件经 TurnDeps.onEvent 到达壳（WP0 补丁 2）', async () => {
+  const store = fakeStore();
+  const app = fakeApp(toolThenTextClient(), store);
+  const events: AgentEvent[] = [];
+  await runUserTurn(app, '做事', {
+    emit: (e) => events.push(e),
+    middleware: [
+      {
+        name: 'emitter',
+        beforeModel: async (state) => {
+          state.emit({ type: 'limit', kind: 'model_calls', limit: 3, behavior: 'summarize' });
+        },
+      },
+    ],
+  });
+  const limit = events.find((e) => e.type === 'limit');
+  assert.ok(limit?.type === 'limit');
+  assert.equal(limit.kind, 'model_calls');
+  assert.equal(limit.limit, 3);
 });
 
 test('断尾修复与事件互不干扰：工具已执行后中止，tool 结果仍在落盘序列里', async () => {
