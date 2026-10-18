@@ -4,6 +4,7 @@ import { IMPLS } from "./shared.mjs";
 
 const bin = join(IMPLS, "typescript", "bin", "tcode.js");
 const yolo = (scenario) => (scenario.input.approval === "yolo" ? ["--yolo"] : []);
+const execLike = (scenario) => scenario.input.entry === "exec" || scenario.input.entry === "crash-resume";
 
 export default {
   name: "tcode",
@@ -13,10 +14,19 @@ export default {
   providerEnv(sink) {
     return { TCODE_API_KEY: "test-key", TCODE_BASE_URL: sink.url, TCODE_MODEL: "fake-model" };
   },
+  // 场景声明的逻辑配置 → 实现环境变量（context_limit 是 spec 字段，非实现词）
+  scenarioEnv(scenario) {
+    const n = scenario.input.context_limit;
+    return n ? { TCODE_CONTEXT_LIMIT: String(n) } : {};
+  },
   launch(scenario, { home, env }) {
     // 工具相对路径必须落在沙箱 HOME：cwd 统一为 home
-    return scenario.input.entry === "exec"
+    return execLike(scenario)
       ? { cmd: process.execPath, args: [bin, "exec", ...yolo(scenario), scenario.input.task], cwd: home, env }
       : { cmd: process.execPath, args: [bin, ...yolo(scenario)], cwd: home, env };
+  },
+  // crash-resume 第二阶段：恢复旗标是五版统一入口契约（session-turn R7 --continue）
+  launchResume(scenario, { home, env }) {
+    return { cmd: process.execPath, args: [bin, "--continue", ...yolo(scenario)], cwd: home, env };
   },
 };

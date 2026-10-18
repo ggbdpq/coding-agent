@@ -12,10 +12,39 @@ function extractMarkers(scenario, stdout, stderr) {
   for (const m of scenario.expect.stdout_markers?.absent ?? []) {
     absent[m] = stdout.split(m).length - 1; // 出现次数（期望 0）
   }
-  return { stderr_includes: includes, stdout_absent: absent };
+  // 次数上限断言（同标记重复出现即超限，如逐次询问被重复渲染）
+  const maxCounts = {};
+  for (const [m, limit] of Object.entries(scenario.expect.stdout_markers?.max_count ?? {})) {
+    const count = stdout.split(m).length - 1;
+    maxCounts[m] = { count, limit, ok: count <= limit };
+  }
+  return { stderr_includes: includes, stdout_absent: absent, stdout_max_counts: maxCounts };
 }
 
 /** S1 通道断言：第 n 个请求体内「最后一条 role=tool 消息」的锁定文案判定。 */
+function lastToolMessage(body) {
+  const msgs = Array.isArray(body?.messages) ? body.messages : [];
+  return [...msgs].reverse().find((m) => m.role === "tool") ?? null;
+}
+
+/** 消息配对不变量（agent-loop 本质约束 1 / N2）：assistant.tool_calls 每个都有配对 tool 消息。 */
+function noDanglingToolCalls(body) {
+  const msgs = Array.isArray(body?.messages) ? body.messages : [];
+  const pending = new Set();
+  for (const m of msgs) {
+    for (const tc of Array.isArray(m?.tool_calls) ? m.tool_calls : []) {
+      if (tc?.id !== undefined) pending.add(tc.id);
+    }
+    if (m?.role === "tool" && m?.tool_call_id !== undefined) pending.delete(m.tool_call_id);
+  }
+  return pending.size === 0;
+}
+
+/** R1 估算（context.md）：每条消息 content+8、每个 tool_call name+arguments 另计 +8，总和÷3 向上取整。 */
+function estimateTokens(stat) {
+  return Math.ceil((stat.message_chars + 8 * stat.message_count + 8 * stat.tool_call_count) / 3);
+}
+
 function providerChecks(scenario, raw) {
   const checks = [];
   for (const item of scenario.expect.provider_requests?.items ?? []) {
@@ -25,8 +54,7 @@ function providerChecks(scenario, raw) {
       continue;
     }
     if (item.last_tool_message_equals !== undefined) {
-      const msgs = Array.isArray(body.messages) ? body.messages : [];
-      const lastTool = [...msgs].reverse().find((m) => m.role === "tool");
+      const lastTool = lastToolMessage(body);
       const actual = !lastTool
         ? "no_tool_message"
         : lastTool.content === item.last_tool_message_equals
@@ -39,8 +67,7 @@ function providerChecks(scenario, raw) {
       });
     }
     if (item.last_tool_message_startswith !== undefined) {
-      const msgs = Array.isArray(body.messages) ? body.messages : [];
-      const lastTool = [...msgs].reverse().find((m) => m.role === "tool");
+      const lastTool = lastToolMessage(body);
       const actual = !lastTool
         ? "no_tool_message"
         : String(lastTool.content).startsWith(item.last_tool_message_startswith)
@@ -52,6 +79,60 @@ function providerChecks(scenario, raw) {
         actual,
       });
     }
+    if (item.last_tool_message_includes !== undefined) {
+      const lastTool = lastToolMessage(body);
+      const content = String(lastTool?.content ?? "");
+      const missing = item.last_tool_message_includes.filter((s) => !content.includes(s));
+      checks.push({
+        check: `request#${item.nth} 最后一条 tool 消息包含 ${JSON.stringify(item.last_tool_message_includes)}`,
+        ok: !!lastTool && missing.length === 0,
+        expected: "全部包含",
+        actual: !lastTool ? "no_tool_message" : missing.length === 0 ? "all_matched" : `missing:${JSON.stringify(missing)}`,
+      });
+    }
+    if (item.has_tool_message_equals !== undefined) {
+      const msgs = Array.isArray(body.messages) ? body.messages : [];
+      const hit = msgs.some((m) => m?.role === "tool" && m?.content === item.has_tool_message_equals);
+      checks.push({
+        check: `request#${item.nth} 存在 content 等于锁定占位文案的 tool 消息`,
+        ok: hit,
+        expected: item.has_tool_message_equals,
+        actual: hit ? "found" : "not_found",
+      });
+    }
+    if (item.has_tools !== undefined) {
+      const stat = raw.requestStats?.[item.nth - 1];
+      const actual = stat ? stat.has_tools : "no_stat";
+      checks.push({
+        check: `request#${item.nth} 是否携带 tools 期望 ${item.has_tools}`,
+        ok: actual === item.has_tools,
+        expected: item.has_tools,
+        actual,
+      });
+    }
+    if (item.no_dangling_tool_calls) {
+      const ok = noDanglingToolCalls(body);
+      checks.push({
+        check: `request#${item.nth} 消息序列无悬空 tool_calls`,
+        ok,
+        expected: true,
+        actual: ok ? "paired" : "dangling",
+      });
+    }
+  }
+
+  // 轮内治理断言（context.md R1 估算口径 + 本质约束 1）：每个请求体估算 ≤ 上限
+  const estimateLimit = scenario.expect.provider_requests?.estimate_limit_tokens;
+  if (estimateLimit !== undefined) {
+    const over = (raw.requestStats ?? [])
+      .map((s, i) => ({ nth: i + 1, tokens: estimateTokens(s) }))
+      .filter((r) => r.tokens > estimateLimit);
+    checks.push({
+      check: `全部 ${raw.requestStats?.length ?? 0} 个请求体估算 ≤ ${estimateLimit} tokens`,
+      ok: over.length === 0,
+      expected: `≤ ${estimateLimit}`,
+      actual: over.length === 0 ? "all_within" : over.map((r) => `#${r.nth}=${r.tokens}`).join(","),
+    });
   }
   return checks;
 }
@@ -93,6 +174,7 @@ export function normalize(runtime, scenario, raw) {
     provider_requests: { count: raw.providerRequests, items: providerChecks(scenario, raw) },
     stderr_markers: markers.stderr_includes,
     stdout_markers: markers.stdout_absent,
+    stdout_max_counts: markers.stdout_max_counts,
     artifacts: artifactChecks(scenario, raw),
   };
 }
