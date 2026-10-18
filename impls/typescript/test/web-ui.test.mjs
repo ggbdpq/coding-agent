@@ -2076,3 +2076,29 @@ test('空会话的项目 chip 与模式 chip 位于输入框上方，composer �
     assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), '/');
   });
 });
+
+test('设置中心是浮在工作区之上的模态：800px 面板、188px 导航，点遮罩关闭，保存提示以顶部 toast 出现并自动消失', async () => {
+  const state = initialState();
+  await withPage(state, { '/preferences': (body) => { state.preferences = body; state.seq++; return { ok: true, state }; } }, async (page) => {
+    await page.getByRole('button', { name: '设置', exact: true }).click({ timeout: 2000 });
+    const center = page.getByRole('region', { name: '设置中心', exact: true });
+    await center.waitFor();
+    assert.equal(await page.locator('#workspace-sidebar').isVisible(), true, '工作区留在遮罩下可见');
+    assert.equal(await page.locator('#chat').isVisible(), true);
+    const panel = await page.locator('.settings-panel').boundingBox();
+    const nav = page.getByRole('navigation', { name: '设置分组', exact: true });
+    const navBox = await page.locator('.settings-sidebar').boundingBox();
+    assert.equal(Math.round(panel.width), 800);
+    assert.ok(Math.abs(navBox.width - 188) <= 1, `导航宽 188，实际 ${navBox.width}`);
+    assert.equal(Math.round((await nav.getByRole('button', { name: '外观', exact: true }).boundingBox()).height), 40);
+    await page.getByRole('button', { name: '保存常规设置', exact: true }).click();
+    const toast = page.getByText('设置已保存', { exact: true });
+    await toast.waitFor();
+    const toastBox = await toast.boundingBox(), viewport = page.viewportSize();
+    assert.ok(toastBox.y < 80, '提示出现在顶部');
+    assert.ok(Math.abs(toastBox.x + toastBox.width / 2 - viewport.width / 2) <= 24, '提示水平居中');
+    await toast.waitFor({ state: 'hidden', timeout: 4000 });
+    await page.mouse.click(8, viewport.height / 2);
+    await center.waitFor({ state: 'hidden' });
+  });
+});
