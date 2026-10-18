@@ -17,7 +17,7 @@
     --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-panel: 28px;
     --fs-xs: 10px; --fs-sm: 12px; --fs-caption: 13px; --fs-base: 14px; --fs-lg: 16px; --fs-xl: 18px;
     --ease: cubic-bezier(.4, 0, .2, 1);
-    --sidebar-w: 280px; --rail-w: 56px; --content-width: clamp(680px, 64%, 920px); --message-size: 16px;
+    --sidebar-w: 280px; --rail-w: 56px; --tooltip-2: #cfd3d6; --content-width: clamp(680px, 64%, 920px); --message-size: 16px;
     /* 颜色：亮色 */
     --bg: #ffffff; --sidebar: #f9fafb; --card: #ffffff; --new-session: rgba(255, 255, 255, .55);
     --nav-hover: #f1f3f5; --nav-active: #ebeef2; --selector: #f5f6f7;
@@ -98,8 +98,12 @@
   .sidebar { width: var(--sidebar-w); flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; padding: 40px 12px 6px; background: var(--sidebar); border-right: .5px solid var(--border-2); }
   /* 侧栏开关在侧栏外：收起后仍可点；展开时贴在侧栏顶条右侧 */
   #sidebar-toggle { position: absolute; z-index: 6; top: 12px; left: calc(var(--sidebar-w) - 40px); }
-  .workbench:has(> .sidebar[hidden]) #sidebar-toggle { left: 12px; }
-  .workbench:has(> .sidebar[hidden]) .chat > header { padding-left: 52px; }
+  .workbench:has(> .sidebar[hidden]) #sidebar-toggle { left: calc((var(--rail-w) - 28px) / 2); }
+  /* 折叠 rail：56 宽图标列，开关占顶部 52，设置沉底 */
+  .compact-nav { width: var(--rail-w); flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 52px 0 12px; background: var(--sidebar); border-right: .5px solid var(--border-2); }
+  .compact-nav button { width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: var(--r-sm); display: grid; place-items: center; background: transparent; color: var(--text-2); }
+  .compact-nav button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  #compact-settings { margin-top: auto; }
   .brand { height: 60px; margin-bottom: 4px; padding: 8px 0 8px 4px; display: flex; align-items: center; gap: 8px; }
   .brand-mark { width: 24px; height: 24px; flex-shrink: 0; border-radius: 7px; display: grid; place-items: center; background: var(--text); color: var(--bg); font: 600 11px/1 var(--mono); }
   .brand-name { font-size: var(--fs-xl); font-weight: 600; letter-spacing: .04em; }
@@ -134,7 +138,15 @@
   .project-entry .nav-icon { color: var(--text-3); }
   .project-entry[aria-current] .nav-icon { color: var(--brand); }
   .project-entry span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #projects.searching .project-entry { display: none; }
+  #projects.searching .project-row { display: none; }
+  .project-row { position: relative; }
+  .project-entry.archived { color: var(--text-3); }
+  .project-tag { flex: 0 0 auto !important; font-size: var(--fs-xs); line-height: 16px; color: var(--text-3); }
+  .project-actions { position: absolute; top: 7px; right: 6px; display: none; gap: 2px; }
+  .project-row:hover .project-actions, .project-actions:focus-within { display: flex; }
+  .project-row:hover .project-entry span:not(.project-tag) { padding-right: 44px; }
+  .project-actions button { width: 20px; height: 20px; min-height: 20px; padding: 0; border: 0; border-radius: var(--r-xs); display: grid; place-items: center; background: transparent; color: var(--text-3); }
+  .project-actions button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
   .session-entry { position: relative; display: flex; align-items: center; border-radius: var(--r-md); }
   .session-entry:hover, .session-entry.current { background: var(--hover); }
   .session-entry button { border: 0; background: transparent; text-align: left; }
@@ -166,6 +178,10 @@
   #settings-home:hover:not(:disabled) { color: var(--text-2); }
   /* 浮层：tooltip 与菜单 */
   #tooltip { position: fixed; z-index: 200; max-width: 320px; padding: 3px 7px; border-radius: var(--r-sm); background: var(--tooltip); color: var(--tooltip-fg); font-size: var(--fs-caption); line-height: 20px; display: flex; align-items: center; gap: 8px; pointer-events: none; white-space: nowrap; }
+  #tooltip.card { display: grid; gap: 2px; max-width: 300px; padding: 8px 10px; border-radius: var(--r-md); white-space: normal; }
+  .tip-title { font-size: var(--fs-base); line-height: 20px; font-weight: 500; }
+  .tip-path { font: var(--fs-sm)/16px var(--mono); color: var(--tooltip-2); word-break: break-all; }
+  .tip-meta { font-size: var(--fs-sm); line-height: 16px; color: var(--tooltip-2); }
   #tooltip kbd { height: 16px; min-width: 16px; padding: 0 3px; margin-left: 2px; border-radius: var(--r-xs); background: var(--tooltip-key); font: 11px/16px var(--font); text-align: center; }
   .menu { position: fixed; z-index: 150; min-width: 200px; padding: 4px; border-radius: var(--r-lg); background: var(--menu-fill); -webkit-backdrop-filter: var(--menu-blur); backdrop-filter: var(--menu-blur); box-shadow: var(--elev-prominent); display: flex; flex-direction: column; }
   .menu-label { padding: 6px 8px 2px; font-size: 11px; line-height: 15px; color: var(--text-3); }
@@ -185,8 +201,6 @@
   /* 顶栏：harness ConversationRoot 面包屑「项目 / 会话」，空会话无分隔线 */
   .chat > header { display: flex; gap: 8px; align-items: center; height: 52px; flex-shrink: 0; padding: 0 12px 0 12px; background: var(--bg); }
   .chat:not(.empty-session) > header { border-bottom: .5px solid var(--border-3); }
-  .compact-nav { display: flex; gap: 4px; flex-wrap: wrap; }
-  .compact-nav button { font-size: 12px; padding: 0 8px; }
   .heading { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0; }
   .heading h1 { display: block; padding: 4px 8px; font-size: var(--fs-base); line-height: 20px; margin: 0; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .header-path { order: -1; display: inline-flex; align-items: center; padding: 4px 0 4px 8px; font-size: var(--fs-base); line-height: 20px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 40%; flex-shrink: 1; }
@@ -246,7 +260,9 @@
   .assistant li::marker { color: var(--text-2); }
   .assistant blockquote { margin: 16px 0; padding: 0 0 0 14px; border-left: 2px solid var(--caption); color: var(--text-2); }
   .assistant hr { border: 0; border-top: .5px solid var(--border-2); margin: 32px 0; }
-  .assistant table { border-collapse: collapse; margin: 16px 0; }
+  .assistant table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 16px 0; }
+  .assistant th { font-weight: 600; }
+  .assistant blockquote p { margin: 0; }
   .assistant th, .assistant td { padding: 10px 16px; border: .5px solid var(--border-2); text-align: left; }
   .dim { color: var(--text-3); font-size: var(--fs-sm); line-height: 18px; white-space: pre-wrap; }
   #log > .dim { display: flex; align-items: center; gap: 10px; }
@@ -383,6 +399,12 @@
   dialog input, dialog select { width: 100%; height: 34px; border: .5px solid var(--border-4); border-radius: var(--r-md); padding: 0 12px; color: inherit; background: var(--layer-3); font-size: var(--fs-caption); }
   dialog input:focus, dialog select:focus { outline: none; border-color: var(--brand); }
   dialog .bar { justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .shortcut-list { margin: 0; display: grid; }
+  .shortcut-list > div { display: flex; align-items: center; justify-content: space-between; min-height: 36px; border-bottom: .5px solid var(--border-2); }
+  .shortcut-list > div:last-child { border-bottom: 0; }
+  .shortcut-list dt { font-size: var(--fs-base); line-height: 22px; color: var(--text); }
+  .shortcut-list dd { margin: 0; display: flex; gap: 4px; }
+  .shortcut-list kbd { min-width: 20px; height: 20px; padding: 0 5px; border-radius: var(--r-xs); background: var(--module); color: var(--text-2); font: 12px/20px var(--font); text-align: center; }
   #config-error { color: var(--danger); white-space: pre-wrap; }
 
   /* —— 设置中心：对照 harness SettingsRoot（800×800 模态、188px 导航、54px 内容头） —— */
@@ -556,6 +578,10 @@
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.4 3 8.2 7 9.5 4-1.3 7-5.1 7-9.5V6z"/></symbol>
   <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4 3 6.5v13.5L9 17.5l6 2.5 6-2.5V4l-6 2.5zM9 4v13.5M15 6.5V20"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M10 12h4"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
 </svg>
 <div class="workbench">
@@ -581,9 +607,14 @@
     <button id="settings-home" class="icon-btn" aria-label="设置" aria-keyshortcuts="Meta+, Control+," data-tip="设置" data-keys="⌘ ,"><svg class="nav-icon" aria-hidden="true"><use href="#i-gear"/></svg></button>
   </div>
 </aside>
+<nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden>
+  <button id="compact-new" aria-label="新任务" data-tip="新会话" data-keys="⌘ N"><svg class="nav-icon" aria-hidden="true"><use href="#i-plus-chat"/></svg></button>
+  <button id="compact-search" aria-label="搜索" data-tip="搜索会话" data-keys="⌘ K"><svg class="nav-icon" aria-hidden="true"><use href="#i-search"/></svg></button>
+  <button id="compact-project" aria-label="添加项目" data-tip="添加项目" data-keys="⌘ O"><svg class="nav-icon" aria-hidden="true"><use href="#i-folder-plus"/></svg></button>
+  <button id="compact-settings" aria-label="设置" data-tip="设置" data-keys="⌘ ,"><svg class="nav-icon" aria-hidden="true"><use href="#i-gear"/></svg></button>
+</nav>
 <main class="chat" id="chat">
 <header>
-  <nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden><button id="compact-new" aria-label="新任务">＋ 新任务</button><button id="compact-search" aria-label="搜索">搜索</button><button id="compact-settings" aria-label="设置">设置</button></nav>
   <div class="heading"><h1 id="title">tcode</h1><span id="header-path" class="header-path"></span></div>
   <span id="status" role="status">连接中</span>
   <button id="diff-toggle" class="icon-btn" aria-label="查看变更" aria-expanded="false" aria-controls="diff-panel" aria-keyshortcuts="Meta+Shift+D Control+Shift+D" data-tip="查看变更" data-keys="⌘ ⇧ D"><svg class="nav-icon" aria-hidden="true"><use href="#i-panel-r"/></svg></button>
@@ -767,6 +798,7 @@
 </div>
 <div id="account-menu" class="menu" role="menu" aria-label="账户菜单" style="width:240px" hidden>
   <button type="button" role="menuitem" data-action="settings"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-gear"/></svg>设置<kbd aria-hidden="true">⌘ ,</kbd></button>
+  <button type="button" role="menuitem" data-action="shortcuts"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-keyboard"/></svg>快捷键<kbd aria-hidden="true">⌘ /</kbd></button>
   <button type="button" role="menuitem" data-action="config"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-file"/></svg>打开配置文件</button>
   <div class="menu-sep" role="separator"></div>
   <button type="button" role="menuitem" data-action="about"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-info"/></svg>关于 tcode<kbd id="about-version" aria-hidden="true"></kbd></button>
@@ -780,7 +812,30 @@
   <div class="menu-label" aria-hidden="true">搜索范围</div>
   <button type="button" role="menuitemradio" data-scope="current" aria-checked="true"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-folder"/></svg>本项目</button>
   <button type="button" role="menuitemradio" data-scope="all" aria-checked="false"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-list"/></svg>所有项目（含正文）</button>
+  <div class="menu-sep" role="separator"></div>
+  <div class="menu-label" aria-hidden="true">排序方式</div>
+  <button type="button" role="menuitemradio" data-sort="recent" aria-checked="true"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-clock"/></svg>最近更新</button>
+  <button type="button" role="menuitemradio" data-sort="name" aria-checked="false"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-list"/></svg>按名称</button>
+  <div class="menu-sep" role="separator"></div>
+  <div class="menu-label" aria-hidden="true">筛选项目</div>
+  <button type="button" role="menuitemradio" data-archived="hide" aria-checked="true"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-folder"/></svg>隐藏已归档</button>
+  <button type="button" role="menuitemradio" data-archived="show" aria-checked="false"><svg class="nav-icon s14" aria-hidden="true"><use href="#i-archive"/></svg>显示已归档</button>
 </div>
+<div id="project-actions-menu" class="menu" role="menu" aria-label="项目操作" style="width:200px" hidden></div>
+<dialog id="shortcuts-dialog" aria-labelledby="shortcuts-title">
+  <h2 id="shortcuts-title">键盘快捷键</h2>
+  <dl class="shortcut-list">
+    <div><dt>新会话</dt><dd><kbd>⌘</kbd><kbd>N</kbd></dd></div>
+    <div><dt>搜索会话</dt><dd><kbd>⌘</kbd><kbd>K</kbd></dd></div>
+    <div><dt>添加项目</dt><dd><kbd>⌘</kbd><kbd>O</kbd></dd></div>
+    <div><dt>设置</dt><dd><kbd>⌘</kbd><kbd>,</kbd></dd></div>
+    <div><dt>切换侧栏</dt><dd><kbd>⌘</kbd><kbd>B</kbd></dd></div>
+    <div><dt>切换变更面板</dt><dd><kbd>⌘</kbd><kbd>⇧</kbd><kbd>D</kbd></dd></div>
+    <div><dt>重命名会话</dt><dd><kbd>⌘</kbd><kbd>⌥</kbd><kbd>G</kbd></dd></div>
+    <div><dt>快捷键面板</dt><dd><kbd>⌘</kbd><kbd>/</kbd></dd></div>
+  </dl>
+  <div class="bar"><button id="shortcuts-close" type="button">关闭</button></div>
+</dialog>
 <dialog id="rename-dialog" aria-labelledby="rename-title">
   <h2 id="rename-title">重命名会话</h2>
   <form id="rename-form">
@@ -853,6 +908,7 @@
     parent.append(document.createTextNode(text.slice(cursor)));
   }
   // ponytail: 常用 Markdown 直接创建 DOM，不接受原始 HTML；复杂表格或嵌套确有需要时再引入解析器。
+  const tableSeparator = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
   function markdown(text) {
     const fragment = document.createDocumentFragment(), lines = text.replace(/\r\n/g, '\n').split('\n');
     let paragraph = [], list = null;
@@ -866,6 +922,23 @@
         code.textContent = codeLines.join('\n'); if (fence[2]) code.dataset.language = fence[2]; pre.append(code); fragment.append(pre);
       } else if (heading) {
         flush(); list = null; const node = document.createElement('h' + heading[1].length); inline(node, heading[2]); fragment.append(node);
+      } else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+        flush(); list = null; fragment.append(document.createElement('hr'));
+      } else if (/^\s*>/.test(line)) {
+        flush(); list = null; const quoted = [];
+        for (; i < lines.length && /^\s*>/.test(lines[i]); i++) quoted.push(lines[i].replace(/^\s*>\s?/, ''));
+        i--; const quote = document.createElement('blockquote'); quote.append(markdown(quoted.join('\n'))); fragment.append(quote);
+      } else if (line.includes('|') && (lines[i + 1] || '').includes('|') && tableSeparator.test(lines[i + 1])) {
+        flush(); list = null;
+        const table = document.createElement('table'), head = document.createElement('thead'), body = document.createElement('tbody');
+        const addRow = (parent, source, tag) => {
+          const tr = document.createElement('tr');
+          for (const cell of source.trim().replace(/^\||\|$/g, '').split('|')) { const td = document.createElement(tag); inline(td, cell.trim()); tr.append(td); }
+          parent.append(tr);
+        };
+        addRow(head, line, 'th'); i++;
+        while (i + 1 < lines.length && lines[i + 1].includes('|') && lines[i + 1].trim()) addRow(body, lines[++i], 'td');
+        table.append(head, body); fragment.append(table);
       } else if (item) {
         flush(); const tag = item[1] ? 'UL' : 'OL';
         if (!list || list.tagName !== tag) { list = document.createElement(tag); fragment.append(list); }
@@ -1139,14 +1212,27 @@
   // 项目与会话合并成一棵树：当前项目的会话列表挂在它的项目行下（其他项目的会话不在状态里）
   function renderProjects() {
     const fragment = document.createDocumentFragment(), sessions = $('sessions');
-    for (const project of view?.projects || []) {
-      const button = document.createElement('button'); button.className = 'project-entry';
-      button.setAttribute('aria-label', '打开项目 ' + project.name); button.title = project.path;
+    const archivedList = viewPrefs.archived === 'show' ? view?.archivedProjects || [] : [];
+    for (const project of [...(view?.projects || []), ...archivedList]) {
+      const archived = archivedList.includes(project);
+      const projectRow = row('project-row', undefined, fragment);
+      const button = document.createElement('button'); button.className = 'project-entry' + (archived ? ' archived' : '');
+      button.setAttribute('aria-label', '打开项目 ' + project.name);
+      button.dataset.path = project.path; button.dataset.meta = [project.available ? `${project.sessionCount || 0} 个会话` : '目录不可用', project.path === view.config?.workspace ? '当前项目' : archived ? '已归档' : ''].filter(Boolean).join(' · ');
       const current = project.path === view.config?.workspace;
       if (current) button.setAttribute('aria-current', 'page');
       button.disabled = !project.available || navigationBlocked();
       const name = document.createElement('span'); name.textContent = project.name;
-      button.append(icon('folder'), name); button.onclick = () => changeWorkspace(project.path); fragment.append(button);
+      button.append(icon('folder'), name); button.onclick = () => changeWorkspace(project.path); projectRow.append(button);
+      if (archived) { const tag = document.createElement('span'); tag.className = 'project-tag'; tag.textContent = '已归档'; button.append(tag); }
+      const actions = row('project-actions', undefined, projectRow);
+      const more = document.createElement('button'); more.type = 'button'; more.append(icon('more', 's14'));
+      more.setAttribute('aria-label', '更多操作 ' + project.name); more.setAttribute('aria-haspopup', 'menu');
+      more.onclick = () => openProjectActions(project, more);
+      const add = document.createElement('button'); add.type = 'button'; add.append(icon('plus', 's14'));
+      add.setAttribute('aria-label', `在 ${project.name} 中新建会话`); add.disabled = !project.available || navigationBlocked();
+      add.onclick = () => newSessionIn(project);
+      actions.append(more, add);
       if (current) fragment.append(sessions);
     }
     if (!fragment.childNodes.length) row('dim', '选择一个本地项目开始', fragment);
@@ -1154,6 +1240,8 @@
     $('projects').replaceChildren(fragment);
   }
   let sessionsExpanded = false;
+  const viewPrefs = { sort: 'recent', archived: 'hide' };
+  try { Object.assign(viewPrefs, JSON.parse(localStorage.getItem('tcode.view') || '{}')); } catch {}
   function renderSessions() {
     const fragment = document.createDocumentFragment();
     const query = $('search').value.trim().toLocaleLowerCase();
@@ -1165,6 +1253,7 @@
     }
     const titleOf = (session) => session.title || session.label || '新会话';
     const list = all ? searchResult?.sessions || [] : (view?.sessions || []).filter((session) => !query || `${titleOf(session)} ${session.label || ''}`.toLocaleLowerCase().includes(query));
+    if (!all && viewPrefs.sort === 'name') list.sort((a, b) => titleOf(a).localeCompare(titleOf(b), 'zh-CN'));
     const folded = !all && !query && !sessionsExpanded && list.length > 5 && list.findIndex((session) => session.id === view.currentSessionId) < 5;
     for (const session of folded ? list.slice(0, 5) : list) {
       const title = titleOf(session);
@@ -1524,7 +1613,7 @@
   }
   // 设置是工作区之上的模态：背后保持可见，但不可聚焦、不进可访问性树
   function workbenchInert(on) {
-    for (const el of ['workspace-sidebar', 'chat', 'diff-panel'].map($)) {
+    for (const el of ['workspace-sidebar', 'compact-nav', 'chat', 'diff-panel'].map($)) {
       el.inert = on;
       if (on) el.setAttribute('aria-hidden', 'true'); else el.removeAttribute('aria-hidden');
     }
@@ -1537,12 +1626,13 @@
     $('compact-nav').hidden = !collapsed;
   }
   $('sidebar-toggle').onclick = () => { if (!settingsSection) setSidebar(!sidebarCollapsed); };
-  // 窄屏侧栏是浮层：进入窄屏时自动收起，之后尊重手动展开
-  const narrow = matchMedia('(max-width: 560px)');
+  // 窗口窄于 1024 时自动收起为 rail，之后尊重手动展开
+  const narrow = matchMedia('(max-width: 1023px)');
   narrow.addEventListener('change', (event) => { if (event.matches) setSidebar(true); });
   if (narrow.matches) setSidebar(true);
   $('compact-new').onclick = () => $('new').click();
   $('compact-settings').onclick = () => $('settings-home').click();
+  $('compact-project').onclick = () => $('workspace-pick').click();
   function renderCommands() {
     const commands = document.createDocumentFragment(), tools = document.createDocumentFragment();
     for (const command of view.capabilities?.commands || []) {
@@ -1971,6 +2061,7 @@
     closeMenu();
     if (action === 'settings') $('settings-home').click();
     else if (action === 'config') $('config-file-open').click();
+    else if (action === 'shortcuts') openShortcuts();
     else if (action === 'about' && !settingsSection) openSettings('general');
   };
   // 搜索范围：菜单项同步隐藏 select 的值并触发 change，保持原有搜索逻辑
@@ -2007,6 +2098,13 @@
     input.focus(); input.setSelectionRange(1, 1); updateSendButton(); autosize();
   };
   $('view-menu').onclick = (event) => {
+    const pref = event.target.closest('[data-sort], [data-archived]');
+    if (pref) {
+      closeMenu(true);
+      if (pref.dataset.sort) viewPrefs.sort = pref.dataset.sort; else viewPrefs.archived = pref.dataset.archived;
+      try { localStorage.setItem('tcode.view', JSON.stringify(viewPrefs)); } catch {}
+      syncViewPrefs(); renderProjects(); renderSessions(); return;
+    }
     const value = event.target.closest('[data-scope]')?.dataset.scope;
     if (!value) return;
     closeMenu(true);
@@ -2018,6 +2116,33 @@
     for (const item of $('view-menu').querySelectorAll('[data-scope]')) item.setAttribute('aria-checked', String(item.dataset.scope === $('search-scope').value));
   }
   $('search-scope').addEventListener('change', syncScope);
+  function syncViewPrefs() {
+    for (const item of $('view-menu').querySelectorAll('[data-sort]')) item.setAttribute('aria-checked', String(item.dataset.sort === viewPrefs.sort));
+    for (const item of $('view-menu').querySelectorAll('[data-archived]')) item.setAttribute('aria-checked', String(item.dataset.archived === viewPrefs.archived));
+  }
+  syncViewPrefs();
+  function openShortcuts() { if (!$('shortcuts-dialog').open) { closeMenu(); $('shortcuts-dialog').showModal(); } }
+  $('shortcuts-close').onclick = () => $('shortcuts-dialog').close();
+  // 项目行 ⋯：复制路径 / 归档 / 移除；当前项目不能归档或移除
+  function openProjectActions(project, anchor) {
+    const current = project.path === view?.config?.workspace, archived = (view?.archivedProjects || []).some((item) => item.path === project.path);
+    const item = (iconName, label, onclick, disabled, danger) => {
+      const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role', 'menuitem');
+      button.append(icon(iconName, 's14'), label); button.disabled = !!disabled; if (danger) button.className = 'danger';
+      button.onclick = () => { closeMenu(true); onclick(); }; return button;
+    };
+    const sep = document.createElement('div'); sep.className = 'menu-sep'; sep.setAttribute('role', 'separator');
+    $('project-actions-menu').replaceChildren(
+      item('copy', '复制路径', () => navigator.clipboard?.writeText(project.path).then(() => showNotice('已复制路径：' + project.path)).catch(() => {})),
+      item('archive', archived ? '恢复项目' : '归档项目', () => archiveProject(project.path, !archived), current || navigationBlocked()),
+      sep,
+      item('trash', '移除记录', () => removeProjectRecord(project.path), current || navigationBlocked(), true));
+    openMenu($('project-actions-menu'), anchor);
+  }
+  async function newSessionIn(project) {
+    if (project.path !== view?.config?.workspace) await changeWorkspace(project.path);
+    if (project.path === view?.config?.workspace && !$('new').disabled) $('new').click();
+  }
   syncScope();
   $('rename-close').onclick = () => { if (!changing) $('rename-dialog').close(); };
   $('rename-dialog').addEventListener('cancel', (event) => { if (changing) event.preventDefault(); });
@@ -2132,9 +2257,13 @@
       return;
     }
     if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd' && !event.repeat && !document.querySelector('dialog[open]')) { event.preventDefault(); if (!$('diff-toggle').disabled && !$('diff-toggle').hidden) $('diff-toggle').click(); return; }
+    if ((event.ctrlKey || event.metaKey) && event.altKey && !event.shiftKey && event.code === 'KeyG' && !event.repeat && !document.querySelector('dialog[open]')) {
+      event.preventDefault(); document.querySelector('.session-entry.current .session-rename:not(:disabled)')?.click(); return;
+    }
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing || event.repeat || document.querySelector('dialog[open]')) return;
     if (event.key.toLowerCase() === 'k') { event.preventDefault(); openSearch(); return; }
-    const button = { n: 'new', ',': 'settings-home', b: 'sidebar-toggle' }[event.key.toLowerCase()];
+    if (event.key === '/') { event.preventDefault(); openShortcuts(); return; }
+    const button = { n: 'new', ',': 'settings-home', b: 'sidebar-toggle', o: 'workspace-pick' }[event.key.toLowerCase()];
     if (!button) return;
     event.preventDefault(); $(button).click();
   });
@@ -2142,7 +2271,7 @@
   const tip = document.createElement('div'); tip.id = 'tooltip'; tip.hidden = true; tip.setAttribute('role', 'tooltip'); document.body.append(tip);
   function showTip(target) {
     if (openMenuState || !target.dataset.tip) return;
-    tip.replaceChildren(target.dataset.tip);
+    tip.classList.remove('card'); tip.replaceChildren(target.dataset.tip);
     for (const key of (target.dataset.keys || '').split(' ').filter(Boolean)) { const kbd = document.createElement('kbd'); kbd.textContent = key; tip.append(kbd); }
     tip.hidden = false;
     const box = target.getBoundingClientRect(), rect = tip.getBoundingClientRect();
@@ -2151,7 +2280,25 @@
     const left = Math.max(8, Math.min(box.left + box.width / 2 - rect.width / 2, innerWidth - rect.width - 8));
     tip.style.left = `${left}px`; tip.style.top = `${top}px`;
   }
-  function hideTip() { tip.hidden = true; }
+  let cardTimer = 0;
+  function hideTip() { clearTimeout(cardTimer); tip.hidden = true; tip.classList.remove('card'); }
+  function showCard(target) {
+    if (openMenuState || !target.isConnected) return;
+    const title = document.createElement('div'), path = document.createElement('div'), meta = document.createElement('div');
+    title.className = 'tip-title'; title.textContent = target.querySelector('span').textContent;
+    path.className = 'tip-path'; path.textContent = target.dataset.path;
+    meta.className = 'tip-meta'; meta.textContent = target.dataset.meta;
+    tip.replaceChildren(title, path, meta); tip.classList.add('card'); tip.hidden = false;
+    const box = target.getBoundingClientRect(), rect = tip.getBoundingClientRect();
+    tip.style.left = `${Math.min(box.right + 8, innerWidth - rect.width - 8)}px`;
+    tip.style.top = `${Math.max(8, Math.min(box.top, innerHeight - rect.height - 8))}px`;
+  }
+  document.addEventListener('mouseover', (event) => {
+    const el = event.target.closest?.('.project-entry');
+    if (!el || el.contains(event.relatedTarget)) return;
+    clearTimeout(cardTimer); cardTimer = setTimeout(() => showCard(el), 500);
+  });
+  document.addEventListener('mouseout', (event) => { const el = event.target.closest?.('.project-entry'); if (el && !el.contains(event.relatedTarget)) hideTip(); });
   document.addEventListener('mouseover', (event) => { const el = event.target.closest?.('[data-tip]'); if (el) showTip(el); });
   document.addEventListener('mouseout', (event) => { const el = event.target.closest?.('[data-tip]'); if (el && !el.contains(event.relatedTarget)) hideTip(); });
   document.addEventListener('focusin', (event) => { const el = event.target.closest?.('[data-tip]'); if (el && el.tagName !== 'INPUT' && el.matches(':focus-visible')) showTip(el); });

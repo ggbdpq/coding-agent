@@ -2102,3 +2102,122 @@ test('设置中心是浮在工作区之上的模态：800px 面板、188px 导�
     await center.waitFor({ state: 'hidden' });
   });
 });
+
+test('助手回复渲染引用、分隔线与表格，表格单元格支持行内代码', async () => {
+  const text = '> 注意：不改协议。\n> 第二行\n\n---\n\n| 文件 | 改动 |\n| --- | :-: |\n| `agentloop.ts` | 调用中间件 |\n| web.html | 样式 |';
+  const state = initialState({ seq: 3, status: 'completed', activity: [{ type: 'user', text: '看下计划', seq: 1 }, { type: 'text', delta: text, seq: 2 }, { type: 'turn_end', reason: 'completed', seq: 3 }] });
+  await withPage(state, {}, async (page) => {
+    const reply = page.locator('.assistant');
+    await reply.waitFor();
+    assert.equal(await reply.locator('blockquote').innerText(), '注意：不改协议。\n第二行');
+    assert.equal(await reply.locator('hr').count(), 1);
+    const table = reply.getByRole('table');
+    assert.deepEqual(await table.getByRole('columnheader').allInnerTexts(), ['文件', '改动']);
+    assert.deepEqual(await table.getByRole('cell').allInnerTexts(), ['agentloop.ts', '调用中间件', 'web.html', '样式']);
+    assert.equal(await table.locator('td code').innerText(), 'agentloop.ts');
+    assert.equal(await reply.getByText('| --- |').count(), 0, '分隔行不作为正文输出');
+  });
+});
+
+test('窗口窄于 1024 自动折叠为 56px 图标 rail，入口仍可用，展开后 rail 消失', async () => {
+  await withPage(initialState(), {}, async (page) => {
+    const sidebar = page.getByRole('complementary', { name: '项目与会话', exact: true });
+    const rail = page.getByRole('navigation', { name: '快捷入口', exact: true });
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await rail.waitFor();
+    assert.equal(await sidebar.isVisible(), false);
+    const box = await rail.boundingBox();
+    assert.equal(box.x, 0); assert.equal(box.width, 56); assert.equal(box.height, 800);
+    for (const name of ['新任务', '搜索', '设置']) {
+      const button = rail.getByRole('button', { name, exact: true });
+      assert.equal((await button.boundingBox()).width, 32, `${name} 为 32px 图标按钮`);
+      assert.equal((await button.innerText()).trim(), '', `${name} 不显示文字`);
+    }
+    await page.getByRole('button', { name: '展开侧栏', exact: true }).click();
+    assert.equal(await sidebar.isVisible(), true);
+    assert.equal(await rail.isVisible(), false);
+  });
+});
+
+test('视图选项可按名称排序、显示已归档项目，选择保存在本地并在刷新后恢复', async () => {
+  const sessions = [{ id: 's1', title: 'beta', cwd: '/tmp/ui-project', mtime: Date.now() - 60e3 }, { id: 's2', title: 'alpha', cwd: '/tmp/ui-project', mtime: Date.now() - 3600e3 }];
+  const archivedProjects = [{ path: '/tmp/old-project', name: 'old-project', available: true, sessionCount: 2 }];
+  await withPage(initialState({ sessions, archivedProjects }), {}, async (page) => {
+    const tree = page.getByRole('navigation', { name: '项目列表', exact: true });
+    const order = () => tree.locator('.session-title').allInnerTexts();
+    await tree.getByRole('button', { name: '打开会话 beta', exact: true }).waitFor();
+    assert.deepEqual(await order(), ['beta', 'alpha']);
+    assert.equal(await tree.getByRole('button', { name: '打开项目 old-project', exact: true }).count(), 0);
+    await page.getByRole('button', { name: '视图选项', exact: true }).click();
+    const menu = page.getByRole('menu', { name: '视图选项', exact: true });
+    await menu.getByRole('menuitemradio', { name: '按名称', exact: true }).click();
+    assert.deepEqual(await order(), ['alpha', 'beta']);
+    await page.getByRole('button', { name: '视图选项', exact: true }).click();
+    await menu.getByRole('menuitemradio', { name: '显示已归档', exact: true }).click();
+    const archived = tree.getByRole('button', { name: '打开项目 old-project', exact: true });
+    assert.equal(await archived.isVisible(), true);
+    assert.match(await archived.innerText(), /已归档/);
+    await page.reload();
+    await tree.getByRole('button', { name: '打开会话 beta', exact: true }).waitFor();
+    assert.deepEqual(await order(), ['alpha', 'beta']);
+    assert.equal(await archived.isVisible(), true);
+    await page.getByRole('button', { name: '视图选项', exact: true }).click();
+    assert.equal(await menu.getByRole('menuitemradio', { name: '按名称', exact: true }).getAttribute('aria-checked'), 'true');
+  });
+});
+
+test('项目行悬停出现 ⋯ 与 ⊕：⋯ 菜单可复制路径、归档、移除，⊕ 在该项目新建会话；悬停卡片显示路径与会话数', async () => {
+  const projects = [initialState().projects[0], { path: '/tmp/another-project', name: 'another-project', available: true, sessionCount: 3 }];
+  const state = initialState({ projects }), hits = [];
+  await withPage(state, {
+    '/projects/archive': (body) => { hits.push(['archive', body]); return { ok: true, state }; },
+    '/workspace': (body) => { hits.push(['workspace', body]); state.config.workspace = body.workspace; state.seq++; return { ok: true, state }; },
+    '/session/new': () => { hits.push(['new']); state.seq++; return { ok: true, state }; },
+  }, async (page) => {
+    const tree = page.getByRole('navigation', { name: '项目列表', exact: true });
+    const entry = tree.getByRole('button', { name: '打开项目 another-project', exact: true });
+    await entry.hover();
+    const card = page.getByRole('tooltip');
+    await card.getByText('/tmp/another-project', { exact: true }).waitFor();
+    assert.match(await card.innerText(), /another-project[\s\S]*3 个会话/);
+    const more = tree.getByRole('button', { name: '更多操作 another-project', exact: true });
+    assert.equal(await more.isVisible(), true);
+    await more.click();
+    const menu = page.getByRole('menu', { name: '项目操作', exact: true });
+    assert.deepEqual(await menu.getByRole('menuitem').allInnerTexts(), ['复制路径', '归档项目', '移除记录']);
+    await menu.getByRole('menuitem', { name: '归档项目', exact: true }).click();
+    assert.deepEqual(hits.shift(), ['archive', { workspace: '/tmp/another-project', archived: true }]);
+    await tree.getByRole('button', { name: '打开项目 ui-project', exact: true }).hover();
+    await tree.getByRole('button', { name: '更多操作 ui-project', exact: true }).click();
+    assert.equal(await menu.getByRole('menuitem', { name: '归档项目', exact: true }).isDisabled(), true, '当前项目不能归档');
+    await page.keyboard.press('Escape');
+    await entry.hover();
+    await tree.getByRole('button', { name: '在 another-project 中新建会话', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('[aria-label="打开项目 another-project"]')?.getAttribute('aria-current') === 'page');
+    assert.deepEqual(hits.shift(), ['workspace', { workspace: '/tmp/another-project' }]);
+  });
+});
+
+test('账户菜单「快捷键」与 Cmd/Ctrl+/ 打开快捷键面板；Cmd/Ctrl+O 添加项目，Cmd/Ctrl+Alt+G 重命名当前会话', async () => {
+  let picks = 0;
+  const sessions = [{ id: 's1', title: '当前任务', cwd: '/tmp/ui-project', mtime: 1 }];
+  await withPage(initialState({ sessions }), { '/workspace/pick': () => { picks++; return { workspace: '' }; } }, async (page) => {
+    await page.getByRole('button', { name: '账户菜单', exact: true }).click({ timeout: 2000 });
+    await page.getByRole('menuitem', { name: /快捷键/ }).click();
+    const dialog = page.getByRole('dialog', { name: '键盘快捷键', exact: true });
+    await dialog.waitFor();
+    for (const label of ['新会话', '搜索会话', '添加项目', '设置', '切换侧栏', '切换变更面板', '重命名会话']) assert.equal(await dialog.getByText(label, { exact: true }).isVisible(), true, label);
+    await page.keyboard.press('Escape');
+    assert.equal(await dialog.isVisible(), false);
+    await page.keyboard.press('Control+/');
+    await dialog.waitFor();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+o');
+    await page.waitForTimeout(200);
+    assert.equal(picks, 1, 'Cmd/Ctrl+O 走添加项目');
+    await page.keyboard.press('Control+Alt+g');
+    const rename = page.getByRole('dialog', { name: '重命名会话', exact: true });
+    await rename.waitFor();
+    assert.equal(await page.getByLabel('会话名称', { exact: true }).inputValue(), '当前任务');
+  });
+});
