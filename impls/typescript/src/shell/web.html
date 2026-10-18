@@ -9,34 +9,39 @@
      灰色外框 + 白色内容卡片、弱边框、单一强调色、等宽字体只用于代码与工具。 */
   :root {
     color-scheme: dark;
-    --text: #ececee; --page: #17171a; --sidebar: #0f0f11; --panel: #17171a; --card: #1f1f23;
-    --field: #232328; --border: #2c2c32; --border-strong: #3a3a42; --selected: #26262b; --muted: #9a9aa5; --subtle: #6e6e78; --link: #8ab4ff;
-    --hover: #222227; --bubble: #262a36; --code: #202025; --primary: #3d7bff; --primary-hover: #5b8eff; --on-primary: #fff;
-    --accent-surface: #1c2742; --success: #7bd59a; --warning: #f0b45c; --warning-surface: #2c2418; --danger: #ff9b9b; --danger-surface: #3a2025;
+    /* 设计基准参考 DeepSeek Harness（仅借数值与交互）：近黑主色、三级文字、0.5px 分隔线、36 高控件 */
+    --text: #eceef1; --muted: #a6abb2; --subtle: #7c8187; --page: #16181b; --sidebar: #0f1113; --panel: #16181b; --card: #1d2024;
+    --field: #26292e; --provider-card: #1e2126; --border: rgba(255, 255, 255, .1); --border-strong: rgba(255, 255, 255, .2);
+    --selected: #2b2f35; --hover: rgba(255, 255, 255, .06);
+    --bubble: #262a31; --code: #202225; --primary: #f2f3f5; --primary-hover: #dfe1e5; --on-primary: #0f1115;
+    --link: #7aa7ff; --info: #7aa7ff; --info-surface: #1b2536;
+    --success: #7bd59a; --warning: #f0b45c; --warning-surface: #2c2418; --danger: #ff9b9b; --danger-surface: #3a2025;
     --diff-added: #8fdca5; --diff-added-surface: #17301f; --diff-removed: #f3a3a3; --diff-removed-surface: #3a2126;
-    --shadow-sm: 0 1px 2px #0006; --shadow-md: 0 1px 2px #0005, 0 10px 30px #0006; --overlay: #0008;
+    --shadow-sm: 0 1px 2px #0007; --shadow-md: 0 4px 16px #0007, 0 16px 48px #0008; --overlay: rgba(0, 0, 0, .5);
     --ui-size: 14px; --caption-size: 12px; --title-size: 16px; --message-size: 15px;
-    --radius-control: 8px; --radius-panel: 12px; --radius-composer: 16px; --sidebar-width: 264px; --content-width: 720px;
+    --radius-control: 12px; --radius-card: 20px; --radius-pop: 28px; --sidebar-width: 264px; --content-width: 720px;
     --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
-    font: var(--ui-size)/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font: var(--ui-size)/22px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     -webkit-font-smoothing: antialiased;
     color: var(--text); background: var(--sidebar);
   }
   :root[data-color="light"] {
     color-scheme: light;
-    --text: #1d1d20; --page: #ffffff; --sidebar: #f4f4f6; --panel: #ffffff; --card: #ffffff;
-    --field: #f6f6f8; --border: #e7e7eb; --border-strong: #d6d6dc; --selected: #e8e8ec; --muted: #6a6a74; --subtle: #9b9ba4; --link: #2862e8;
-    --hover: #ececf0; --bubble: #eef2fb; --code: #f4f4f6; --primary: #2f6bff; --primary-hover: #1f5af0; --on-primary: #fff;
-    --accent-surface: #eef3ff; --success: #1f8a4c; --warning: #a2650c; --warning-surface: #fff7e8; --danger: #c43c3c; --danger-surface: #fdeeee;
+    --text: #0f1115; --muted: #61666b; --subtle: #81858c; --page: #ffffff; --sidebar: #f7f8fa; --panel: #ffffff; --card: #ffffff;
+    --field: #f0f2f4; --provider-card: #f5f6f7; --border: rgba(0, 0, 0, .1); --border-strong: rgba(0, 0, 0, .2);
+    --selected: #ebeef2; --hover: rgba(38, 49, 72, .06);
+    --bubble: #eef2fb; --code: #f4f4f6; --primary: #0f1115; --primary-hover: #26292e; --on-primary: #ffffff;
+    --link: #2a7bf6; --info: #2a7bf6; --info-surface: #eaf1fe;
+    --success: #1f8a4c; --warning: #a2650c; --warning-surface: #fff7e8; --danger: #c43c3c; --danger-surface: #fdeeee;
     --diff-added: #1d6b38; --diff-added-surface: #e9f7ee; --diff-removed: #a83434; --diff-removed-surface: #fcefef;
-    --shadow-sm: 0 1px 2px #1d1d200d; --shadow-md: 0 1px 2px #1d1d200a, 0 8px 28px #1d1d2012; --overlay: #1d1d2040;
+    --shadow-sm: 0 1px 2px rgba(15, 17, 21, .06); --shadow-md: 0 4px 16px rgba(15, 17, 21, .08), 0 16px 48px rgba(15, 17, 21, .12); --overlay: rgba(0, 0, 0, .24);
   }
   * { box-sizing: border-box; }
   body { margin: 0; height: 100dvh; }
   ::selection { background: color-mix(in srgb, var(--primary) 28%, transparent); }
   button, input, textarea, select { font: inherit; }
-  /* 控件高度只用 28/32/36：默认按钮 28，图标按钮 32，主行动按钮 36 */
-  button { border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: inherit; min-height: 28px; padding: 0 12px; cursor: pointer; line-height: 1.5; font-size: 13px; transition: background-color .12s, border-color .12s, color .12s, opacity .12s; }
+  /* 控件高统一 36、圆角 12；卡片 20；弹层 28 */
+  button { border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: inherit; min-height: 36px; padding: 0 14px; cursor: pointer; line-height: 22px; font-size: 13px; transition: background-color .12s, border-color .12s, color .12s, opacity .12s; }
   button:hover:not(:disabled) { background: var(--hover); border-color: var(--border-strong); }
   button:disabled { opacity: .45; cursor: default; }
   select { cursor: pointer; }
@@ -55,32 +60,32 @@
   .brand-mark { width: 24px; height: 24px; flex-shrink: 0; border-radius: 6px; display: grid; place-items: center; background: var(--text); color: var(--sidebar); }
   .brand-mark svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .nav-icon { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-  .nav-button { display: flex; align-items: center; gap: 10px; min-height: 32px; text-align: left; background: transparent; border: 0; padding: 0 10px; font-size: 13.5px; border-radius: var(--radius-control); }
+  .nav-button { display: flex; align-items: center; gap: 10px; min-height: 36px; text-align: left; background: transparent; border: 0; padding: 0 10px; font-size: 13.5px; border-radius: var(--radius-control); }
   .nav-button .nav-icon { color: var(--muted); }
   .nav-button:hover:not(:disabled) { background: var(--hover); }
   .nav-button kbd { margin-left: auto; color: var(--subtle); font: 11px var(--mono); opacity: 0; transition: opacity .12s; }
   .nav-button:hover kbd, .nav-button:focus-visible kbd { opacity: 1; }
-  #new { margin-bottom: 4px; min-height: 32px; background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-sm); font-weight: 550; }
+  #new { margin-bottom: 4px; min-height: 36px; background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-sm); font-weight: 550; }
   #new .nav-icon { color: var(--text); }
   #new kbd { opacity: 1; }
   /* 新任务不可用时保持可读：不整体压灰，只降低文字与图标的强调层级 */
   #new:disabled { opacity: 1; color: var(--muted); }
   #new:disabled .nav-icon { color: var(--subtle); }
   .search-fields { padding: 8px 2px 0; }
-  .search-box { position: relative; display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 10px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-control); }
+  .search-box { position: relative; display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 4px 0 10px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-control); }
   .search-box:focus-within { border-color: var(--border-strong); }
   .search-box > .nav-icon { color: var(--subtle); }
   #search { flex: 1; min-width: 0; height: 100%; padding: 0; color: inherit; background: transparent; border: 0; font-size: var(--caption-size); }
   #search:focus { outline: none; }
-  .scope-toggle { display: flex; flex-shrink: 0; gap: 2px; padding: 2px; border-radius: 6px; background: var(--field); }
-  .scope-toggle button { min-height: 24px; height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--subtle); font-size: 11px; }
+  .scope-toggle { display: flex; flex-shrink: 0; gap: 2px; padding: 3px; border-radius: 8px; background: var(--field); }
+  .scope-toggle button { min-height: 28px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--subtle); font-size: 11px; }
   .scope-toggle button:hover:not(:disabled) { background: transparent; color: var(--text); }
   .scope-toggle button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: var(--shadow-sm); }
   #workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session-section { color: var(--subtle); font-size: 11px; font-weight: 500; padding: 12px 10px 4px; }
   #projects { max-height: 24vh; overflow: auto; flex-shrink: 0; display: grid; gap: 1px; }
   #sessions { flex: 1; overflow: auto; min-height: 0; }
-  .project-entry { width: 100%; min-height: 32px; text-align: left; background: transparent; border: 0; display: flex; align-items: center; gap: 9px; padding: 4px 10px; }
+  .project-entry { width: 100%; min-height: 36px; text-align: left; background: transparent; border: 0; display: flex; align-items: center; gap: 9px; padding: 4px 10px; }
   .project-entry b { width: 16px; height: 16px; flex-shrink: 0; font-size: 0; background: var(--muted);
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'%3E%3Cpath d='M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z'/%3E%3C/svg%3E") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'%3E%3Cpath d='M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z'/%3E%3C/svg%3E") center / contain no-repeat; }
@@ -94,33 +99,35 @@
   .session-entry.current { background: var(--selected); }
   .session-entry button { border: 0; background: transparent; text-align: left; }
   .session-entry button:hover:not(:disabled) { background: transparent; }
-  .session-open { flex: 1; overflow: hidden; min-width: 0; min-height: 32px; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; padding: 0 10px; color: var(--text); }
+  .session-open { flex: 1; overflow: hidden; min-width: 0; min-height: 36px; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; padding: 0 10px; color: var(--text); }
   .session-entry:not(.current) .session-open { color: color-mix(in srgb, var(--text) 82%, var(--muted)); }
   .session-rename { width: 28px; height: 28px; min-height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0; color: var(--muted); font-size: 13px; margin-right: 4px; opacity: 0; letter-spacing: -1px; }
   .session-entry:hover .session-rename, .session-entry.current .session-rename, .session-rename:focus-visible { opacity: 1; }
   .session-open.search-result { white-space: normal; overflow-wrap: anywhere; }
   .session-meta, .session-excerpt { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
   .session-excerpt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .sidebar-bottom { padding: 8px 2px 4px; display: flex; align-items: center; gap: 8px; }
-  .local-avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--card); border: 1px solid var(--border); color: var(--text); font: 11px var(--mono); }
-  .local-profile { flex: 1; font-size: 13px; font-weight: 550; min-width: 0; }
-  .local-profile small { display: block; color: var(--subtle); font-size: 11px; font-weight: 400; margin-top: 1px; }
-  #settings-home { width: 32px; height: 32px; min-height: 32px; display: grid; place-items: center; border: 0; background: transparent; padding: 0; color: var(--muted); }
+  .sidebar-bottom { padding: 8px 2px 4px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* 等宽状态行：版本 · 当前模型 · ~/项目路径 */
+  #workspace-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--subtle); font: 11px/16px var(--mono); cursor: default; }
+  #settings-home { width: 36px; height: 36px; min-height: 36px; flex-shrink: 0; display: grid; place-items: center; border: 0; background: transparent; padding: 0; color: var(--muted); }
   #settings-home:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  /* 自定义 tooltip：向上弹出并做边界检测，避免被窗口边缘裁剪 */
+  #tooltip { position: fixed; z-index: 200; max-width: 320px; padding: 5px 10px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow-md); color: var(--text); font-size: 12px; line-height: 18px; pointer-events: none; white-space: nowrap; }
+  #tooltip[hidden] { display: none; }
 
   /* —— 主区：会话卡片 —— */
   .chat { height: 100%; flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--page); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-sm); overflow: hidden; }
-  header { display: flex; gap: 8px; align-items: center; min-height: 52px; padding: 8px 16px 8px 12px; border-bottom: 1px solid var(--border); background: var(--page); }
+  header { display: flex; gap: 8px; align-items: center; min-height: 52px; padding: 8px 16px 8px 12px; border-bottom: 0.5px solid var(--border); background: var(--page); }
   .compact-nav { display: flex; gap: 4px; flex-wrap: wrap; }
   .compact-nav button { font-size: 12px; padding: 0 8px; }
-  #sidebar-toggle { width: 32px; height: 32px; min-height: 32px; padding: 0; flex-shrink: 0; display: grid; place-items: center; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); }
+  #sidebar-toggle { width: 36px; height: 36px; min-height: 36px; padding: 0; flex-shrink: 0; display: grid; place-items: center; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); }
   #sidebar-toggle:hover:not(:disabled) { color: var(--text); background: var(--hover); border-color: transparent; }
   .heading { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
   .heading h1 { display: block; font-size: 15px; margin: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; letter-spacing: -.005em; }
   #status { display: inline-flex; align-items: center; gap: 6px; height: 28px; font-size: 12px; color: var(--muted); white-space: nowrap; padding: 0 10px 0 8px; border-radius: 999px; background: var(--field); }
   #status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--subtle); flex-shrink: 0; }
-  #status[data-status="running"] { color: var(--primary); background: var(--accent-surface); }
-  #status[data-status="running"]::before { background: var(--primary); animation: pulse 1.4s ease-in-out infinite; }
+  #status[data-status="running"] { color: var(--info); background: var(--info-surface); }
+  #status[data-status="running"]::before { background: var(--info); animation: pulse 1.4s ease-in-out infinite; }
   #status[data-status="waiting_approval"] { color: var(--warning); background: var(--warning-surface); }
   #status[data-status="waiting_approval"]::before { background: var(--warning); animation: pulse 1.4s ease-in-out infinite; }
   #status[data-status="setup"] { color: var(--warning); background: var(--warning-surface); }
@@ -129,7 +136,7 @@
   #status[data-status="error"]::before { background: var(--danger); }
   #status[data-status="completed"]::before, #status[data-status="idle"]::before { background: var(--success); }
   @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.8); } }
-  #diff-toggle { flex-shrink: 0; min-height: 28px; font-size: 13px; padding: 0 12px; }
+  #diff-toggle { flex-shrink: 0; min-height: 36px; font-size: 13px; padding: 0 14px; }
   #notice, #storage-warning { padding: 9px 20px; color: var(--danger); background: var(--danger-surface); font-size: 13px; }
 
   /* —— 会话流 —— */
@@ -146,7 +153,8 @@
   .empty h1 { font-size: 28px; font-weight: 500; letter-spacing: -.02em; color: var(--text); margin: 0 0 10px; }
   .empty p { max-width: 460px; margin: 0 auto 22px; font-size: 14px; line-height: 1.7; }
   .setup-steps { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
-  .setup-steps button { min-height: 36px; display: inline-flex; align-items: center; font-size: 14px; padding: 0 16px; border-radius: 12px; }
+  .setup-steps button { min-height: 36px; display: inline-flex; align-items: center; font-size: 14px; padding: 0 16px; border-radius: var(--radius-control); }
+  .setup-steps button:first-child { background: transparent; border-color: var(--border-strong); color: var(--muted); }
   .setup-steps button:last-child { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
   .setup-steps button:last-child:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
   .user { align-self: flex-end; max-width: 78%; border-radius: 18px 18px 6px 18px; padding: 10px 16px; background: var(--bubble); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
@@ -189,7 +197,7 @@
   details.tool pre { margin: 0; padding: 10px 14px; border-top: 1px solid var(--border); max-height: 380px; overflow: auto; color: var(--muted); }
 
   /* 审批卡片 */
-  .perm { border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 0; background: var(--card); box-shadow: var(--shadow-md); overflow: hidden; }
+  .perm { border: 1px solid var(--border); border-radius: var(--radius-card); padding: 0; background: var(--card); box-shadow: var(--shadow-md); overflow: hidden; }
   .perm .title { display: flex; align-items: center; gap: 8px; padding: 12px 16px; font-weight: 600; font-size: 14px; color: var(--text); border-bottom: 1px solid var(--border); background: var(--warning-surface); }
   .perm .title::before { content: ""; width: 16px; height: 16px; flex-shrink: 0; background: var(--warning);
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6Z'/%3E%3Cpath d='M12 8.5v4M12 15.8v.2'/%3E%3C/svg%3E") center / contain no-repeat;
@@ -202,43 +210,46 @@
 
   /* —— 输入区 —— */
   .composer { padding: 8px max(16px, calc((100% - var(--content-width)) / 2)) 12px; flex-shrink: 0; background: linear-gradient(to bottom, transparent, var(--page) 16px); }
-  .queued-line { width: 100%; max-width: var(--content-width); margin: 0 auto 8px; border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 8px 12px; background: var(--card); }
+  .queued-line { width: 100%; max-width: var(--content-width); margin: 0 auto 8px; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 8px 12px; background: var(--card); }
   .queued-line .bar { justify-content: space-between; align-items: center; }
   #queued-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 100px; overflow: auto; margin: 6px 0; font-size: var(--caption-size); }
-  .input-box { position: relative; width: 100%; max-width: var(--content-width); margin: 0 auto; border: 1px solid var(--border); border-radius: var(--radius-composer); background: var(--card); padding: 12px 12px 8px; box-shadow: var(--shadow-sm); transition: border-color .15s; }
+  .input-box { position: relative; width: 100%; max-width: var(--content-width); margin: 0 auto; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); padding: 12px 12px 8px; box-shadow: var(--shadow-sm); transition: border-color .15s; }
   .input-box:focus-within { border-color: var(--border-strong); }
   #input { display: block; width: 100%; background: transparent; color: inherit; border: 0; padding: 4px 4px 8px; resize: none; min-height: 52px; max-height: 240px; overflow-y: auto; font-size: 15px; line-height: 1.6; }
   #input::placeholder { color: var(--subtle); }
   #input:focus { outline: none; }
-  .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding-top: 8px; }
+  .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding-top: 8px; }
   .composer-options { display: flex; align-items: center; gap: 4px; min-width: 0; flex-wrap: wrap; flex: 1; }
   .composer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; }
-  .project-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; min-width: 0; max-width: 200px; padding: 0 10px; border-radius: var(--radius-control); background: var(--field); color: var(--muted); font-size: 12px; }
+  .project-chip { display: inline-flex; align-items: center; gap: 6px; height: 36px; min-width: 0; max-width: 200px; padding: 0 12px; border-radius: var(--radius-control); background: var(--field); color: var(--muted); font-size: 12px; }
   .project-chip .nav-icon { color: var(--subtle); }
   #composer-workspace { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-  #composer-permissions { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--radius-control); cursor: pointer; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  #composer-permissions:hover { background: var(--hover); color: var(--text); }
+  /* 权限模式选择器：状态点表达当前模式，禁用时保持可读不发灰 */
+  #composer-permissions { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-control); cursor: pointer; font-size: 12px; color: var(--text); white-space: nowrap; }
+  #composer-permissions::before { content: ""; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--success); }
+  #composer-permissions:hover { background: var(--hover); }
   #composer-permissions:has(input:checked) { color: var(--warning); background: var(--warning-surface); border-color: color-mix(in srgb, var(--warning) 32%, transparent); }
-  #composer-permissions:has(input:disabled) { opacity: .5; cursor: default; }
-  #composer-permissions:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent); outline-offset: 2px; }
-  #settings { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: 12px; background: transparent; border-color: transparent; color: var(--muted); white-space: nowrap; }
+  #composer-permissions:has(input:checked)::before { background: var(--warning); }
+  #composer-permissions:has(input:disabled) { cursor: default; }
+  #composer-permissions:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--link) 70%, transparent); outline-offset: 2px; }
+  #settings { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; font-size: 12px; background: transparent; border-color: transparent; color: var(--muted); white-space: nowrap; }
   #settings:hover:not(:disabled) { color: var(--text); background: var(--hover); border-color: transparent; }
   #composer-model { min-width: 0; max-width: 180px; }
-  #model-profile-switch { width: 100%; max-width: 180px; min-width: 0; height: 28px; padding: 0 4px 0 10px; border: 1px solid transparent; border-radius: var(--radius-control); color: var(--text); background: transparent; font-size: 12px; text-overflow: ellipsis; }
+  #model-profile-switch { width: 100%; max-width: 180px; min-width: 0; height: 36px; padding: 0 4px 0 10px; border: 1px solid transparent; border-radius: var(--radius-control); color: var(--text); background: transparent; font-size: 12px; text-overflow: ellipsis; }
   #model-profile-switch:hover:not(:disabled) { background: var(--hover); }
-  #stop { width: 32px; height: 32px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
-  #send { width: 32px; height: 32px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
+  #stop { width: 36px; height: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
+  #send { width: 36px; height: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
   /* 发送默认为 32px 圆形图标按钮；排队/确认时由 JS 切到文字胶囊形态 */
   #send.as-text { width: auto; min-width: 32px; padding: 0 12px; font-weight: 550; }
   #send.as-text .nav-icon { display: none; }
   #send.as-text .sr-only { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip-path: none; white-space: nowrap; }
-  .composer-foot { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 8px 8px 0; min-width: 0; color: var(--subtle); font-size: 11px; }
+  .composer-foot { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: var(--content-width); margin: 0 auto; padding: 8px 8px 0; min-width: 0; color: var(--subtle); font-size: 12px; line-height: 18px; }
   #model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #usage { display: block; white-space: nowrap; font-variant-numeric: tabular-nums; }
   #usage:not(:empty)::before { content: "·"; margin-right: 8px; }
-  #send-hint { color: var(--subtle); font-size: 11px; white-space: nowrap; opacity: 0; transition: opacity .12s; }
+  #send-hint { color: var(--subtle); font-size: 12px; line-height: 18px; white-space: nowrap; opacity: 0; transition: opacity .12s; }
   .composer-foot.input-focused #send-hint { opacity: 1; }
-  .hint { color: var(--subtle); font-size: 11px; }
+  .hint { color: var(--subtle); font-size: 12px; line-height: 18px; }
   .primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
   .primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
 
@@ -266,7 +277,7 @@
   .diff-hunk { color: var(--link); }
 
   /* —— 对话框 —— */
-  dialog { width: min(520px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: 16px; padding: 24px; color: inherit; background: var(--card); box-shadow: 0 24px 64px #0004; }
+  dialog { width: min(520px, calc(100% - 32px)); border: 1px solid var(--border); border-radius: var(--radius-pop); padding: 24px; color: inherit; background: var(--card); box-shadow: var(--shadow-md); }
   dialog::backdrop { background: var(--overlay); backdrop-filter: blur(2px); }
   dialog h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
   dialog p { color: var(--muted); font-size: 12px; }
@@ -276,30 +287,75 @@
   dialog .bar { justify-content: flex-end; margin-top: 8px; }
   #config-error { color: var(--danger); white-space: pre-wrap; }
 
-  /* —— 设置中心 —— */
-  .settings-layout { width: 100%; display: flex; min-width: 0; background: var(--page); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-sm); }
-  .workbench:has(> .settings-layout:not([hidden])) { padding-left: 8px; }
-  .settings-sidebar { width: var(--sidebar-width); padding: 14px 10px; background: var(--sidebar); border-right: 1px solid var(--border); flex-shrink: 0; }
-  .settings-sidebar h2 { font-size: 13px; color: var(--subtle); font-weight: 500; margin: 20px 10px 8px; }
+  /* —— 设置中心：居中弹层 —— */
+  #settings-page { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px 16px; background: var(--overlay); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .settings-panel { width: min(800px, 100%); height: min(800px, 100%); display: grid; grid-template-columns: 188px 1fr; grid-template-rows: 48px 1fr; background: var(--page); border-radius: var(--radius-pop); box-shadow: var(--shadow-md); overflow: hidden; }
+  .settings-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 0 20px; border-bottom: 0.5px solid var(--border); }
+  .settings-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .settings-sidebar { border-right: 0.5px solid var(--border); padding: 8px; overflow: auto; background: var(--sidebar); min-height: 0; }
+  .settings-nav-group { color: var(--subtle); font-size: 11px; font-weight: 550; padding: 12px 12px 4px; }
   .settings-sidebar nav { display: grid; gap: 1px; }
-  .settings-sidebar nav button { text-align: left; border: 0; background: transparent; padding: 8px 10px; font-size: 14px; }
+  .settings-sidebar nav button { display: flex; align-items: center; gap: 10px; min-height: 40px; text-align: left; border: 0; background: transparent; padding: 0 12px; font-size: 13.5px; border-radius: var(--radius-control); }
+  .settings-sidebar nav button .nav-icon { color: var(--muted); }
   .settings-sidebar nav button:hover:not(:disabled) { background: var(--hover); }
   .settings-sidebar nav button[aria-current] { background: var(--selected); font-weight: 550; }
-  .settings-main { flex: 1; min-width: 0; overflow: auto; padding: 40px max(28px, calc((100% - 720px) / 2)); }
-  .settings-main h1 { font-size: 24px; margin: 0 0 6px; font-weight: 600; letter-spacing: -.015em; }
-  .settings-description { color: var(--muted); font-size: 13px; line-height: 1.7; margin: 0 0 24px; }
-  .settings-main form { display: grid; gap: 18px; max-width: 720px; }
+  .settings-main { position: relative; overflow: auto; padding: 16px 24px 24px; min-width: 0; }
+  /* 轻提示浮动在内容上方：出现/消失不推移布局（布局抖动会吞掉进行中的点击） */
+  #settings-feedback { position: absolute; top: 10px; left: 24px; right: 24px; z-index: 6; margin: 0; box-shadow: var(--shadow-md); }
+  .settings-main h1 { font-size: 16px; margin: 0 0 4px; font-weight: 600; letter-spacing: -.01em; }
+  .settings-description { color: var(--muted); font-size: 12px; line-height: 18px; margin: 0 0 16px; }
+  /* 行式设置：左标题+说明，右控件；0.5px 分隔线；修改即保存（模型表单除外） */
+  .settings-group-title { font-size: 12px; color: var(--subtle); font-weight: 550; margin: 20px 0 8px; }
+  .settings-rows { border-top: 0.5px solid var(--border); }
+  .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 0.5px solid var(--border); }
+  .settings-row-main { flex: 1; min-width: 0; }
+  .settings-row-main b { display: block; font-size: 14px; font-weight: 550; }
+  .settings-row-main p { margin: 2px 0 0; font-size: 12px; line-height: 18px; color: var(--muted); }
+  .settings-row-control { flex-shrink: 0; display: flex; align-items: center; gap: 8px; max-width: 55%; }
+  .settings-row-control button { white-space: nowrap; }
+  .settings-row-control select, .settings-row-control input[type="number"] { width: 200px; }
+  .settings-row-stack { display: block; }
+  .settings-row-stack label { display: grid; gap: 6px; font-size: 13px; font-weight: 500; }
+  .settings-row-stack input { max-width: 480px; }
+  .settings-actions { display: flex; justify-content: flex-end; padding: 10px 0 2px; }
+  .settings-main form { display: grid; gap: 0; }
   .settings-main label { display: grid; gap: 7px; font-size: 13px; font-weight: 500; }
-  .settings-main input, .settings-main select, .settings-main textarea { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-control); padding: 9px 11px; color: inherit; background: var(--field); font-weight: 400; }
-  .settings-main input:focus, .settings-main select:focus, .settings-main textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
+  .settings-main input, .settings-main select, .settings-main textarea { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-control); min-height: 36px; padding: 6px 11px; color: inherit; background: var(--field); font-weight: 400; }
+  .settings-main input:focus, .settings-main select:focus, .settings-main textarea:focus { border-color: var(--border-strong); outline: none; }
   .settings-main label.inline-check { display: flex; align-items: center; gap: 10px; }
   .settings-main input[type="checkbox"] { width: auto; accent-color: var(--primary); }
-  .settings-card { border: 1px solid var(--border); border-radius: var(--radius-panel); padding: 18px 20px; margin-bottom: 16px; background: var(--card); }
+  /* 开关 */
+  .switch { appearance: none; -webkit-appearance: none; width: 40px; height: 22px; min-height: 22px; border: 0; border-radius: 999px; background: var(--border-strong); position: relative; cursor: pointer; transition: background-color .15s; padding: 0; }
+  .switch::before { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); transition: transform .15s; }
+  .switch:checked { background: var(--success); }
+  .switch:checked::before { transform: translateX(18px); }
+  .switch:disabled { opacity: .4; cursor: default; }
+  /* 折叠的自定义设置：保持渲染（可访问树内），用 grid-rows 展开收起 */
+  .settings-sub { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .18s ease; }
+  .settings-sub > .settings-sub-inner { min-height: 0; overflow: hidden; display: grid; gap: 14px; }
+  .settings-sub.open { grid-template-rows: 1fr; }
+  .sub-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 2px; border: 0; background: transparent; color: var(--muted); justify-content: flex-start; }
+  .sub-toggle:hover:not(:disabled) { background: transparent; color: var(--text); }
+  .sub-toggle::before { content: ""; width: 7px; height: 7px; flex-shrink: 0; border: solid var(--subtle); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s; }
+  .sub-toggle[aria-expanded="true"]::before { transform: rotate(45deg); }
+  /* 模型提供商卡片与列表 */
+  .provider-card { background: var(--provider-card); border-radius: var(--radius-card); padding: 16px; display: grid; gap: 12px; }
+  .provider-card form { display: grid; gap: 12px; }
+  .provider-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .provider-head .provider-select { display: grid; gap: 6px; font-size: 13px; font-weight: 500; max-width: 320px; }
+  .provider-head #model-profile-status { margin: 0; font-size: 12px; line-height: 18px; color: var(--muted); }
+  .provider-bar { margin: 12px 0 8px; }
+  .flex-spacer { flex: 1; }
+  .provider-row { padding: 10px 4px; border-bottom: 0.5px solid var(--border); }
+  .provider-row .bar { align-items: center; justify-content: space-between; }
+  .provider-row code { overflow-wrap: anywhere; }
+  .provider-id { color: var(--subtle); font: 11px/16px var(--mono); margin-top: 4px; }
+  #model-profile-new { border: 1px dashed var(--border-strong); background: transparent; color: var(--muted); width: 100%; }
+  #model-profile-new:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  .settings-card { border: 0.5px solid var(--border); border-radius: var(--radius-card); padding: 16px; margin-top: 16px; background: transparent; }
   .settings-card h2 { font-size: 15px; margin: 0 0 6px; font-weight: 600; }
   .settings-card p { margin: 6px 0 14px; font-size: 13px; color: var(--muted); line-height: 1.7; }
-  .settings-path { color: var(--muted); font: 12px/1.65 var(--mono); overflow-wrap: anywhere; margin: 10px 0; }
-  .settings-facts { display: grid; grid-template-columns: 120px 1fr; gap: 12px 16px; font-size: 13px; }
-  .settings-facts dt { color: var(--muted); }.settings-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .settings-path { color: var(--muted); font: 12px/18px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; margin: 0; cursor: copy; }
   .settings-actions { display: flex; justify-content: flex-end; margin-top: 4px; gap: 8px; }
   .directory-entry { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: 12px; }
   .directory-entry span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
@@ -316,19 +372,17 @@
   #settings-feedback.error { background: var(--danger-surface); }
 
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
-  @media (max-width: 850px) { .settings-sidebar { width: 210px; } .settings-main { padding: 28px 22px; } }
-  @media (max-width: 560px) { .settings-layout { flex-direction: column; min-height: 0; } .settings-sidebar { width: 100%; padding: 10px; border-right: 0; border-bottom: 1px solid var(--border); } .settings-sidebar h2 { display: none; } .settings-sidebar nav { margin-top: 10px; display: flex; overflow-x: auto; } .settings-sidebar nav button { white-space: nowrap; padding: 8px 12px; } .settings-main { padding: 22px 16px; } .settings-main h1 { font-size: 22px; } .settings-facts { grid-template-columns: 90px 1fr; } }
+  @media (max-width: 700px) { .settings-panel { grid-template-columns: 1fr; grid-template-rows: 48px auto 1fr; } .settings-sidebar { border-right: 0; border-bottom: 0.5px solid var(--border); padding: 8px; } .settings-sidebar nav { display: flex; overflow-x: auto; } .settings-sidebar nav button { white-space: nowrap; min-height: 36px; } .settings-nav-group { display: none; } .settings-main { padding: 16px; } .settings-row { flex-wrap: wrap; } .settings-row-control { max-width: 100%; } }
   @media (max-width: 850px) { .sidebar { width: 216px; } header { padding: 8px 12px; gap: 8px; } #log { padding: 20px 16px; } .composer { padding: 8px 16px 12px; } #status { max-width: 120px; overflow: hidden; text-overflow: ellipsis; } }
   @media (max-width: 850px) { .diff-panel { position: fixed; z-index: 2; top: 8px; right: 8px; height: calc(100% - 16px); width: min(420px, calc(100% - 24px)); box-shadow: -16px 0 40px var(--overlay); } }
   @media (max-width: 560px) {
-    .workbench, .workbench:has(> .sidebar[hidden]), .workbench:has(> .settings-layout:not([hidden])) { flex-direction: column; padding: 0; gap: 0; }
-    .chat, .settings-layout { border-radius: 0; border: 0; box-shadow: none; }
+    .workbench, .workbench:has(> .sidebar[hidden]) { flex-direction: column; padding: 0; gap: 0; }
+    .chat { border-radius: 0; border: 0; box-shadow: none; }
     .sidebar { width: 100%; max-height: 230px; padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; border-bottom: 1px solid var(--border); overflow: auto; flex-shrink: 0; }
     #new { margin-bottom: 0; box-shadow: none; }
     .brand, .session-section, .nav-button kbd { display: none; }
     .search-fields { grid-column: span 2; padding: 4px 4px 0; }
     .sidebar-bottom { grid-column: 2; grid-row: 3; border: 0; padding: 4px 0 0; justify-content: flex-end; }
-    .sidebar-bottom .local-avatar, .sidebar-bottom .local-profile { display: none; }
     #workspace-pick { grid-column: 1; grid-row: 3; }
     #projects, #sessions { grid-column: span 2; } #sessions { min-height: 36px; }
     .chat { height: auto; min-height: 0; }
@@ -349,20 +403,19 @@
 <aside class="sidebar" id="workspace-sidebar" aria-label="项目与会话">
   <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 8 4 4-4 4M12.5 16H18"/></svg></span>tcode</div>
   <button id="new" class="nav-button" aria-label="新任务" aria-keyshortcuts="Meta+N Control+N" title="新任务 · ⌘/Ctrl+N"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新任务<kbd>⌘ N</kbd></button>
-  <button id="search-open" class="nav-button" aria-label="搜索" aria-keyshortcuts="Meta+K Control+K" title="搜索 · ⌘/Ctrl+K"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>搜索<kbd>⌘ K</kbd></button>
   <button id="sidebar-automation" class="nav-button"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M8 2h8"/></svg>自动化任务</button>
   <button id="sidebar-capabilities" class="nav-button"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM17 14v6M14 17h6"/></svg>技能与扩展</button>
-  <div class="search-fields"><div class="search-box"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input id="search" type="text" aria-label="搜索会话" placeholder="搜索会话" autocomplete="off"><span class="scope-toggle"><button type="button" id="scope-current" aria-pressed="true">本项目</button><button type="button" id="scope-all" aria-pressed="false">全部</button></span><select id="search-scope" class="sr-only" aria-label="搜索范围" tabindex="-1"><option value="current">当前项目</option><option value="all">所有项目</option></select></div></div>
+  <div class="search-fields"><div class="search-box"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input id="search" type="text" aria-label="搜索会话" placeholder="搜索会话（⌘/Ctrl+K）" aria-keyshortcuts="Meta+K Control+K" autocomplete="off"><span class="scope-toggle"><button type="button" id="scope-current" aria-pressed="true">本项目</button><button type="button" id="scope-all" aria-pressed="false">全部</button></span><select id="search-scope" class="sr-only" aria-label="搜索范围" tabindex="-1"><option value="current">当前项目</option><option value="all">所有项目</option></select></div></div>
   <div class="session-section">项目</div>
   <nav id="projects" aria-label="项目列表"></nav>
   <button id="workspace-pick" aria-label="选择项目目录" class="nav-button">＋ 打开项目</button>
   <div class="session-section" id="workspace-name">当前项目会话</div>
   <nav id="sessions" aria-label="会话列表"></nav>
-  <div class="sidebar-bottom"><span class="local-avatar" aria-hidden="true">&gt;_</span><div class="local-profile">本地工作区<small>tcode · 无需登录</small></div><button id="settings-home" aria-label="设置" aria-keyshortcuts="Meta+, Control+," title="设置 · ⌘/Ctrl+,"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="5"/></svg></button></div>
+  <div class="sidebar-bottom"><span id="workspace-status"></span><button id="settings-home" aria-label="设置" aria-keyshortcuts="Meta+, Control+," data-tip="设置 · ⌘/Ctrl+,"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="12" r="5"/></svg></button></div>
 </aside>
 <main class="chat" id="chat">
 <header>
-  <button id="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" aria-controls="workspace-sidebar" aria-keyshortcuts="Meta+B Control+B" title="收起侧栏 · ⌘/Ctrl+B"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+  <button id="sidebar-toggle" aria-label="收起侧栏" aria-expanded="true" aria-controls="workspace-sidebar" aria-keyshortcuts="Meta+B Control+B" data-tip="收起侧栏 · ⌘/Ctrl+B"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
   <nav id="compact-nav" class="compact-nav" aria-label="快捷入口" hidden><button id="compact-new" aria-label="新任务">＋ 新任务</button><button id="compact-search" aria-label="搜索">搜索</button><button id="compact-settings" aria-label="设置">设置</button></nav>
   <div class="heading"><h1 id="title">tcode</h1></div>
   <span id="status" role="status">连接中</span>
@@ -397,53 +450,111 @@
     <div class="bar"><span id="commit-status" class="hint" role="status" aria-live="polite"></span><button type="submit" class="primary" id="commit-submit" disabled>提交已暂存</button></div>
   </form>
 </aside>
-<section id="settings-page" class="settings-layout" aria-label="设置中心" hidden>
-  <aside class="settings-sidebar">
-    <button id="settings-close" class="nav-button" aria-label="返回工作区">← 返回工作区</button><h2>设置</h2>
-    <nav aria-label="设置分组">
-      <button data-section="general">常规</button><button data-section="model">模型</button><button data-section="permissions">权限</button>
-      <button data-section="appearance">外观</button><button data-section="usage">用量</button><button data-section="automation">自动化</button><button data-section="skills">技能</button><button data-section="commands">命令</button>
-    </nav>
-  </aside>
-  <main class="settings-main">
+<section id="settings-page" aria-label="设置中心" hidden>
+  <div class="settings-panel">
+    <header class="settings-header">
+      <h2>设置</h2>
+      <div class="bar">
+        <button id="config-file-open" type="button">打开配置文件</button>
+        <button id="settings-close" type="button" aria-label="返回工作区" data-tip="返回工作区 · Esc">关闭</button>
+      </div>
+    </header>
+    <aside class="settings-sidebar">
+      <nav aria-label="设置分组">
+        <div class="settings-nav-group">通用</div>
+        <button data-section="general"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h9M17 8h3M15 5.5v5M4 16h3M11 16h9M7 13.5v5"/></svg>常规</button>
+        <button data-section="appearance"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16" fill="currentColor" stroke="none"/></svg>外观</button>
+        <button data-section="model"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>模型</button>
+        <button data-section="permissions"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6Z"/></svg>权限</button>
+        <div class="settings-nav-group">扩展</div>
+        <button data-section="skills"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM17 14v6M14 17h6"/></svg>技能</button>
+        <button data-section="commands"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 8 4 4-4 4M12.5 16H18"/></svg>命令</button>
+        <button data-section="automation"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M8 2h8"/></svg>自动化</button>
+        <button data-section="usage"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-8M12 20V4M19 20v-5"/></svg>用量</button>
+      </nav>
+    </aside>
+    <main class="settings-main">
     <div id="settings-feedback" role="status" aria-live="polite" hidden></div>
     <section id="settings-general" data-settings="general">
-      <h1>常规</h1><p class="settings-description">项目、消息输入和本地数据。</p>
-      <div class="settings-card"><h2>当前项目</h2><p>选择本机上的项目目录。切换项目会恢复该项目的会话。</p><div id="config-workspace" class="settings-path"></div><button id="general-workspace-pick">选择目录</button></div>
-      <div class="settings-card"><h2>项目管理</h2><p>归档会将项目移出导航，保留历史会话；恢复后可继续使用。当前项目需先切换到其他项目才能归档。</p><div id="project-management"></div></div>
-      <form id="general-form" class="settings-card"><h2>消息输入</h2><label class="inline-check"><input id="enter-to-send" type="checkbox">Enter 发送消息</label><p>开启时 Shift+Enter 换行。关闭时 Enter 换行，⌘/Ctrl+Enter 发送。</p><div class="settings-actions"><button type="submit" class="primary">保存常规设置</button></div></form>
-      <div class="settings-card"><h2>本地数据</h2><dl class="settings-facts"><dt>版本</dt><dd id="app-version"></dd><dt>数据目录</dt><dd id="data-dir"></dd></dl></div>
+      <h1>常规</h1><p class="settings-description">项目、消息输入和本地数据。修改后立即保存；长路径悬停显示全文，点击复制。</p>
+      <h2 class="settings-group-title">当前项目</h2>
+      <div class="settings-rows">
+        <div class="settings-row"><div class="settings-row-main"><b>项目目录</b><p>选择本机上的项目目录，切换项目会恢复该项目的会话。</p></div><div class="settings-row-control"><div id="config-workspace" class="settings-path"></div><button type="button" id="general-workspace-pick">选择目录</button></div></div>
+      </div>
+      <h2 class="settings-group-title">项目管理</h2>
+      <div class="settings-rows">
+        <div class="settings-row"><div class="settings-row-main"><b>归档与移除</b><p>归档会将项目移出导航，保留历史会话；恢复后可继续使用。当前项目需先切换到其他项目才能归档。</p></div></div>
+        <div id="project-management"></div>
+      </div>
+      <form id="general-form">
+        <h2 class="settings-group-title">消息输入</h2>
+        <div class="settings-rows">
+          <div class="settings-row"><div class="settings-row-main"><b>Enter 发送消息</b><p>开启时 Shift+Enter 换行。关闭时 Enter 换行，⌘/Ctrl+Enter 发送。</p></div><div class="settings-row-control"><label class="inline-check"><input id="enter-to-send" type="checkbox" class="switch"><span class="sr-only">Enter 发送消息</span></label></div></div>
+          <div class="settings-actions"><button type="submit">保存常规设置</button></div>
+        </div>
+      </form>
+      <h2 class="settings-group-title">本地数据</h2>
+      <div class="settings-rows">
+        <div class="settings-row"><div class="settings-row-main"><b>版本</b><p>tcode 当前版本号。</p></div><div class="settings-row-control"><code id="app-version"></code></div></div>
+        <div class="settings-row"><div class="settings-row-main"><b>数据目录</b><p>会话与配置的本地存储位置，点击复制路径。</p></div><div class="settings-row-control"><code id="data-dir" class="settings-path"></code></div></div>
+      </div>
     </section>
     <section id="settings-model" data-settings="model" hidden>
-  <h1>模型</h1>
-  <p class="settings-description">请求发送到你配置的 API 端点。API Key 仅用于保存，不读回页面。</p>
-  <div class="settings-card"><h2>已保存的模型</h2><label>已保存模型配置<select id="settings-model-profile" aria-label="已保存模型配置"><option value="">当前模型 · 未命名配置</option></select></label><p id="model-profile-status" aria-live="polite"></p><div class="bar"><button id="model-profile-new">新建模型配置</button><button id="model-profile-cancel" hidden>取消新建</button><button id="model-export" title="导出全部命名配置为 JSON，不含 API Key">导出配置</button><button id="model-import" title="从导出的 JSON 文件导入；重复端点会跳过，导入后需重新填写密钥">导入配置</button><input type="file" id="model-import-file" accept="application/json,.json" hidden aria-label="选择配置文件"></div><div id="model-profile-list" aria-label="已保存配置列表"></div></div>
-  <form id="settings-form">
-    <label>配置名称<input id="config-profile-name" maxlength="80" autocomplete="off" placeholder="填写名称可保存到模型列表"></label>
-    <label>API 端点<input id="config-base-url" name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
-    <label>模型<input id="config-model" name="model" required autocomplete="off" list="model-options"></label>
-    <div class="bar"><button type="button" id="model-discover" title="使用已保存的配置请求端点的模型列表（10 秒超时）">获取模型列表</button><datalist id="model-options"></datalist></div>
-    <label>API Key<input id="config-api-key" name="apiKey" type="password" autocomplete="new-password" placeholder="填写密钥；已保存时留空保留"></label>
-    <p id="model-key-hint" class="settings-description"></p>
-    <label>协议<select id="config-protocol" name="protocol"><option value="auto">自动识别</option><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></label>
-    <label>上下文 Token 上限<input id="config-context-limit" name="contextLimit" type="number" min="1" step="1" required></label>
-    <div id="config-error" role="alert"></div>
-    <div class="settings-actions"><button type="submit" class="primary" id="settings-save">保存设置</button></div>
-  </form>
-  <div class="settings-card" style="margin-top: 28px"><h2>连接测试</h2><p>请先保存配置，再测试已保存的模型连接。测试只发送固定短消息，不发送工具或项目内容，最多等待 10 秒，可能产生少量用量。</p><div class="bar"><button id="connection-test">测试已保存的连接</button><button id="connection-cancel" hidden>取消测试</button></div><p id="connection-result" role="status" aria-live="polite" hidden></p></div>
+      <h1>模型</h1>
+      <p class="settings-description">请求发送到你配置的 API 端点。API Key 仅用于保存，不读回页面。</p>
+      <div class="provider-card">
+        <div class="provider-head">
+          <label class="provider-select">已保存模型配置<select id="settings-model-profile" aria-label="已保存模型配置"><option value="">当前模型 · 未命名配置</option></select></label>
+          <p id="model-profile-status" aria-live="polite"></p>
+        </div>
+        <form id="settings-form">
+          <label>配置名称<input id="config-profile-name" maxlength="80" autocomplete="off" placeholder="填写名称可保存到模型列表"></label>
+          <label>API 端点<input id="config-base-url" name="baseUrl" type="url" required placeholder="https://example.com/v1"></label>
+          <label>模型<input id="config-model" name="model" required autocomplete="off" list="model-options"></label>
+          <div class="bar"><button type="button" id="model-discover" title="使用已保存的配置请求端点的模型列表（10 秒超时）">获取模型列表</button><datalist id="model-options"></datalist></div>
+          <label>API Key<input id="config-api-key" name="apiKey" type="password" autocomplete="new-password" placeholder="填写密钥；已保存时留空保留"></label>
+          <p id="model-key-hint" class="settings-description"></p>
+          <button type="button" id="model-advanced-toggle" class="sub-toggle" aria-expanded="false" aria-controls="model-advanced">自定义设置</button>
+          <div class="settings-sub" id="model-advanced"><div class="settings-sub-inner">
+            <label>协议<select id="config-protocol" name="protocol"><option value="auto">自动识别</option><option value="openai">OpenAI 兼容</option><option value="anthropic">Anthropic</option></select></label>
+            <label>上下文 Token 上限<input id="config-context-limit" name="contextLimit" type="number" min="1" step="1" required></label>
+          </div></div>
+          <div id="config-error" role="alert"></div>
+          <div class="settings-actions"><button type="submit" class="primary" id="settings-save">保存设置</button></div>
+        </form>
+      </div>
+      <div class="bar provider-bar"><button id="model-profile-new" aria-label="新建模型配置">＋ 添加模型提供商</button><button id="model-profile-cancel" hidden>取消新建</button><span class="flex-spacer"></span><button id="model-export" title="导出全部命名配置为 JSON，不含 API Key">导出配置</button><button id="model-import" title="从导出的 JSON 文件导入；重复端点会跳过，导入后需重新填写密钥">导入配置</button><input type="file" id="model-import-file" accept="application/json,.json" hidden aria-label="选择配置文件"></div>
+      <div id="model-profile-list" aria-label="已保存配置列表"></div>
+      <div class="settings-card"><h2>连接测试</h2><p>请先保存配置，再测试已保存的模型连接。测试只发送固定短消息，不发送工具或项目内容，最多等待 10 秒，可能产生少量用量。</p><div class="bar"><button id="connection-test">测试已保存的连接</button><button id="connection-cancel" hidden>取消测试</button></div><p id="connection-result" role="status" aria-live="polite" hidden></p></div>
     </section>
     <section data-settings="permissions" hidden>
-      <h1>权限</h1><p class="settings-description">保存后对当前会话及后续新任务生效。输入区的“全部免审批”仅用于当前会话。</p>
-      <form id="permissions-form"><label>默认审批方式<select id="approval" aria-label="默认审批方式"><option value="normal">需要时询问</option><option value="never">全部免审批</option></select></label>
-        <div class="settings-card"><h2>写入免审批目录</h2><p>这些目录内的 write/edit 可免逐次审批；其他文件及命令仍按默认审批执行。移除目录后恢复逐次审批。</p><div id="extra-write-dirs"></div><button type="button" id="extra-dir-pick">添加免审批目录</button></div>
-        <div class="settings-card"><h2>轮次结束钩子</h2><p>每轮对话结束后在当前项目目录执行的 shell 命令（30 秒超时）；轮次状态经环境变量 TCODE_HOOK_STATUS 传入，stdout/stderr 会回显到会话。钩子以你的用户权限执行任意命令，请谨慎填写。</p>
-          <label>轮结束钩子（留空禁用）<input id="after-turn" maxlength="2000" placeholder="例如：notify-send \"一轮结束\"" autocomplete="off"></label>
-          <label>轮开始钩子（留空禁用）<input id="before-turn" maxlength="2000" placeholder="例如：say \"开始新的轮次\"" autocomplete="off"></label></div>
-        <p class="settings-description">全部免审批允许工具直接执行文件修改和命令，请根据当前项目选择。</p>
-        <div class="settings-actions"><button type="submit" class="primary">保存权限设置</button></div>
+      <h1>权限</h1><p class="settings-description">保存后对当前会话及后续新任务生效。输入区的“全部免审批”仅用于当前会话。修改后立即保存；全部免审批允许工具直接执行文件修改和命令，请根据当前项目选择。</p>
+      <form id="permissions-form">
+        <div class="settings-rows">
+          <div class="settings-row"><div class="settings-row-main"><b>默认审批方式</b><p>需要时询问，或对全部工具免审批。</p></div><div class="settings-row-control"><select id="approval" aria-label="默认审批方式"><option value="normal">需要时询问</option><option value="never">全部免审批</option></select></div></div>
+        </div>
+        <h2 class="settings-group-title">写入免审批目录</h2>
+        <div class="settings-rows">
+          <div class="settings-row"><div class="settings-row-main"><b>免审批目录</b><p>这些目录内的 write/edit 可免逐次审批；其他文件及命令仍按默认审批执行。移除目录后恢复逐次审批。</p></div><div class="settings-row-control"><button type="button" id="extra-dir-pick">添加免审批目录</button></div></div>
+          <div id="extra-write-dirs"></div>
+        </div>
+        <h2 class="settings-group-title">轮次钩子</h2>
+        <p class="settings-description">在当前项目目录执行的 shell 命令（30 秒超时）；轮次状态经环境变量 TCODE_HOOK_STATUS 传入，stdout/stderr 会回显到会话。钩子以你的用户权限执行任意命令，请谨慎填写。</p>
+        <div class="settings-rows">
+          <div class="settings-row settings-row-stack"><label>轮开始钩子（留空禁用）<input id="before-turn" maxlength="2000" placeholder="例如：say \"开始新的轮次\"" autocomplete="off"></label></div>
+          <div class="settings-row settings-row-stack"><label>轮结束钩子（留空禁用）<input id="after-turn" maxlength="2000" placeholder="例如：notify-send \"一轮结束\"" autocomplete="off"></label></div>
+          <div class="settings-actions"><button type="submit">保存权限设置</button></div>
+        </div>
       </form>
     </section>
-    <section data-settings="appearance" hidden><h1>外观</h1><p class="settings-description">外观偏好保存在本地，适用于所有项目。</p><form id="appearance-form"><label>主题<select id="theme" aria-label="主题"><option value="system">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></label><label>消息字号<select id="font-size" aria-label="消息字号"><option value="14">小 · 14 px</option><option value="16">默认 · 16 px</option><option value="18">大 · 18 px</option></select></label><div class="settings-actions"><button class="primary" type="submit">保存外观设置</button></div></form></section>
+    <section data-settings="appearance" hidden>
+      <h1>外观</h1><p class="settings-description">外观偏好保存在本地，适用于所有项目。修改后立即保存。</p>
+      <form id="appearance-form"><div class="settings-rows">
+        <div class="settings-row"><div class="settings-row-main"><b>主题</b><p>跟随系统、深色或浅色。</p></div><div class="settings-row-control"><select id="theme" aria-label="主题"><option value="system">跟随系统</option><option value="dark">深色</option><option value="light">浅色</option></select></div></div>
+        <div class="settings-row"><div class="settings-row-main"><b>消息字号</b><p>会话记录的正文大小。</p></div><div class="settings-row-control"><select id="font-size" aria-label="消息字号"><option value="14">小 · 14 px</option><option value="16">默认 · 16 px</option><option value="18">大 · 18 px</option></select></div></div>
+        <div class="settings-actions"><button type="submit">保存外观设置</button></div>
+      </div></form>
+    </section>
     <section data-settings="usage" hidden><h1>用量</h1><p class="settings-description">本地已记录的会话用量。仅包含模型返回并写入会话的 Token 统计，不等同于账户剩余额度或云端账单。</p><div class="settings-card"><h2>账户余额</h2><p>从当前已保存配置的端点查询账户余额；仅 OpenAI 兼容端点支持，不影响本地统计，也不是账单。</p><div id="balance-info" class="usage-total">—</div><p id="balance-meta" class="settings-description"></p><div class="bar"><button id="balance-refresh">查询余额</button></div></div><div class="settings-card"><h2>已记录的会话用量</h2><div id="usage-total" class="usage-total">—</div><div class="usage-split"><span id="usage-input"></span><span id="usage-output"></span></div><p id="usage-scope"></p><button id="usage-refresh" aria-label="刷新用量">刷新</button></div></section>
     <section data-settings="automation" hidden>
       <h1>自动化</h1><p class="settings-description">在当前项目后台运行一条任务：使用已保存的模型在隔离会话中以免审批模式执行（无人值守，请勿在提示词里要求执行不可逆操作）。结果与会话过程留存本机。</p>
@@ -483,6 +594,7 @@
           <div class="bar"><button type="button" id="mcp-cancel" hidden>取消</button><button type="button" class="primary" id="mcp-save">保存</button></div>
         </form></div></section>
   </main>
+  </div>
 </section>
 </div>
 <dialog id="rename-dialog" aria-labelledby="rename-title">
@@ -587,8 +699,7 @@
     $('workspace-pick').disabled = $('settings').disabled;
     $('settings-home').disabled = !connected || saving || changing || connectionBusy;
     $('sidebar-automation').disabled = $('sidebar-capabilities').disabled = $('settings-home').disabled;
-    $('search-open').disabled = !connected || saving || changing || connectionBusy;
-    $('compact-new').disabled = $('new').disabled; $('compact-search').disabled = $('search-open').disabled; $('compact-settings').disabled = $('settings-home').disabled;
+    $('compact-new').disabled = $('new').disabled; $('compact-search').disabled = !connected || saving || changing || connectionBusy; $('compact-settings').disabled = $('settings-home').disabled;
     $('general-workspace-pick').disabled = $('settings').disabled;
     $('settings-save').disabled = $('settings').disabled;
     renderModelProfiles();
@@ -612,17 +723,18 @@
     const stopShown = connected && !!view?.busy;
     $('stop').hidden = !stopShown; $('stop').disabled = !stopShown;
     $('diff-toggle').disabled = !connected || !view?.ready;
+    updateDiffToggle();
     updateCommitBar();
-    // 说明行：未就绪显示原因，就绪显示模型名；Token 用量仅就绪时出现
-    const reason = view ? readinessHint() : '';
-    $('model').textContent = reason || (view ? `${view.config?.model || '模型未配置'} · ${view.config?.protocol === 'auto' ? '自动识别协议' : view.config?.protocol || ''}` : '连接中…');
-    $('usage').hidden = !!reason;
+    // 说明行只显示模型名与 Token 用量；未就绪原因只出现在空态和状态胶囊，不再重复三处
+    const modelText = view ? `${view.config?.model || '模型未配置'} · ${view.config?.protocol === 'auto' ? '自动识别协议' : view.config?.protocol || ''}` : '连接中…';
+    $('model').textContent = view && !view.config?.model ? '模型未配置' : modelText;
+    $('usage').hidden = !view?.config?.model;
     const usage = view?.usage || { prompt_tokens: 0, completion_tokens: 0 };
     const format = (value) => Number(value || 0).toLocaleString('zh-CN');
     $('usage').textContent = `输入 ${format(usage.prompt_tokens)} · 输出 ${format(usage.completion_tokens)} · 共 ${format(usage.prompt_tokens + usage.completion_tokens)} Tokens`;
     $('send-hint').textContent = view?.preferences?.enterToSend === false ? 'Enter 换行 · ⌘/Ctrl+Enter 发送' : 'Enter 发送 · Shift+Enter 换行';
     const labels = { idle: '就绪', running: '正在执行', waiting_approval: '等待审批', completed: '已完成', aborted: '已停止', error: '执行失败' };
-    $('status').textContent = !connected ? '连接断开，正在重连' : !view?.ready ? (view?.config?.workspace ? '需要配置模型' : '需要选择项目') : view.busy && view.status === 'completed' ? '正在完成任务' : labels[view.status] || '就绪';
+    $('status').textContent = !connected ? '连接断开，正在重连' : !view?.ready ? (view?.config?.workspace ? '未配置' : '未选项目') : view.busy && view.status === 'completed' ? '正在完成任务' : labels[view.status] || '就绪';
     $('status').dataset.status = !connected ? 'offline' : !view?.ready ? 'setup' : view?.status || 'idle';
     renderProjects(); renderProjectManagement(); renderSessions(); if (settingsSection === 'commands') renderCommands(); if (settingsSection === 'skills') renderSkills();
   }
@@ -665,7 +777,7 @@
     $('model-export').disabled = $('model-import').disabled = !connected || !!view?.busy || saving || changing;
     const list = document.createDocumentFragment();
     for (const profile of view?.modelProfiles || []) {
-      const entry = row('capability-entry', undefined, list), bar = row('bar', undefined, entry);
+      const entry = row('provider-row', undefined, list), bar = row('bar', undefined, entry);
       const name = document.createElement('code'); name.textContent = profile.name + (profile.id === view?.activeModelProfileId ? '（使用中）' : '');
       bar.append(name);
       const button = document.createElement('button'); button.textContent = '删除';
@@ -674,6 +786,8 @@
       button.disabled = navigationBlocked() || profile.id === view?.activeModelProfileId;
       button.onclick = () => deleteModelProfileRecord(profile);
       bar.append(button);
+      const id = document.createElement('div'); id.className = 'provider-id'; id.textContent = profile.id; id.title = profile.id;
+      entry.append(id);
     }
     if (!list.childNodes.length) row('dim', '尚无命名配置；填写配置名称保存后可在此管理', list);
     $('model-profile-list').replaceChildren(list);
@@ -947,12 +1061,19 @@
       if (requestId !== diffRequest) return;
       changes = body; renderChanges();
     } catch (error) { if (requestId === diffRequest) { changes = null; $('diff-content').textContent = error.message; updateCommitBar(); } }
-    finally { if (requestId === diffRequest) $('diff-refresh').disabled = false; }
+    finally { if (requestId === diffRequest) { $('diff-refresh').disabled = false; updateDiffToggle(); } }
   }
   function toggleDiff(open) {
     $('diff-panel').hidden = !open; $('diff-toggle').setAttribute('aria-expanded', String(open));
     $('diff-toggle').textContent = open ? '收起变更' : '查看变更';
+    updateDiffToggle();
     if (open) void loadChanges();
+  }
+  // 没有已知变更时隐藏入口；面板打开或数据未知时保留，状态翻转后重新可探
+  function updateDiffToggle() {
+    const panelOpen = !$('diff-panel').hidden;
+    const knownEmpty = !!changes && !changes.error && !(changes.files?.length);
+    $('diff-toggle').hidden = !panelOpen && knownEmpty;
   }
   $('diff-toggle').onclick = () => toggleDiff($('diff-panel').hidden);
   $('diff-close').onclick = () => { toggleDiff(false); $('diff-toggle').focus(); };
@@ -1047,6 +1168,13 @@
     const previousScroll = log.scrollTop; log.replaceChildren(fragment);
     log.scrollTop = bottom ? log.scrollHeight : previousScroll;
   }
+  // 路径显示：家目录（数据目录的上一级）折叠为 ~，过长时中间省略；title/copy 保留完整路径
+  function shortPath(path) {
+    if (!path) return path;
+    const home = (view?.dataDir || '').replace(/\/+$/, '').replace(/\/[^/]+$/, '');
+    const shortened = home && path.startsWith(home) ? '~' + path.slice(home.length) : path;
+    return shortened.length > 44 ? shortened.slice(0, 20) + '…' + shortened.slice(-20) : shortened;
+  }
   function applyState(state) {
     if (view && state.currentSessionId === view.currentSessionId && state.config?.workspace === view.config?.workspace && Number(state.seq) < lastSeq) return;
     if (view && (view.activeModelProfileId !== state.activeModelProfileId || ['baseUrl', 'model', 'protocol', 'contextLimit'].some((field) => view.config?.[field] !== state.config?.[field]))) { connectionResult(''); $('model-options').replaceChildren(); }
@@ -1062,12 +1190,18 @@
     $('composer-workspace').textContent = projectName;
     $('composer-workspace').title = workspace;
     $('workspace-name').textContent = (workspace.split(/[\\/]/).filter(Boolean).at(-1) || '当前项目') + ' · 会话';
+    $('workspace-status').textContent = [state.version ? 'v' + state.version : '', state.config?.model || '', shortPath(workspace)].filter(Boolean).join(' · ');
+    $('workspace-status').title = workspace;
     $('storage-warning').textContent = state.storageError || ''; $('storage-warning').hidden = !state.storageError;
     $('config-workspace').textContent = workspace || '尚未选择目录';
+    $('config-workspace').title = workspace;
     $('app-version').textContent = state.version || '—'; $('data-dir').textContent = state.dataDir || '—';
+    $('data-dir').title = state.dataDir || '';
+    $('config-file-open').dataset.tip = '打开 ' + shortPath((state.dataDir || '~/.tcode') + '/config.json');
     applyPreferences();
     controls(); renderLog();
     if (workspaceChanged) void searchSessions();
+    if (refreshDiff) changes = null;
     if (refreshDiff && !$('diff-panel').hidden) void loadChanges();
   }
   function settingsFeedback(message, error = false) {
@@ -1146,12 +1280,11 @@
     sidebarCollapsed = collapsed; $('workspace-sidebar').hidden = collapsed || !!settingsSection;
     $('sidebar-toggle').setAttribute('aria-expanded', String(!collapsed));
     $('sidebar-toggle').setAttribute('aria-label', collapsed ? '展开侧栏' : '收起侧栏');
-    $('sidebar-toggle').title = (collapsed ? '展开侧栏' : '收起侧栏') + ' · ⌘/Ctrl+B';
+    $('sidebar-toggle').dataset.tip = (collapsed ? '展开侧栏' : '收起侧栏') + ' · ⌘/Ctrl+B';
     $('compact-nav').hidden = !collapsed;
   }
   $('sidebar-toggle').onclick = () => { if (!settingsSection) setSidebar(!sidebarCollapsed); };
   $('compact-new').onclick = () => $('new').click();
-  $('compact-search').onclick = () => $('search-open').click();
   $('compact-settings').onclick = () => $('settings-home').click();
   function renderCommands() {
     const commands = document.createDocumentFragment(), tools = document.createDocumentFragment();
@@ -1449,6 +1582,34 @@
   }
   $('general-form').onsubmit = (event) => { event.preventDefault(); void savePreferences({ enterToSend: $('enter-to-send').checked }); };
   $('appearance-form').onsubmit = (event) => { event.preventDefault(); void savePreferences({ theme: $('theme').value, fontSize: Number($('font-size').value) }); };
+  // 行式设置修改即保存（保留提交按钮兼容既有操作路径；模型表单仍走显式保存）。
+  // 自动保存用独立的 autoSaving：不置 saving、不禁用表单，避免打断正在输入的下一处修改。
+  let autoSaving = false;
+  async function autoSave(kind, body) {
+    if (!view || view.busy || saving || changing || autoSaving || !connected) return;
+    autoSaving = true; settingsFeedback('');
+    try {
+      const result = kind === 'config' ? await api('/config', body) : await api('/preferences', { ...view.preferences, ...body });
+      applyState(result.state); settingsFeedback('设置已保存');
+    } catch (error) { settingsFeedback(error.message, true); }
+    finally { autoSaving = false; controls(); }
+  }
+  $('enter-to-send').addEventListener('change', () => void autoSave('preferences', { enterToSend: $('enter-to-send').checked }));
+  for (const control of ['theme', 'font-size']) {
+    $(control).addEventListener('change', () => void autoSave('preferences', { theme: $('theme').value, fontSize: Number($('font-size').value) }));
+  }
+  function collectPermissions() { return { approval: $('approval').value, allowWriteDirs: extraWriteDirs, afterTurn: $('after-turn').value, beforeTurn: $('before-turn').value }; }
+  async function savePermissionsNow() {
+    if (!view || view.busy || saving || changing || !connected) return;
+    saving = true; controls(); settingsFeedback('');
+    try { const result = await api('/config', collectPermissions()); applyState(result.state); settingsFeedback('设置已保存'); }
+    catch (error) { settingsFeedback(error.message, true); }
+    finally { saving = false; controls(); }
+  }
+  $('permissions-form').onsubmit = (event) => { event.preventDefault(); void savePermissionsNow(); };
+  for (const control of ['approval', 'before-turn', 'after-turn']) {
+    $(control).addEventListener('change', () => void autoSave('config', collectPermissions()));
+  }
   function renderWriteDirs() {
     const fragment = document.createDocumentFragment();
     for (const directory of extraWriteDirs) {
@@ -1466,16 +1627,26 @@
   $('extra-dir-pick').onclick = async () => {
     if (!view || view.busy || changing || saving) return;
     changing = true; controls(); settingsFeedback('');
-    try { const directory = await selectDirectory(); if (directory && !extraWriteDirs.includes(directory)) { extraWriteDirs.push(directory); renderWriteDirs(); } }
+    let added = false;
+    try { const directory = await selectDirectory(); if (directory && !extraWriteDirs.includes(directory)) { extraWriteDirs.push(directory); renderWriteDirs(); added = true; } }
     catch (error) { settingsFeedback(error.message, true); }
-    finally { changing = false; controls(); }
+    finally { changing = false; controls(); if (added) void savePermissionsNow(); }
   };
-  $('permissions-form').onsubmit = async (event) => {
-    event.preventDefault(); if (!view || view.busy || saving || changing) return;
-    saving = true; controls(); settingsFeedback('');
-    try { const result = await api('/config', { approval: $('approval').value, allowWriteDirs: extraWriteDirs, afterTurn: $('after-turn').value, beforeTurn: $('before-turn').value }); applyState(result.state); settingsFeedback('设置已保存'); }
-    catch (error) { settingsFeedback(error.message, true); }
-    finally { saving = false; controls(); }
+  $('model-advanced-toggle').onclick = () => {
+    const open = !$('model-advanced').classList.contains('open');
+    $('model-advanced').classList.toggle('open', open);
+    $('model-advanced-toggle').setAttribute('aria-expanded', String(open));
+  };
+  // 打开配置文件：桌面壳能打开就打开，否则复制路径
+  $('config-file-open').onclick = async () => {
+    const path = `${view?.dataDir || '~/.tcode'}/config.json`;
+    try {
+      if (window.__TAURI__?.core?.invoke) { await window.__TAURI__.core.invoke('open_config_file', { path }); settingsFeedback('已在系统中打开配置文件'); return; }
+      throw new Error('浏览器环境直接复制路径');
+    } catch {
+      try { await navigator.clipboard.writeText(path); settingsFeedback(`已复制配置文件路径：${path}`); }
+      catch { settingsFeedback(`配置文件路径：${path}`); }
+    }
   };
   $('settings').onclick = () => openSettings('model');
   $('settings-home').onclick = () => { if (!settingsSection) openSettings(); };
@@ -1500,10 +1671,13 @@
   }
   $('workspace-pick').onclick = pickWorkspace;
   $('general-workspace-pick').onclick = pickWorkspace;
-  $('search-open').onclick = () => {
-    if ($('search-open').disabled || (settingsSection && $('settings-close').disabled)) return;
-    if (settingsSection) closeSettings(); setSidebar(false); $('search').focus(); $('search').select();
-  };
+  // 搜索唯一入口：侧栏搜索框本身，⌘/Ctrl+K 或折叠态的「搜索」按钮聚焦它
+  function openSearch() {
+    if (!connected || saving || changing || testingConnection || cancellingConnection || (settingsSection && $('settings-close').disabled)) return;
+    if (settingsSection) closeSettings();
+    setSidebar(false); $('search').focus(); $('search').select();
+  }
+  $('compact-search').onclick = openSearch;
   $('search').oninput = searchSessions;
   $('search-scope').onchange = searchSessions;
   // 两段式范围切换：按钮同步隐藏 select 的值并触发 change，保持原有搜索逻辑
@@ -1622,10 +1796,40 @@
     finally { changing = false; controls(); input.focus(); }
   };
   document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !event.isComposing) {
+      if (settingsSection && !document.querySelector('dialog[open]')) { event.preventDefault(); closeSettings(); }
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing || event.repeat || document.querySelector('dialog[open]')) return;
-    const button = { n: 'new', k: 'search-open', ',': 'settings-home', b: 'sidebar-toggle' }[event.key.toLowerCase()];
+    if (event.key.toLowerCase() === 'k') { event.preventDefault(); openSearch(); return; }
+    const button = { n: 'new', ',': 'settings-home', b: 'sidebar-toggle' }[event.key.toLowerCase()];
     if (!button) return;
     event.preventDefault(); $(button).click();
+  });
+  // 自定义 tooltip：默认向上弹出，贴顶时翻到下方，横向夹在视口内
+  const tip = document.createElement('div'); tip.id = 'tooltip'; tip.hidden = true; tip.setAttribute('role', 'tooltip'); document.body.append(tip);
+  function showTip(target) {
+    tip.textContent = target.dataset.tip || ''; tip.hidden = false;
+    const box = target.getBoundingClientRect(), rect = tip.getBoundingClientRect();
+    let top = box.top - rect.height - 8;
+    if (top < 8) top = box.bottom + 8;
+    let left = box.left + box.width / 2 - rect.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - rect.width - 8));
+    tip.style.left = `${left}px`; tip.style.top = `${top}px`;
+  }
+  function hideTip() { tip.hidden = true; }
+  for (const el of document.querySelectorAll('[data-tip]')) {
+    el.addEventListener('mouseenter', () => showTip(el));
+    el.addEventListener('mouseleave', hideTip);
+    el.addEventListener('focus', () => showTip(el));
+    el.addEventListener('blur', hideTip);
+  }
+  // 路径点击复制：完整路径进剪贴板，悬停已有 title 显示全文
+  document.addEventListener('click', (event) => {
+    const el = event.target.closest('.settings-path, #data-dir, #config-workspace');
+    if (!el) return;
+    const text = el.title || el.textContent;
+    navigator.clipboard?.writeText(text).then(() => { if (settingsSection) settingsFeedback('已复制路径：' + text); }).catch(() => {});
   });
   $('yolo').onchange = async () => {
     $('yolo').disabled = true;
