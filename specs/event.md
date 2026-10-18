@@ -104,3 +104,17 @@
   gcode `internal/core` ok（含新增占位绿锁）；tcode 本主题零改动（Context 轮 47/47 已验）。
 - 冒烟：pcode A/B/C/D/F/H 全过、rcode 7/7、gcode ok（缓存命中，源码未变）；
   ccode 未跑（环境缺 .NET SDK）。
+
+## 修订草案（ADR-003，未定稿）
+
+> 状态：WP0 起草，随各工作包合并定稿。定稿前现行规则仍然生效。
+
+- **新增变体**：`context_edit { strategy, cleared, savedTokens, at }`、
+  `tool_error { call_id, name, kind, detail }`、
+  `limit { kind, limit, behavior }`。
+- **既有变体增量**：`trimmed` / `compact` 增加可选字段
+  `at: 'turn_start' | 'model_call'`；旧壳忽略该字段不出错。
+- **壳兼容**：遇到不认识的事件类型必须忽略（repl switch 有 default 分支、
+  web renderLog switch 不匹配即跳过），本草案已用 tcode 单测锁定。
+- **TurnEndReason 不新增取值**：到达上限后仍以 `completed` 结束，原因由
+  `limit` 事件表达。

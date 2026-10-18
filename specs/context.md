@@ -104,3 +104,17 @@
   gcode `internal/core` ok、rcode 50/50；ccode 未跑（缺 .NET SDK，见低置信区）。
 - 冒烟：tcode exit=0 七场景全过；pcode A/B/C/D/F/H 全过；gcode smoke ok；rcode 7/7；
   ccode 未跑。
+
+## 修订草案（ADR-003，未定稿）
+
+> 状态：WP0 起草，随 WP1/WP2 合并定稿。定稿前现行规则仍然生效。
+
+- **触发点**：从"轮前一次"扩展为"轮前 + 每次模型调用前"（含强制总结那次）。
+- **策略顺序**：清理旧工具输出（保留最近 3 条）→ 压缩 → 裁剪；只有前两步
+  后仍超阈值才进入下一步（零成本优先，R1）。
+- **压缩摘要输入**：必须包含工具名、参数（截断 200 字符）、结果开头
+  （截断 300 字符）；不再只写 `(tool_calls: N 个)`。
+- **事件**：治理发生时发 `context_edit`（清理）/ `compact`（压缩）/ `trimmed`
+  （裁剪），并携带 `at: 'turn_start' | 'model_call'`。
+- **改写入口**：所有改写走 `TurnState.replaceMessages()`，校验不变式
+  I1–I4 后 `store.checkpoint`（I5），保证持久化与内存一致。
