@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentEvent, ChatMessage } from '../kernel/types.ts';
 import type { App } from '../kernel/app.ts';
+import type { TurnMiddleware } from './middleware.ts';
 import { runTurn } from './agentloop.ts';
 import { compactContext } from './compact.ts';
 import { repairDanglingToolCalls } from './repair.ts';
@@ -18,6 +19,8 @@ export interface TurnHooks {
   signal?: AbortSignal;
   /** 规范事件出口：壳渲染（REPL 直写/web 转 SSE）、审计与测试断言都消费它 */
   emit: (ev: AgentEvent) => void;
+  /** WP1：轮内用户中间件（外→内）；组合顺序固定 planMode → 用户中间件 → permission */
+  middleware?: TurnMiddleware[];
 }
 
 export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Promise<void> {
@@ -66,6 +69,7 @@ export async function runUserTurn(app: App, line: string, hooks: TurnHooks): Pro
         emit({ type: 'tool_result', call_id: callId, name, summary: result.split('\n')[0], output: result, ms }),
       onToolError: (e) => emit({ type: 'tool_error', ...e }), // WP3：参数校验失败/未知工具事件
       onUsage: (usage) => emit({ type: 'usage', ...usage }),
+      middleware: hooks.middleware, // WP1：透传给 runTurn（固定管线见 agentloop）
       onMessage: (m) => app.store.append(m), // WP6：轮内每 push 一条消息就落盘
     });
   } catch (e) {

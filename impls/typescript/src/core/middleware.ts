@@ -1,7 +1,7 @@
-// 轮内中间件契约（ADR-003/WP0）：本文件只提交类型与直通组合器，不改任何行为。
-// WP1 在这里实现洋葱组合、权限最内层断言与 assertInvariants。
-// 设计约束（01-目标架构）：中间件不进 Registry，由 turn 固定顺序组装；
-// 权限闸门固定在最内层；钩子只拿受控的 TurnState，改写消息必须走 replaceMessages。
+// 轮内中间件（ADR-003/WP1）：固定顺序组合、洋葱 wrapToolCall 与消息完整性不变式校验。
+// 设计约束（01-目标架构 §2）：中间件不进 Registry，由 turn 固定顺序组装；
+// 权限闸门固定在最内层；钩子只拿受控的 TurnState，改写消息必须走 replaceMessages；
+// 中间件不得调用 provider.chat 重试（需要调模型走 state.callModel）。
 import type { AgentEvent, ChatMessage, CompletionResult, ToolCall } from '../kernel/types.ts';
 import type { App } from '../kernel/app.ts';
 
@@ -43,7 +43,7 @@ export interface ToolOutcome {
 
 /**
  * 轮内中间件：beforeModel/afterModel 按数组顺序调用（外→内），
- * wrapToolCall 洋葱组合（外层最先进、最后出）。实现见 WP1。
+ * wrapToolCall 洋葱组合（外层最先进、最后出）。
  */
 export interface TurnMiddleware {
   name: string;
@@ -53,39 +53,77 @@ export interface TurnMiddleware {
 }
 
 /**
- * WP0 直通实现：按数组顺序顺序调用各钩子，不改变任何现有行为。
- * WP1 实现：洋葱组合 + "权限闸门必须最内层"的注册时断言（spec agent-loop R9）。
+ * 组合器（WP1）：固定顺序组合，权限闸门必须最内层。
+ * - 组合顺序 = 数组顺序（外→内）；runTurn 构建为 planMode → 用户中间件 → permission（spec agent-loop R9）。
+ * - permission 不在最内层（05 R12：用户中间件出现在 permission 内侧 = 可绕过审批）→ 注册时抛错。
+ * - beforeModel/afterModel 按顺序执行，任一返回 {jumpTo} 立即短路。
+ * - wrapToolCall 用 reduceRight 从最内层向外包裹：外→内→工具→内→外。
+ * - 只组合真正存在的钩子：无中间件声明某钩子时该属性为 undefined，
+ *   调用方据此跳过 await——空管线不引入任何额外微任务跳变（行为与无中间件时逐位一致）。
  */
 export function composeMiddleware(middlewares: TurnMiddleware[]): TurnMiddleware {
-  return {
-    name: middlewares.map((m) => m.name).join('>') || 'noop',
-    async beforeModel(state) {
+  const permissionIdx = middlewares.findIndex((m) => m.name === 'permission');
+  if (permissionIdx !== -1 && permissionIdx !== middlewares.length - 1) {
+    throw new Error(
+      `composeMiddleware：permission 必须是最内层中间件（数组最后一位），当前位于第 ${permissionIdx} 位（spec agent-loop R9 / 05 R12）`
+    );
+  }
+  const composed: TurnMiddleware = { name: middlewares.map((m) => m.name).join('>') || 'noop' };
+  if (middlewares.some((m) => m.beforeModel)) {
+    composed.beforeModel = async (state) => {
       for (const m of middlewares) {
         const jump = await m.beforeModel?.(state);
         if (jump) return jump;
       }
-    },
-    async afterModel(state, result) {
+    };
+  }
+  if (middlewares.some((m) => m.afterModel)) {
+    composed.afterModel = async (state, result) => {
       for (const m of middlewares) {
         const jump = await m.afterModel?.(state, result);
         if (jump) return jump;
       }
-    },
-    async wrapToolCall(call, state, next) {
-      // 从最后一个中间件向内包裹，数组首个 = 最外层
-      const dispatch = (i: number): Promise<ToolOutcome> =>
-        i >= middlewares.length ? next() : (middlewares[i].wrapToolCall?.(call, state, () => dispatch(i + 1)) ?? dispatch(i + 1));
-      return dispatch(0);
-    },
-  };
+    };
+  }
+  if (middlewares.some((m) => m.wrapToolCall)) {
+    composed.wrapToolCall = async (call, state, next) => {
+      // 从最后一个中间件（最内层）向第一个（最外层）包裹，最后包上真正的工具执行
+      const dispatch = middlewares.reduceRight<() => Promise<ToolOutcome>>(
+        (inner, m) => () => (m.wrapToolCall ? m.wrapToolCall(call, state, inner) : inner()),
+        next,
+      );
+      return dispatch();
+    };
+  }
+  return composed;
 }
 
 /**
- * 消息完整性不变式校验（01-目标架构 §3）。WP0 空实现，WP1 实现：
- * I1 messages[0] 永远是 system；
- * I2 每个带 tool_calls 的 assistant 消息后必须紧跟对应 id 的全部 tool 消息，不多不少；
- * I3 本轮用户消息（mark 位置）不得被删除或摘要。
+ * 消息完整性不变式校验（01-目标架构 §3）：
+ * I2 每个 assistant.tool_calls 后必须紧跟对应 id 的全部 tool 消息，不多不少；
+ * I3 mark 必须指向本轮用户消息。
+ * I1/I4 需要"改写前"的信息，由 replaceMessages 调用方（agentloop）比对原数组后调用本函数。
  */
-export function assertInvariants(_messages: readonly ChatMessage[], _mark: number): void {
-  // WP1 实现
+export function assertInvariants(messages: readonly ChatMessage[], mark: number): void {
+  // I3：mark 必须指向本轮用户消息
+  if (messages[mark]?.role !== 'user') {
+    throw new Error(`不变式 I3：mark(${mark}) 必须指向本轮用户消息`);
+  }
+  // I2：每个带 tool_calls 的 assistant 消息，后面必须紧跟对应 id 的全部 tool 消息，不多不少
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role !== 'assistant' || !m.tool_calls?.length) continue;
+    const pending = new Set(m.tool_calls.map((c) => c.id));
+    let j = i + 1;
+    while (j < messages.length && messages[j].role === 'tool') {
+      const id = messages[j].tool_call_id ?? '';
+      if (!pending.delete(id)) {
+        throw new Error(`不变式 I2：assistant(${i}) 后存在多余或重复的 tool 消息（tool_call_id=${id}）`);
+      }
+      j++;
+    }
+    if (pending.size > 0) {
+      throw new Error(`不变式 I2：assistant(${i}) 缺少对应 tool 消息（tool_call_id=${[...pending].join(', ')}）`);
+    }
+  }
 }
