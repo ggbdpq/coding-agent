@@ -100,6 +100,17 @@ function providerChecks(scenario, raw) {
         actual: hit ? "found" : "not_found",
       });
     }
+    if (item.has_tool_message_any !== undefined) {
+      const msgs = Array.isArray(body.messages) ? body.messages : [];
+      const texts = item.has_tool_message_any;
+      const hit = msgs.some((m) => m?.role === "tool" && texts.includes(m?.content));
+      checks.push({
+        check: `request#${item.nth} 存在 content 命中登记占位文案之一的 tool 消息`,
+        ok: hit,
+        expected: texts,
+        actual: hit ? "found" : `found_texts:${JSON.stringify([...new Set(msgs.filter((m) => m?.role === "tool").map((m) => m?.content))])}`,
+      });
+    }
     if (item.has_tools !== undefined) {
       const stat = raw.requestStats?.[item.nth - 1];
       const actual = stat ? stat.has_tools : "no_stat";

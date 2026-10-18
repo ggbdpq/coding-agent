@@ -1,8 +1,10 @@
 // SC-010：崩溃恢复——工具执行中进程被强杀后，携恢复旗标重启，重启后的第一个请求必须
-// 携带完整且配对的历史。期望值来源：session-turn.md 修订草案（落盘时机=每产生一条消息就
+// 携带完整且配对的历史。期望值来源：session-turn.md（落盘时机=每产生一条消息就
 // append：崩溃前已产生的 user / assistant(tool_calls) 消息不丢；加载会话时对历史文件里
-// 悬空的 tool_calls 补占位 tool 消息）+ event.md R8（占位文案「（用户中止，未执行）」为
-// 五版逐字锁定契约）+ agent-loop 本质约束 1（消息配对不变量：任何出口不悬空）。
+// 悬空的 tool_calls 补占位 tool 消息）+ event.md R8 及其允许偏差表（占位文案：家族统一
+// 「（用户中止，未执行）」；rs 登记偏差「（本轮出错，未执行）」；ts 登记偏差
+// 「（本轮中断，未取得执行结果；请先检查实际状态）」）+ agent-loop 本质约束 1（消息配对
+// 不变量：任何出口不悬空）。
 // 第一阶段 exec 模式：剧本给一个长命令工具调用，stdout 出现 [tool] 标记（工具开始执行的
 // 五版统一标记，S3 通道契约）即 SIGKILL——模拟工具执行中崩溃；第二阶段 repl + 恢复旗标
 // （--continue，五版统一入口契约）继续对话。
@@ -14,7 +16,7 @@ export default {
   purpose: "验证逐消息落盘与加载断尾修复：崩溃前消息都在，重启后第一次请求序列合法、悬空已补占位",
   related_specs: [
     "session-turn.md#修订草案（每产生一条消息就 append；加载时修复断尾）",
-    "event.md#R8（断尾占位文案逐字锁定）",
+    "event.md#R8（断尾占位文案：家族统一 + 允许偏差表）",
     "agent-loop.md#本质约束1（消息配对不变量）",
   ],
   maturity: "draft", // ADR-003 TS 先行：非参考实现差异按 normalization-policy E9 判 ALLOW_DIFF（复查 2026-11-18）
@@ -46,7 +48,11 @@ export default {
         {
           nth: 2, // 重启后的第一次请求
           no_dangling_tool_calls: true, // 消息配对合法：assistant(tool_calls) 不悬空
-          has_tool_message_equals: "（用户中止，未执行）", // 断尾已补占位（event R8 锁定文案）
+          has_tool_message_any: [
+            "（用户中止，未执行）", // event.md R8 家族统一契约（py/go/cs）
+            "（本轮出错，未执行）", // event.md 允许偏差：rs
+            "（本轮中断，未取得执行结果；请先检查实际状态）", // event.md 允许偏差：ts
+          ],
         },
       ],
     },
