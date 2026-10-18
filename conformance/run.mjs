@@ -11,6 +11,15 @@ import { runScenario } from "./adapters/shared.mjs";
 const CONF = fileURLToPath(new URL(".", import.meta.url));
 const ADAPTER_NAMES = ["typescript", "python", "go", "rust", "csharp"];
 
+// E9 过渡期宽容（docs/conformance-normalization-policy.md §2 E9）：ADR-003 轮内控制点 TS 先行，
+// 这些场景对非 TS 版本的行为差异判 ALLOW_DIFF 并引用 E9；TS 版结果不受影响，缺失运行时仍 INFRA。
+// 复查日期 2026-11-18：届时五版应同步完毕，本清单清空。
+const E9_TS_FIRST_PREFIXES = ["SC-005", "SC-006", "SC-007", "SC-008", "SC-009", "SC-010"];
+const e9Allow = (scenarioId, runtime) =>
+  E9_TS_FIRST_PREFIXES.some((p) => scenarioId.startsWith(p)) && runtime !== "typescript"
+    ? "E9（ADR-003 TS 先行，复查 2026-11-18）"
+    : null;
+
 function freshLabel(f) {
   if (!f.ok) return "FAIL";
   return f.kind === "interpreted" ? "interpreted" : `fresh sha256:${f.sha256}@${f.builtAt}`;
@@ -43,11 +52,12 @@ async function runOne(scenarioFile) {
       kind: raw.kind,
       exitCode: raw.exitCode,
       providerRequests: raw.providerRequests,
+      crashPhase: raw.crashPhase,
       stderrHead: (raw.stderr ?? "").slice(0, 300),
       stdoutHead: (raw.stdout ?? "").slice(0, 200),
     };
     entry.canonical = normalize(name, scenario, raw);
-    entry.diff = diffScenario(scenario, entry.canonical);
+    entry.diff = diffScenario(scenario, entry.canonical, e9Allow(scenario.id, name));
     results.push(entry);
   }
   return { scenario, results };
@@ -77,6 +87,7 @@ function render(scenario, gateFail, results) {
     lines.push(`- 执行链：${freshLabel(r.freshness)}`);
     if (r.raw) {
       lines.push(`- raw：kind=${r.raw.kind} exit=${r.raw.exitCode ?? "—"} providerRequests=${r.raw.providerRequests}`);
+    if (r.raw.crashPhase) lines.push(`- crash 阶段：${q(JSON.stringify(r.raw.crashPhase))}`);
       lines.push(`- stderr（前 300 字符）：\n\n\`\`\`\n${q(r.raw.stderrHead)}\n\`\`\``);
       if (r.raw.stdoutHead) lines.push(`- stdout（前 200 字符）：\n\n\`\`\`\n${q(r.raw.stdoutHead)}\n\`\`\``);
     }
