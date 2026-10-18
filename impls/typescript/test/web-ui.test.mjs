@@ -392,7 +392,56 @@ test('设置中心独立于工作区，八组可导航且模型保存后能返�
   });
 });
 
-test('工作区可快捷切换已保存模型，保留会话、消息草稿和用量且配置名称只作为文本', async () => {
+test('composer 模型位显示当前模型，点击弹出模型/配置两行菜单', async () => {
+  const state = initialState();
+  await withPage(state, {}, async (page) => {
+    const chip = page.getByRole('button', { name: '切换模型', exact: true });
+    await chip.waitFor();
+    assert.equal(await chip.textContent(), 'test-model', '模型位显示当前模型名');
+    await chip.click();
+    const menu = page.getByRole('menu', { name: '切换模型', exact: true });
+    await menu.waitFor();
+    assert.equal(await menu.getByRole('menuitem', { name: /模型/ }).count(), 1, '根菜单含模型行');
+    assert.equal(await menu.getByRole('menuitem', { name: /配置/ }).count(), 1, '根菜单含配置行');
+    assert.equal(await menu.getByText('推理等级').count(), 0, '无推理契约就没有推理等级行（harness 规则）');
+  });
+});
+
+test('模型行下钻列出端点模型，点选后保存到活动配置且不回传密钥', async () => {
+  const active = { id: 'p-active', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', protocol: 'openai', contextLimit: 100000, hasApiKey: true };
+  const base = initialState();
+  const state = initialState({ modelProfiles: [active], activeModelProfileId: 'p-active', config: { ...base.config, baseUrl: active.baseUrl, model: active.model } });
+  let saved;
+  await withPage(state, {
+    '/model/discover': () => ({ models: ['deepseek-flash', 'deepseek-v4-pro'] }),
+    '/model-profiles/save': (body) => {
+      saved = body;
+      state.modelProfiles = [{ ...active, model: body.model }];
+      state.config = { ...state.config, model: body.model };
+      state.seq++;
+      return { ok: true, state };
+    },
+  }, async (page) => {
+    await page.getByRole('button', { name: '切换模型', exact: true }).click();
+    await page.getByRole('menuitem', { name: /模型/ }).click();
+    await page.getByRole('menuitemradio', { name: 'deepseek-v4-pro', exact: true }).waitFor();
+    assert.deepEqual(
+      await page.getByRole('menuitemradio').evaluateAll((nodes) => nodes.map((node) => node.textContent)),
+      ['deepseek-flash', 'deepseek-v4-pro'],
+    );
+    assert.equal(
+      await page.getByRole('menuitemradio', { name: 'deepseek-flash', exact: true }).getAttribute('aria-checked'),
+      'true', '当前模型带勾选标记',
+    );
+    await page.getByRole('menuitemradio', { name: 'deepseek-v4-pro', exact: true }).click();
+    await page.getByRole('button', { name: '切换模型', exact: true }).getByText('deepseek-v4-pro').waitFor();
+    assert.equal(saved.id, 'p-active');
+    assert.equal(saved.model, 'deepseek-v4-pro');
+    assert.equal(saved.apiKey, undefined, '不回传密钥，已保存密钥（钥匙串）原样保留');
+  });
+});
+
+test('配置行下钻可切换已保存配置，保留会话、消息草稿和用量且配置名称只作为文本', async () => {
   const profile = { id: 'p2', name: '本地 <img src=x onerror="alert(1)">', baseUrl: 'http://127.0.0.1:8081/v1', model: 'second-model', protocol: 'openai', contextLimit: 32000, hasApiKey: true };
   const state = initialState({ modelProfiles: [profile], title: '已有任务', activity: [{ type: 'text', delta: '已有回答', seq: 1 }], usage: { prompt_tokens: 20, completion_tokens: 4 }, seq: 1 });
   let selected;
@@ -401,16 +450,18 @@ test('工作区可快捷切换已保存模型，保留会话、消息草稿和�
     return { ok: true, state };
   } }, async (page) => {
     await page.getByRole('textbox', { name: '消息', exact: true }).fill('尚未发送的任务');
-    const choice = page.getByRole('combobox', { name: '切换模型配置', exact: true });
-    await choice.selectOption(profile.id);
+    await page.getByRole('button', { name: '切换模型', exact: true }).click();
+    await page.getByRole('menuitem', { name: /配置/ }).click();
+    const row = page.getByRole('menuitemradio', { name: /second-model/ });
+    await row.waitFor();
+    assert.equal(await page.locator('#composer-model-menu img').count(), 0, '配置名称只作为文本渲染');
+    await row.click();
     await page.getByText('second-model · openai', { exact: true }).waitFor();
     assert.deepEqual(selected, { id: 'p2' });
     assert.equal(await page.getByRole('heading', { name: '已有任务', exact: true }).isVisible(), true);
     assert.equal(await page.getByText('已有回答', { exact: true }).isVisible(), true);
     assert.equal(await page.getByRole('textbox', { name: '消息', exact: true }).inputValue(), '尚未发送的任务');
     assert.equal(await page.getByLabel('会话 Token 用量', { exact: true }).textContent(), '输入 20 · 输出 4 · 共 24 Tokens');
-    assert.equal(await choice.locator('option:checked').textContent(), profile.name);
-    assert.equal(await page.locator('#model-profile-switch img').count(), 0);
   });
 });
 
@@ -438,7 +489,7 @@ test('旧模型可命名保存并激活，未保存模型草稿在设置分组�
     assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).inputValue(), 'saved-one');
     await page.getByRole('button', { name: '返回工作区', exact: true }).click();
     await page.reload();
-    assert.equal(await page.getByRole('combobox', { name: '切换模型配置', exact: true }).inputValue(), 'saved-one');
+    assert.equal(await page.getByRole('button', { name: '切换模型', exact: true }).textContent(), 'named-model', '重载后模型位显示活动配置的模型');
   });
 });
 
@@ -584,7 +635,7 @@ test('模型配置保存或切换失败保留编辑草稿、原活动配置和�
 test('审批等待、连接测试和失联期间，模型切换、新建和保存均禁用', async () => {
   const profile = { id: 'saved', name: '已保存模型', ...initialState().config };
   await withPage(initialState({ modelProfiles: [profile], busy: true, status: 'waiting_approval' }), {}, async (page) => {
-    assert.equal(await page.getByRole('combobox', { name: '切换模型配置', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '切换模型', exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: '设置', exact: true }).click();
     await page.getByRole('navigation', { name: '设置分组', exact: true }).getByRole('button', { name: '模型', exact: true }).click();
     assert.equal(await page.getByRole('combobox', { name: '已保存模型配置', exact: true }).isDisabled(), true);
@@ -605,7 +656,7 @@ test('审批等待、连接测试和失联期间，模型切换、新建和保�
     await page.getByRole('button', { name: '返回工作区', exact: true }).click();
     for (const stream of streams) stream.destroy();
     await page.getByText('连接断开，正在重连', { exact: true }).waitFor();
-    assert.equal(await page.getByRole('combobox', { name: '切换模型配置', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '切换模型', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: '模型设置', exact: true }).isDisabled(), true);
   });
 });
@@ -911,9 +962,9 @@ test('日常工作台导航直达任务和扩展，输入区承载模型权限�
     '/memory': () => ({ content: '' }),
   }, async (page) => {
     const composer = page.locator('footer.composer');
-    assert.equal(await composer.getByRole('combobox', { name: '切换模型配置', exact: true }).isVisible(), true);
+    assert.equal(await composer.getByRole('button', { name: '切换模型', exact: true }).isVisible(), true);
     assert.equal(await composer.getByRole('checkbox', { name: '全部免审批', exact: true }).isVisible(), true);
-    assert.equal(await page.locator('header').getByRole('combobox', { name: '切换模型配置', exact: true }).count(), 0);
+    assert.equal(await page.locator('header').getByRole('button', { name: '切换模型', exact: true }).count(), 0);
     const heading = page.getByRole('heading', { name: title, exact: true });
     const titleBounds = await heading.boundingBox();
     const statusBounds = await page.locator('#status').boundingBox();
@@ -950,7 +1001,7 @@ test('日常工作台导航直达任务和扩展，输入区承载模型权限�
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await heading.isVisible(), true);
     assert.equal(await input.isVisible(), true);
-    assert.equal(await composer.getByRole('combobox', { name: '切换模型配置', exact: true }).isVisible(), true);
+    assert.equal(await composer.getByRole('button', { name: '切换模型', exact: true }).isVisible(), true);
     assert.equal(await composer.getByRole('checkbox', { name: '全部免审批', exact: true }).isVisible(), true);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, '窄屏不应横向溢出');
   });
@@ -2072,7 +2123,7 @@ test('空会话的项目 chip 与模式 chip 位于输入框上方，composer �
     assert.deepEqual(commands, ['/plan']);
     const row = page.locator('.composer-toolbar');
     const xs = [];
-    for (const control of [row.getByRole('button', { name: '插入命令', exact: true }), row.getByRole('checkbox', { name: '全部免审批', exact: true }), row.getByRole('combobox', { name: '切换模型配置', exact: true }), row.getByRole('button', { name: '发送', exact: true })]) {
+    for (const control of [row.getByRole('button', { name: '插入命令', exact: true }), row.getByRole('checkbox', { name: '全部免审批', exact: true }), row.getByRole('button', { name: '切换模型', exact: true }), row.getByRole('button', { name: '发送', exact: true })]) {
       xs.push((await control.boundingBox()).x);
     }
     assert.deepEqual([...xs].sort((a, b) => a - b), xs, '底行顺序为 + / 权限 / 模型 / 发送');
