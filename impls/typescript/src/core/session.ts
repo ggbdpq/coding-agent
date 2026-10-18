@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { ChatMessage } from '../kernel/types.ts';
 import type { SessionInitialData } from '../kernel/app.ts';
+import { repairDanglingToolCalls } from './repair.ts';
 
 export interface SessionSummary {
   file: string;
@@ -124,6 +125,9 @@ export class SessionStore {
         /* 跳过坏行 */
       }
     }
+    // WP6（R7）：历史文件可能以悬空 tool_calls 断尾（进程被杀），加载即补占位，
+    // 与轮内中断共用同一个修复函数；占位只在内存，下一次自然 append 时随消息流落盘。
+    for (const m of repairDanglingToolCalls(messages)) messages.push(m);
     return messages;
   }
 

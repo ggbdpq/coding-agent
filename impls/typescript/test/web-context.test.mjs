@@ -187,7 +187,14 @@ test('压缩后本轮消息只落盘用户输入，重启仍完整重放工具�
       const record = JSON.parse(line);
       return record.type === 'message' && record.message.role === 'user';
     });
-    writeFileSync(original, lines.slice(0, user + 1).join('\n') + '\n');
+    // WP6 增量落盘：user 消息行先于本轮后续 activity 事件写盘，真实崩溃不会丢事件流。
+    // 模拟"只落盘用户输入、终态缺失"：丢 user 之后的 message 行（内容由事件流回放）、
+    // 丢末尾 turn_end 保持轮未完成，保留 activity 事件。
+    const kept = lines.slice(0, user + 1).concat(
+      lines.slice(user + 1)
+        .filter((line) => { const record = JSON.parse(line); return record.type !== 'message' && record.event?.type !== 'turn_end'; }),
+    );
+    writeFileSync(original, kept.join('\n') + '\n');
   });
   const restored = await h.state();
   assert.deepEqual(restored.messages.map((message) => ({ ...message, content: message.content ?? '' })),

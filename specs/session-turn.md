@@ -104,14 +104,19 @@ py 的 append 捕获范围收窄已按写作约定 1 裁决修复（见"分歧�
   本主题未改 ts/go/rust/cs 源码。
 - 冒烟：pcode A/B/C/D/F/H 全过（session.py 改动后复跑）；其余版本源码未动。
 
-## 修订草案（ADR-003，未定稿）
+## 修订定稿（ADR-003，WP6 已定稿）
 
-> 状态：WP0 起草，随 WP6 合并定稿。定稿前现行规则仍然生效。
+> 状态：WP0 起草；WP6（分支 feat/wp6-incremental-persist）按 tcode 实际行为定稿以下三条。
 
-- **落盘时机**：从"轮末 appendSince 批量"改为"每产生一条消息就 append"
-  （`TurnDeps.onMessage`）；单条写失败只告警不中断，不做 fsync（R6）。
-- **断尾修复**：加载会话时对历史文件里悬空的 `tool_calls` 补占位 tool 消息，
-  复用轮内中断的同一个修复函数（R7）。
-- **checkpoint 一致性**：轮内治理改写历史仍走既有
-  `{type:'context_checkpoint'}` 机制，加载以最后一个 checkpoint 为起点
-  （R8）；修复断尾发生在 checkpoint 回放之后。
+- **落盘时机（WP6 已定稿）**：逐条落盘——用户消息 push 后立即 `append`；agentloop
+  每次 `messages.push` 后经 `TurnDeps.onMessage` 回调 `append`；异常路径补的断尾
+  占位消息同样逐条 `append`。轮末批量补写（`appendSince`/mark 机制）已删除。
+  单条写失败静默不中断，不做 fsync（R6）。
+- **断尾修复（WP6 已定稿）**：加载会话时（`load()` 返回前）对历史文件里悬空的
+  `tool_calls` 补占位 tool 消息，文案与轮内中断逐字一致
+  （「（本轮中断，未取得执行结果；请先检查实际状态）」），复用
+  `core/repair.ts` 的同一个修复函数 `repairDanglingToolCalls`（R7）；补出的占位
+  只在内存，下一次自然 `append` 时随消息流落盘。
+- **checkpoint 一致性（WP6 已核实定稿）**：轮内治理改写历史仍走既有
+  `{type:'context_checkpoint'}` 机制，加载以最后一个 checkpoint 为起点（R8）；
+  断尾修复发生在 checkpoint 回放之后（`test/persist.test.ts` 回归锁）。

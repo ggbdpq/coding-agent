@@ -8,3 +8,4 @@
 
 | 规则编号 | 规则摘要 | TS 提交/分支 | 四版状态 | 登记来源 |
 |---|---|---|---|---|
+| session-turn | 落盘时机+加载断尾修复 | feat/wp6-incremental-persist | 四版待同步 | WP6 |
