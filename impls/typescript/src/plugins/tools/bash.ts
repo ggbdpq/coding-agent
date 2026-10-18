@@ -59,6 +59,8 @@ export default definePlugin({
       const child = spawn(file, [...shellArgs, command], {
         cwd: baseCwd(),
         windowsHide: true,
+        // 独立进程组，超时才能连同后台孙进程一起杀；否则孙进程占着管道，close 迟迟不来
+        detached: process.platform !== 'win32',
       });
       let out = '';
       let err = '';
@@ -70,7 +72,7 @@ export default definePlugin({
           // Windows 上 kill 杀不掉子进程树，用 taskkill 连坐
           spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
         } else {
-          child.kill('SIGKILL');
+          try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
         }
       }, timeoutSec * 1000);
       // 用户中止：杀 bash 本体即可让本轮结束；其孙进程为 sleep 类有限命令，自然退出

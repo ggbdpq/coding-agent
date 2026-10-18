@@ -13,7 +13,7 @@
   "scripts": {
     "start": "node bin/tcode.js",
     "check": "tsc --noEmit",
-    "test": "node --test --test-concurrency=1 test/automation.test.ts test/session-cwd.test.ts test/edit.test.ts test/context.test.ts test/registry.test.ts test/netguard.test.ts test/events.test.ts test/loop.test.ts test/compact.test.ts test/approval.test.ts test/write-trust.test.ts test/atrefs.test.ts test/signal.test.ts test/pathguard.test.ts test/planmode.test.ts test/patch.test.ts test/diff.test.ts test/retry.test.ts test/systemprompt.test.ts test/web.test.mjs test/web-mcp.test.mjs test/web-model.test.mjs test/web-context.test.mjs test/web-projects.test.mjs test/web-profiles.test.mjs test/web-git.test.mjs test/web-automation.test.mjs",
+    "test": "node --test --test-concurrency=1 test/automation.test.ts test/session-cwd.test.ts test/edit.test.ts test/context.test.ts test/registry.test.ts test/netguard.test.ts test/events.test.ts test/loop.test.ts test/compact.test.ts test/approval.test.ts test/write-trust.test.ts test/atrefs.test.ts test/signal.test.ts test/pathguard.test.ts test/bash-timeout.test.ts test/planmode.test.ts test/patch.test.ts test/diff.test.ts test/retry.test.ts test/systemprompt.test.ts test/web.test.mjs test/web-mcp.test.mjs test/web-model.test.mjs test/web-context.test.mjs test/web-projects.test.mjs test/web-profiles.test.mjs test/web-git.test.mjs test/web-automation.test.mjs",
     "test:web": "node --test test/web.test.mjs test/web-mcp.test.mjs test/web-model.test.mjs test/web-context.test.mjs test/web-projects.test.mjs test/web-profiles.test.mjs test/web-git.test.mjs test/web-automation.test.mjs",
     "test:ui": "node --test test/web-ui.test.mjs",
     "smoke": "node test/smoke.mjs"
