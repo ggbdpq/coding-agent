@@ -27,7 +27,7 @@
     --brand: #4176e6; --brand-soft: #e4edfd; --on-brand: #ffffff;
     --primary: #0f1115; --primary-fg: #ffffff;
     --danger: #ec1313; --danger-soft: rgba(236, 19, 19, .06);
-    --warning: #f59e0b; --warning-soft: rgba(245, 158, 11, .10);
+    --warning: #f59e0b; --warning-label: #dd8629; --warning-soft: rgba(245, 158, 11, .10);
     --success: #22c55e; --success-soft: rgba(34, 197, 94, .08);
     --layer-2: #ffffff; --layer-3: #ffffff; --module: #f5f6f7; --hover-solid: #f1f3f5; --active: rgba(38, 49, 72, .10);
     --bubble-user: #edf3fe; --code-block: #f9fafb; --inline-code: #fafafa;
@@ -275,13 +275,15 @@
   .tool-io pre + pre { border-top: .5px solid var(--border-1); }
 
   /* 审批卡片 */
-  .perm { border: 1px solid var(--border); border-radius: var(--radius-card); padding: 0; background: var(--card); box-shadow: var(--shadow-md); overflow: hidden; }
-  .perm .title { display: flex; align-items: center; gap: 8px; padding: 12px 16px; font-weight: 600; font-size: 14px; color: var(--text); border-bottom: 1px solid var(--border); background: var(--warning-surface); }
+  /* 审批卡片：harness ApprovalPanel（警示描边 r20、警示色条、等宽命令、右下操作） */
+  .perm { border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent); border-radius: var(--r-xl); padding: 0; background: var(--input-major); box-shadow: var(--elev-prominent); overflow: hidden; }
+  .perm .title { display: flex; align-items: center; gap: 8px; padding: 10px 16px; font-weight: 500; font-size: var(--fs-caption); line-height: 18px; color: var(--warning-label); background: var(--warning-soft); }
   .perm .title::before { content: ""; width: 16px; height: 16px; flex-shrink: 0; background: var(--warning);
     -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6Z'/%3E%3Cpath d='M12 8.5v4M12 15.8v.2'/%3E%3C/svg%3E") center / contain no-repeat;
             mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6Z'/%3E%3Cpath d='M12 8.5v4M12 15.8v.2'/%3E%3C/svg%3E") center / contain no-repeat; }
-  .perm pre { max-height: 300px; overflow: auto; margin: 0; padding: 12px 16px; background: var(--code); white-space: pre; }
-  .perm .bar { padding: 12px 16px; justify-content: flex-end; }
+  .perm pre { max-height: 300px; overflow: auto; margin: 0; padding: 12px 16px 0; background: transparent; white-space: pre; color: var(--text-3); font: var(--fs-caption)/20px var(--mono); }
+  .perm .bar { padding: 14px 16px; gap: 8px; justify-content: flex-end; }
+  .perm .bar button:nth-child(2):hover:not(:disabled) { background: var(--hover-danger); color: var(--danger); border-color: transparent; }
   .perm .bar button { min-width: 72px; }
   .perm .bar button.primary { order: 3; }
   .bar { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -321,6 +323,8 @@
   #model-profile-switch.missing { color: var(--warning); }
   #stop, #send { width: 34px; height: 34px; min-height: 34px; margin-left: 4px; display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; border-radius: 50%; }
   #send { transform: translateY(-2px); }
+  #stop { border: 0; background: var(--brand); color: var(--on-brand); transform: translateY(-2px); }
+  #stop:hover:not(:disabled) { background: var(--brand-hover); }
   #send, #send:hover:not(:disabled) { border: 0; background: var(--brand); color: var(--on-brand); }
   #send:hover:not(:disabled) { background: var(--brand-hover); }
   #send:disabled { opacity: .4; }
@@ -492,6 +496,8 @@
   .directory-entry { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: var(--fs-sm); }
   .directory-entry span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
   .usage-total { font-size: 28px; line-height: 36px; font-weight: 500; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+  /* 查询中/失败只是一句状态，不用大号数字字体 */
+  .usage-total.pending { font-size: var(--fs-base); line-height: 22px; font-weight: 400; color: var(--text-3); margin-bottom: 2px; }
   .usage-split { display: flex; gap: 28px; flex-wrap: wrap; color: var(--text-2); font-size: var(--fs-caption); }
   .capability-entry { border-bottom: .5px solid var(--border-2); padding: 10px 0; }
   .capability-entry:first-child { padding-top: 0; }.capability-entry:last-child { border-bottom: 0; }
@@ -725,7 +731,7 @@
         <label>任务名称<input id="automation-name" required maxlength="80" placeholder="夜间检查" autocomplete="off"></label>
         <label>任务提示词<textarea id="automation-prompt" required rows="4" placeholder="要自动完成的事，例如：检查未使用的依赖并把报告写入 report.md"></textarea></label>
         <label>重复间隔（分钟，留空只运行一次；5–525600）<input id="automation-interval" type="number" min="5" max="525600" step="1" placeholder="不重复"></label>
-        <label class="inline-check"><input id="automation-worktree" type="checkbox">在独立 worktree 中执行</label>
+        <label class="inline-check"><input id="automation-worktree" type="checkbox" class="switch">在独立 worktree 中执行</label>
         <p class="hint">使用新的 Git 分支，产出保留供审查和合并。项目目录须为 Git 仓库。</p>
         <div id="automation-error" role="alert"></div>
         <div class="settings-actions"><button type="submit" class="primary">运行任务</button></div>
@@ -750,8 +756,8 @@
           <div id="mcp-stdio-fields"><label>启动命令<input id="mcp-command" required placeholder="node" autocomplete="off"></label>
           <label>启动参数（JSON 数组，可选）<input id="mcp-args" placeholder='["server.mjs","--port","3000"]' autocomplete="off"></label></div>
           <div id="mcp-http-fields" hidden><label>MCP 端点<input id="mcp-url" type="url" placeholder="https://example.com/mcp" autocomplete="off"></label></div>
-          <label class="inline-check"><input id="mcp-enabled" type="checkbox" checked> 启用（工具加入会话）</label>
-          <label class="inline-check"><input id="mcp-trusted" type="checkbox"> 免审批（信任此服务器，其工具不再逐次确认）</label>
+          <label class="inline-check"><input id="mcp-enabled" type="checkbox" class="switch" checked> 启用（工具加入会话）</label>
+          <label class="inline-check"><input id="mcp-trusted" type="checkbox" class="switch"> 免审批（信任此服务器，其工具不再逐次确认）</label>
           <label>免审批工具（逗号分隔的工具名；勾选免审批时忽略）<input id="mcp-trusted-tools" placeholder="echo,search" autocomplete="off"></label>
           <div class="bar"><button type="button" id="mcp-cancel" hidden>取消</button><button type="button" class="primary" id="mcp-save">保存</button></div>
         </form></div></section>
@@ -1704,12 +1710,13 @@
   async function loadBalance() {
     const request = ++balanceRequest;
     $('balance-refresh').disabled = true;
-    $('balance-info').textContent = '正在查询…'; $('balance-meta').textContent = '';
+    $('balance-info').textContent = '正在查询…'; $('balance-meta').textContent = ''; $('balance-info').classList.add('pending');
     try {
       const result = await api('/usage/balance');
       if (request !== balanceRequest) return;
       const balance = result.balance;
       $('balance-info').textContent = `${balance.totalBalance} ${balance.currency}${balance.isAvailable ? '' : '（账户不可用）'}`;
+      $('balance-info').classList.remove('pending');
       $('balance-meta').textContent = `赠送 ${balance.grantedBalance ?? '—'} · 充值 ${balance.toppedUpBalance ?? '—'} · 查询于 ${new Date(result.checkedAt).toLocaleTimeString()}`;
     } catch (error) {
       if (request !== balanceRequest) return;
